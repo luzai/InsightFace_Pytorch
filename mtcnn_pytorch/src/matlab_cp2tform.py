@@ -87,7 +87,8 @@ def findNonreflectiveSimilarity(uv, xy, options=None):
 
     # We know that X * r = U
     if rank(X) >= 2 * K:
-        r, _, _, _ = lstsq(X, U)
+        r, _, _, _ = lstsq(X, U, rcond=None)
+        # r, _, _, _ = lstsq(X, U, rcond=-1)
         r = np.squeeze(r)
     else:
         raise Exception('cp2tform:twoUniquePointsReq')
