@@ -299,7 +299,8 @@ class Arcface(Module):
         cos_theta_m[cond_mask] = keep_val[cond_mask]
         label = label.view(-1, 1)  # size=(B,1)
         output = cos_theta * 1.0  # a little bit hacky way to prevent in_place operation on cos_theta
-        output[torch.arange(0, nB - 1).to(torch.long), label] = cos_theta_m[torch.arange(0, nB - 1).to(torch.long), label]
+        output[torch.arange(0, nB - 1).to(torch.long), label] = cos_theta_m[
+            torch.arange(0, nB - 1).to(torch.long), label]
         output *= self.s  # scale up in order to make softmax work, first introduced in normface
         return output
 
@@ -330,3 +331,17 @@ class Am_softmax(Module):
         output[index] = phi[index]  # only change the correct predicted output
         output *= self.s  # scale up in order to make softmax work, first introduced in normface
         return output
+
+
+class MySoftmax(Module):
+    def __init__(self, embedding_size=512, classnum=51332):
+        super(MySoftmax, self).__init__()
+        self.classnum = classnum
+        self.kernel = Parameter(torch.Tensor(embedding_size, classnum))
+        self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
+        self.s = 30.
+
+    def forward(self, embeddings, label):
+        kernel_norm = l2_norm(self.kernel, axis=0)
+        cos_theta = torch.mm(embeddings, kernel_norm).clamp(-1, 1) * self.s
+        return cos_theta

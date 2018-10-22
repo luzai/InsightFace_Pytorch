@@ -5,11 +5,30 @@ import lz
 from torch.nn import CrossEntropyLoss
 from torchvision import transforms as trans
 
+lz.init_dev(lz.get_dev(n=1))
+lz.init_dev((3,))
+
+dbg = False
+if dbg:
+    # num_steps_per_epoch = 38049
+    num_steps_per_epoch = 3
+    # no_eval = False
+    no_eval = True
+else:
+    num_steps_per_epoch = 38049
+    # num_steps_per_epoch = 3
+    no_eval = False
+    # no_eval = True
+
+loss = 'softmax'  # softmax
+fgg = ''
+fgg_wei = 0.01
+
 
 def get_config(training=True):
     conf = edict()
     conf.data_path = Path('data')
-    conf.work_path = Path('work_space/dbg/')
+    conf.work_path = Path('work_space/sft.s30/')
     conf.model_path = conf.work_path / 'models'
     conf.log_path = conf.work_path / 'log'
     conf.save_path = conf.work_path / 'save'
@@ -26,8 +45,10 @@ def get_config(training=True):
     ])
     conf.data_mode = 'emore'
     conf.vgg_folder = conf.data_path / 'faces_vgg_112x112'
-    # conf.ms1m_folder = conf.data_path / 'faces_ms1m_112x112'
-    conf.ms1m_folder = Path(lz.work_path) / 'faces_small'
+    if dbg:
+        conf.ms1m_folder = Path(lz.work_path) / 'faces_small'
+    else:
+        conf.ms1m_folder = conf.data_path / 'faces_ms1m_112x112'
     conf.emore_folder = conf.data_path / 'faces_emore'
     conf.batch_size = 100  # irse net depth 50
     #   conf.batch_size = 200 # mobilefacenet

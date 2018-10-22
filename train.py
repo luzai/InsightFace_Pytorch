@@ -1,6 +1,4 @@
 import lz
-
-lz.init_dev(lz.get_dev(n=1))
 from config import get_config
 from Learner import face_learner
 import argparse
