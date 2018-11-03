@@ -5,6 +5,7 @@ from config import get_config
 from Learner import face_learner
 import argparse
 import mxnet as mx
+import torch
 
 
 def main1():
@@ -46,8 +47,6 @@ def main1():
     # print(learner.find_lr(conf, ))
     # learner.train(conf, args.epochs)
 
-    import torch
-
     for i in range(1):
         for imgs, labels in learner.loader:
             imgs = imgs.cuda()
@@ -74,18 +73,11 @@ def main1():
 
 
 def main2():
-    try:
-        import Queue as queue
-    except ImportError:
-        import queue
-    q_out = queue.Queue()
     fname = '/home/xinglu/work/faces_small/train'
     fname_rec = os.path.splitext(fname)[0] + '.rec'
     fname_idx = os.path.splitext(fname)[0] + '.idx'
     record = mx.recordio.MXIndexedRecordIO(fname_idx,
                                            fname_rec, 'w')
-    cnt = 0
-    pre_time = time.time()
     img_files = glob.glob('/home/xinglu/work/faces_small/*/*')
 
     header = mx.recordio.IRHeader(0, [len(img_files), len(img_files)], 0, 0)
@@ -106,5 +98,65 @@ def main3():
     load_mx_rec(lz.work_path + 'faces_small/')
 
 
+import mxnet as mx
+from mxnet import ndarray as nd
+from mxnet import io
+from mxnet import recordio
+
+
+# from config import gl_conf
+def extract_ms1m_info():
+    self = edict()
+    path_ms1m = lz.share_path2 + 'faces_ms1m_112x112/'
+    path_imgrec = lz.share_path2 + 'faces_ms1m_112x112/train.rec'
+    path_imgidx = path_imgrec[0:-4] + ".idx"
+    self.imgrec = recordio.MXIndexedRecordIO(
+        path_imgidx, path_imgrec,
+        'r')
+    s = self.imgrec.read_idx(0)
+    header, _ = recordio.unpack(s)
+    self.header0 = (int(header.label[0]), int(header.label[1]))
+    # assert(header.flag==1)
+    self.imgidx = list(range(1, int(header.label[0])))
+    id2range = dict()
+    self.seq_identity = list(range(int(header.label[0]), int(header.label[1])))
+    for identity in self.seq_identity:
+        s = self.imgrec.read_idx(identity)
+        header, _ = recordio.unpack(s)
+        a, b = int(header.label[0]), int(header.label[1])
+        id2range[(identity - 3804847)] = (a, b)
+        count = b - a
+    self.seq = self.imgidx
+    self.seq_identity = [int(t) - 3804847 for t in self.seq_identity]
+    lz.msgpack_dump([self.imgidx, self.seq_identity, id2range], path_ms1m + '/info.pk')
+
+
+def load_ms1m_info():
+    self = edict()
+    path_ms1m = lz.share_path2 + 'faces_ms1m_112x112/'
+    path_imgrec = lz.share_path2 + 'faces_ms1m_112x112/train.rec'
+    path_imgidx = path_imgrec[0:-4] + ".idx"
+    self.imgrec = recordio.MXIndexedRecordIO(
+        path_imgidx, path_imgrec,
+        'r')
+
+    imgidx, ids, id2range = lz.msgpack_load(path_ms1m + '/info.pk')
+    print(len(imgidx), len(ids), len(id2range))
+    # while True:
+    #     time.sleep(10)
+    # for indt in range(1):
+    #     id1 = ids[0]
+    #     imgid = id2range[id1][0]
+    #     s = self.imgrec.read_idx(imgid)
+    #     header, img = recordio.unpack(s)
+    #     print(header.label, id1)
+    imgidx, ids = np.array(imgidx), np.array(ids)
+    print(stat_np(imgidx))
+    print(stat_np(ids))
+    # (1, 1902423.5, 1902423.5, 3804846)
+    # (0, 42581.5, 42581.5, 85163)
+
 if __name__ == '__main__':
-    main3()
+    # main3()
+    # extract_ms1m_info()
+    load_ms1m_info()
