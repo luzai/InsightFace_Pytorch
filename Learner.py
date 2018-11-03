@@ -603,7 +603,7 @@ class face_learner(object):
                     if self.step % self.board_loss_every == 0 and self.step != 0:
                         loss_board = running_loss / self.board_loss_every
                         self.writer.add_scalar('train_loss', loss_board, self.step)
-                        self.scheduler.step(loss_board)
+                        # self.scheduler.step(loss_board)
                         running_loss = 0.
                     if self.step % self.evaluate_every == 0 and self.step != 0:
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.agedb_30,
