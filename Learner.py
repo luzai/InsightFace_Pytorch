@@ -379,6 +379,7 @@ class Loader2():
     def __len__(self):
         return len(self.train_loader)
 
+
 # todo data aug: face iter --> dataset2
 # todo clean up path
 # todo more dataset (ms1m, vgg, imdb ... )
@@ -518,7 +519,7 @@ class face_learner(object):
                     {'params': paras_only_bn}
                 ], lr=conf.lr, momentum=conf.momentum)
             print(self.optimizer)
-#             self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=40, verbose=True)
+            #             self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=40, verbose=True)
             print('optimizers generated')
             self.board_loss_every = 100  # len(self.loader) // 100
             self.evaluate_every = len(self.loader) // 10
@@ -651,78 +652,6 @@ class face_learner(object):
         min_idx[minimum > self.threshold] = -1  # if no match, set idx to -1
         return min_idx, minimum
 
-    def train(self, conf, epochs):
-        self.model.train()
-        running_loss = 0.
-        for e in range(epochs):
-            print('epoch {} started'.format(e))
-            if e == self.milestones[0]:
-                self.schedule_lr()
-            if e == self.milestones[1]:
-                self.schedule_lr()
-            if e == self.milestones[2]:
-                self.schedule_lr()
-            for imgs, labels in tqdm(iter(self.loader)):
-                imgs = imgs.to(conf.device)
-                labels = labels.to(conf.device)
-                self.optimizer.zero_grad()
-                embeddings = self.model(imgs)
-                thetas = self.head(embeddings, labels)
-                loss = conf.ce_loss(thetas, labels)
-                loss.backward()
-                running_loss += loss.item() / conf.batch_size
-                self.optimizer.step()
-
-                if self.step % self.board_loss_every == 0 and self.step != 0:
-                    loss_board = running_loss / self.board_loss_every
-                    self.writer.add_scalar('train_loss', loss_board, self.step)
-                    # self.scheduler.step(loss_board)
-                    running_loss = 0.
-
-                if self.step % self.evaluate_every == 0 and self.step != 0:
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.agedb_30,
-                                                                               self.agedb_30_issame)
-                    self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor)
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.lfw, self.lfw_issame)
-                    self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor)
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.cfp_fp, self.cfp_fp_issame)
-                    self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor)
-                    self.model.train()
-                if self.step % self.save_every == 0 and self.step != 0:
-                    self.save_state(conf, accuracy)
-
-                self.step += 1
-
-        self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-
-    def schedule_lr(self):
-        for params in self.optimizer.param_groups:
-            params['lr'] /= 10
-        print(self.optimizer)
-
-    def infer(self, conf, faces, target_embs, tta=False):
-        '''
-        faces : list of PIL Image
-        target_embs : [n, 512] computed embeddings of faces in facebank
-        names : recorded names of faces in facebank
-        tta : test time augmentation (hfilp, that's all)
-        '''
-        embs = []
-        for img in faces:
-            if tta:
-                mirror = trans.functional.hflip(img)
-                emb = self.model(conf.test_transform(img).to(conf.device).unsqueeze(0))
-                emb_mirror = self.model(conf.test_transform(mirror).to(conf.device).unsqueeze(0))
-                embs.append(l2_norm(emb + emb_mirror))
-            else:
-                embs.append(self.model(conf.test_transform(img).to(conf.device).unsqueeze(0)))
-        source_embs = torch.cat(embs)
-
-        diff = source_embs.unsqueeze(-1) - target_embs.transpose(1, 0).unsqueeze(0)
-        dist = torch.sum(torch.pow(diff, 2), dim=1)
-        minimum, min_idx = torch.min(dist, dim=1)
-        min_idx[minimum > self.threshold] = -1  # if no match, set idx to -1
-        return min_idx, minimum
     def save_state(self, conf, accuracy, to_save_folder=False, extra=None, model_only=False):
         if to_save_folder:
             save_path = conf.save_path
