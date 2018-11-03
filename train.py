@@ -46,4 +46,5 @@ if __name__ == '__main__':
     learner = face_learner(conf)
     # learner.load_state(conf,'2018-10-24-12-02_accuracy:0.876_step:304456_final.pth', True, True )
     # print(learner.find_lr(conf, num=1500))
+    # todo start epoch for resume
     learner.train(conf, args.epochs)

@@ -39,7 +39,6 @@ logger = logging.getLogger()
 
 # 85k id, 3.8M imgs
 
-
 class FaceImageIter(io.DataIter):
     def __init__(self, batch_size, data_shape,
                  path_imgrec=None,
@@ -552,6 +551,7 @@ class face_learner(object):
                 self.schedule_lr()
             if e == self.milestones[2]:
                 self.schedule_lr()
+            # todo log lr
             for data in loader:
                 imgs = data['imgs']
                 labels = data['labels']
@@ -694,7 +694,7 @@ class face_learner(object):
         #         self.writer.add_scalar('{}_far:False Acceptance Ratio'.format(db_name), far, self.step)
 
     def evaluate(self, conf, carray, issame, nrof_folds=5, tta=False):
-        # todo accelarate eval
+        # todo accelerate eval
         logging.info('start eval')
         self.model.eval()
         idx = 0
@@ -794,7 +794,6 @@ class face_learner(object):
 if __name__ == '__main__':
     # test thread safe
     ds = Dataset2()
-    # data = ds[1]
     print(len(ds))
 
 
@@ -806,9 +805,6 @@ if __name__ == '__main__':
         print(ind, data['imgs'].shape)
 
 
-    # read()
-
-    # import multiprocessing as mp
     import torch.multiprocessing as mp
 
     ps = []

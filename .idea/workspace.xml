@@ -1,23 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="c1f49d57-7723-453e-8687-e6a4bd6d80ce" name="Default" comment="">
-      <change afterPath="$PROJECT_DIR$/../../face_extract_fea.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/../../.idea/vcs.xml" afterDir="false" />
+    <list default="true" id="c1f49d57-7723-453e-8687-e6a4bd6d80ce" name="Default" comment="add lz.py">
+      <change beforePath="$PROJECT_DIR$/../../.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/../../.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../../Learner.py" beforeDir="false" afterPath="$PROJECT_DIR$/../../Learner.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../README.md" beforeDir="false" afterPath="$PROJECT_DIR$/../../README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../config.py" beforeDir="false" afterPath="$PROJECT_DIR$/../../config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../face_verify.py" beforeDir="false" afterPath="$PROJECT_DIR$/../../face_verify.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../infer_on_video.py" beforeDir="false" afterPath="$PROJECT_DIR$/../../infer_on_video.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../model.py" beforeDir="false" afterPath="$PROJECT_DIR$/../../model.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../test.py" beforeDir="false" afterPath="$PROJECT_DIR$/../../test.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../lz.py" beforeDir="false" afterPath="$PROJECT_DIR$/../../lz.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../../train.py" beforeDir="false" afterPath="$PROJECT_DIR$/../../train.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/../../utils.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../verifacation.py" beforeDir="false" afterPath="$PROJECT_DIR$/../../verifacation.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../work_space/history" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../work_space/log" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../work_space/models" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../work_space/save" beforeDir="false" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
@@ -48,7 +36,7 @@
         <counts>
           <entry key="gitignore" value="1" />
           <entry key="ipynb" value="1" />
-          <entry key="py" value="50" />
+          <entry key="py" value="51" />
           <entry key="pyi" value="1" />
           <entry key="vmoptions" value="1" />
         </counts>
@@ -58,21 +46,24 @@
           <entry key="Git file" value="1" />
           <entry key="IPNB" value="1" />
           <entry key="PLAIN_TEXT" value="1" />
-          <entry key="Python" value="50" />
+          <entry key="Python" value="51" />
           <entry key="PythonStub" value="1" />
         </counts>
       </usages-collector>
       <usages-collector id="statistics.file.extensions.edit">
         <counts>
           <entry key="Python Console" value="524" />
-          <entry key="py" value="5523" />
+          <entry key="gitignore" value="14" />
+          <entry key="py" value="5577" />
+          <entry key="txt" value="23" />
           <entry key="vmoptions" value="1" />
         </counts>
       </usages-collector>
       <usages-collector id="statistics.file.types.edit">
         <counts>
-          <entry key="PLAIN_TEXT" value="1" />
-          <entry key="Python" value="6047" />
+          <entry key="Git file" value="14" />
+          <entry key="PLAIN_TEXT" value="24" />
+          <entry key="Python" value="6101" />
         </counts>
       </usages-collector>
       <usages-collector id="statistics.vcs.git.usages">
@@ -90,7 +81,7 @@
           <file pinned="false" current-in-tab="false">
             <entry file="file://$PROJECT_DIR$/../../verifacation.py">
               <provider selected="true" editor-type-id="text-editor">
-                <state relative-caret-position="282">
+                <state relative-caret-position="1542">
                   <caret line="166" column="9" selection-start-line="166" selection-start-column="9" selection-end-line="166" selection-end-column="9" />
                   <folding>
                     <element signature="e#1181#1199#0" expanded="true" />
@@ -99,20 +90,23 @@
               </provider>
             </entry>
           </file>
-          <file pinned="false" current-in-tab="false">
+          <file pinned="false" current-in-tab="true">
             <entry file="file://$PROJECT_DIR$/../../Learner.py">
               <provider selected="true" editor-type-id="text-editor">
-                <state relative-caret-position="-1485">
-                  <caret line="698" column="25" selection-start-line="698" selection-start-column="25" selection-end-line="698" selection-end-column="25" />
+                <state relative-caret-position="520">
+                  <caret line="688" column="24" lean-forward="true" selection-start-line="688" selection-start-column="24" selection-end-line="688" selection-end-column="24" />
+                  <folding>
+                    <element signature="e#0#9#0" expanded="true" />
+                  </folding>
                 </state>
               </provider>
             </entry>
           </file>
-          <file pinned="false" current-in-tab="true">
+          <file pinned="false" current-in-tab="false">
             <entry file="file://$PROJECT_DIR$/../../model.py">
               <provider selected="true" editor-type-id="text-editor">
-                <state relative-caret-position="552">
-                  <caret line="332" selection-start-line="332" selection-end-line="332" />
+                <state relative-caret-position="5235">
+                  <caret line="334" column="24" selection-start-line="334" selection-start-column="24" selection-end-line="334" selection-end-column="24" />
                   <folding>
                     <element signature="e#0#181#0" expanded="true" />
                   </folding>
@@ -138,107 +132,14 @@
         <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
           <file pinned="false" current-in-tab="false">
             <entry file="file://$PROJECT_DIR$/../../Learner.py">
-              <provider selected="true" editor-type-id="text-editor">
-                <state relative-caret-position="465">
-                  <caret line="653" selection-start-line="653" selection-end-line="653" />
-                </state>
-              </provider>
-            </entry>
-          </file>
-          <file pinned="false" current-in-tab="true">
-            <entry file="file://$PROJECT_DIR$/../../.gitignore">
-              <provider selected="true" editor-type-id="text-editor">
-                <state relative-caret-position="15">
-                  <caret line="1" column="4" selection-start-line="1" selection-start-column="4" selection-end-line="1" selection-end-column="4" />
-                </state>
-              </provider>
-            </entry>
-          </file>
-          <file pinned="false" current-in-tab="false">
-            <entry file="file://$PROJECT_DIR$/../../lz.py">
-              <provider selected="true" editor-type-id="text-editor">
-                <state relative-caret-position="230">
-                  <caret line="1315" column="30" selection-start-line="1315" selection-start-column="30" selection-end-line="1315" selection-end-column="30" />
-                  <folding>
-                    <element signature="e#86#103#0" expanded="true" />
-                    <element signature="e#104#129#0" />
-                    <element signature="e#506#539#0" />
-                    <element signature="e#872#1489#0" />
-                    <element signature="e#1098#1276#0" />
-                    <element signature="e#1316#1441#0" />
-                    <element signature="e#1529#1875#0" />
-                    <element signature="e#1664#1822#0" />
-                    <element signature="e#1927#2115#0" />
-                    <element signature="e#1978#2005#0" />
-                    <element signature="e#2333#2551#1" />
-                    <element signature="e#2554#2610#0" />
-                    <element signature="e#2703#2975#0" />
-                    <element signature="e#3043#3318#0" />
-                    <element signature="e#3363#3519#0" />
-                    <element signature="e#3582#3738#0" />
-                    <element signature="e#3780#3830#0" />
-                    <element signature="e#4318#4806#0" />
-                    <element signature="e#4838#4957#0" />
-                    <element signature="e#4990#5288#0" />
-                    <element signature="e#5725#5882#0" />
-                    <element signature="e#5914#6160#0" />
-                    <element signature="e#6193#6256#0" />
-                    <element signature="e#6289#6808#0" />
-                    <element signature="e#6289#6459#1" />
-                    <element signature="e#6506#6614#0" />
-                    <element signature="e#6835#6985#0" />
-                    <element signature="e#7016#7130#0" />
-                    <element signature="e#7166#7285#0" />
-                    <element signature="e#7204#7270#0" />
-                    <element signature="e#7357#8047#0" />
-                    <element signature="e#7478#7671#0" />
-                    <element signature="e#7813#8027#0" />
-                    <element signature="e#8098#8226#0" />
-                    <element signature="e#8261#8328#0" />
-                    <element signature="e#8367#8533#0" />
-                    <element signature="e#8562#9356#0" />
-                    <element signature="e#8622#8822#0" />
-                    <element signature="e#8712#8822#0" />
-                    <element signature="e#8855#8867#0" />
-                    <element signature="e#8902#8906#0" />
-                    <element signature="e#8947#8959#0" />
-                    <element signature="e#8995#9085#0" />
-                    <element signature="e#9116#9241#0" />
-                    <element signature="e#9183#9241#0" />
-                    <element signature="e#9272#9356#0" />
-                    <element signature="e#9401#9494#0" />
-                    <element signature="e#9522#11742#0" />
-                    <element signature="e#9522#10133#1" />
-                    <element signature="e#10196#10328#0" />
-                    <element signature="e#10378#10459#0" />
-                    <element signature="e#10494#10526#0" />
-                    <element signature="e#10584#10671#0" />
-                    <element signature="e#10702#10868#0" />
-                    <element signature="e#10770#10833#0" />
-                    <element signature="e#10913#11267#0" />
-                    <element signature="e#10913#11011#1" />
-                    <element signature="e#11317#11742#0" />
-                    <element signature="e#11317#11495#1" />
-                    <element signature="e#11767#11909#0" />
-                    <element signature="e#11940#12125#0" />
-                    <element signature="e#12252#13348#0" />
-                    <element signature="e#12252#12357#1" />
-                    <element signature="e#12429#12543#0" />
-                    <element signature="e#12578#13071#0" />
-                    <element signature="e#12837#12979#0" />
-                    <element signature="e#13123#13137#0" />
-                    <element signature="e#13170#13348#0" />
-                    <element signature="e#13217#13348#0" />
-                  </folding>
-                </state>
-              </provider>
+              <provider selected="true" editor-type-id="text-editor" />
             </entry>
           </file>
           <file pinned="false" current-in-tab="false">
             <entry file="file://$PROJECT_DIR$/../../train.py">
               <provider selected="true" editor-type-id="text-editor">
-                <state relative-caret-position="525">
-                  <caret line="32" selection-start-line="32" selection-end-line="32" />
+                <state relative-caret-position="447">
+                  <caret line="48" column="33" selection-start-line="48" selection-start-column="33" selection-end-line="48" selection-end-column="33" />
                   <folding>
                     <element signature="e#0#9#0" expanded="true" />
                   </folding>
@@ -246,14 +147,13 @@
               </provider>
             </entry>
           </file>
-          <file pinned="false" current-in-tab="false">
+          <file pinned="false" current-in-tab="true">
             <entry file="file://$PROJECT_DIR$/../../config.py">
               <provider selected="true" editor-type-id="text-editor">
-                <state relative-caret-position="61">
-                  <caret line="63" column="8" selection-start-line="63" selection-start-column="8" selection-end-line="63" selection-end-column="8" />
+                <state relative-caret-position="175">
+                  <caret line="16" column="34" selection-start-line="16" selection-start-column="29" selection-end-line="16" selection-end-column="34" />
                   <folding>
                     <element signature="e#0#38#0" expanded="true" />
-                    <element signature="e#311#441#0" />
                   </folding>
                 </state>
               </provider>
@@ -277,7 +177,6 @@
   </component>
   <component name="FindInProjectRecents">
     <findStrings>
-      <find>resume</find>
       <find>matshow</find>
       <find>writer</find>
       <find>todo</find>
@@ -300,13 +199,14 @@
       <find>optimizer</find>
       <find>add_sc</find>
       <find>shuffle</find>
-      <find>epoch</find>
       <find>eval</find>
       <find>255</find>
       <find>eeph9</find>
       <find>mail</find>
       <find>dbg</find>
       <find>train</find>
+      <find>epoch</find>
+      <find>todo log lr</find>
     </findStrings>
   </component>
   <component name="Git.Settings">
@@ -336,10 +236,11 @@
         <option value="$PROJECT_DIR$/../../test.py" />
         <option value="$APPLICATION_CONFIG_DIR$/pycharm64.vmoptions" />
         <option value="$PROJECT_DIR$/../../verifacation.py" />
-        <option value="$PROJECT_DIR$/../../train.py" />
         <option value="$PROJECT_DIR$/../../lz.py" />
         <option value="$PROJECT_DIR$/../../model.py" />
         <option value="$PROJECT_DIR$/../../config.py" />
+        <option value="$PROJECT_DIR$/../../.gitignore" />
+        <option value="$PROJECT_DIR$/../../train.py" />
         <option value="$PROJECT_DIR$/../../Learner.py" />
       </list>
     </option>
@@ -377,11 +278,6 @@
             <path>
               <item name="." type="b2602c69:ProjectViewProjectNode" />
               <item name="InsightFace_Pytorch" type="462c0819:PsiDirectoryNode" />
-            </path>
-            <path>
-              <item name="." type="b2602c69:ProjectViewProjectNode" />
-              <item name="InsightFace_Pytorch" type="462c0819:PsiDirectoryNode" />
-              <item name="work_space" type="462c0819:PsiDirectoryNode" />
             </path>
           </expand>
           <select />
@@ -524,7 +420,21 @@
       <option name="project" value="LOCAL" />
       <updated>1540196099754</updated>
     </task>
-    <option name="localTasksCounter" value="2" />
+    <task id="LOCAL-00002" summary="new dataloader">
+      <created>1541250957602</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1541250957602</updated>
+    </task>
+    <task id="LOCAL-00003" summary="add lz.py">
+      <created>1541251018303</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1541251018303</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TodoView">
@@ -538,22 +448,23 @@
   </component>
   <component name="ToolWindowManager">
     <frame x="-1" y="31" width="1922" height="1029" extended-state="6" />
+    <editor active="true" />
     <layout>
-      <window_info content_ui="combo" id="Project" order="0" sideWeight="0.4900332" visible="true" weight="0.12686567" />
+      <window_info active="true" content_ui="combo" id="Project" order="0" sideWeight="0.4900332" visible="true" weight="0.12686567" />
       <window_info id="Structure" order="1" sideWeight="0.5099668" side_tool="true" weight="0.12686567" />
       <window_info id="Favorites" order="2" side_tool="true" />
       <window_info id="Julia Document" order="3" side_tool="true" />
       <window_info anchor="bottom" id="Message" order="0" />
       <window_info anchor="bottom" id="Find" order="1" />
-      <window_info anchor="bottom" id="Run" order="2" sideWeight="0.4978678" weight="0.33259425" />
+      <window_info anchor="bottom" id="Run" order="2" sideWeight="0.4978678" visible="true" weight="0.33259425" />
       <window_info anchor="bottom" id="Debug" order="3" weight="0.40354767" />
       <window_info anchor="bottom" id="Cvs" order="4" weight="0.25" />
       <window_info anchor="bottom" id="Inspection" order="5" weight="0.4" />
       <window_info anchor="bottom" id="TODO" order="6" weight="0.3292683" />
       <window_info anchor="bottom" id="Docker" order="7" show_stripe_button="false" />
-      <window_info active="true" anchor="bottom" id="Version Control" order="8" sideWeight="0.4968017" visible="true" weight="0.32815966" />
-      <window_info anchor="bottom" id="Terminal" order="9" sideWeight="0.49733475" weight="0.32815966" />
-      <window_info anchor="bottom" id="Event Log" order="10" sideWeight="0.50319827" side_tool="true" visible="true" weight="0.32815966" />
+      <window_info anchor="bottom" id="Version Control" order="8" sideWeight="0.4968017" weight="0.32815966" />
+      <window_info anchor="bottom" id="Terminal" order="9" sideWeight="0.4968017" weight="0.32815966" />
+      <window_info anchor="bottom" id="Event Log" order="10" sideWeight="0.50319827" side_tool="true" weight="0.32815966" />
       <window_info anchor="bottom" id="Database Changes" order="11" show_stripe_button="false" />
       <window_info anchor="bottom" id="Python Console" order="12" sideWeight="0.49927008" weight="0.32815966" />
       <window_info anchor="right" id="Commander" internal_type="SLIDING" order="0" type="SLIDING" weight="0.4" />
@@ -601,7 +512,9 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="use mxnet to load data" />
     <MESSAGE value="add sftmax fgg" />
-    <option name="LAST_COMMIT_MESSAGE" value="add sftmax fgg" />
+    <MESSAGE value="new dataloader" />
+    <MESSAGE value="add lz.py" />
+    <option name="LAST_COMMIT_MESSAGE" value="add lz.py" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -632,13 +545,6 @@
   <component name="editorHistoryManager">
     <entry file="file://$PROJECT_DIR$/../../mtcnn.py" />
     <entry file="file://$PROJECT_DIR$/../proc.sh" />
-    <entry file="file://$USER_HOME$/anaconda3/lib/python3.6/site-packages/tensorboardX/writer.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="192">
-          <caret line="242" column="8" selection-start-line="242" selection-start-column="8" selection-end-line="242" selection-end-column="8" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$USER_HOME$/anaconda3/lib/python3.6/site-packages/matplotlib/pyplot.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="192">
@@ -989,16 +895,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/../../verifacation.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="282">
-          <caret line="166" column="9" selection-start-line="166" selection-start-column="9" selection-end-line="166" selection-end-column="9" />
-          <folding>
-            <element signature="e#1181#1199#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/../../face_extract_fea.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="185">
@@ -1009,48 +905,67 @@
         </state>
       </provider>
     </entry>
+    <entry file="file://$PROJECT_DIR$/../../.gitignore">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="45">
+          <caret line="3" selection-start-line="3" selection-end-line="3" />
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/../../model.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="552">
-          <caret line="332" selection-start-line="332" selection-end-line="332" />
+        <state relative-caret-position="5235">
+          <caret line="334" column="24" selection-start-line="334" selection-start-column="24" selection-end-line="334" selection-end-column="24" />
           <folding>
             <element signature="e#0#181#0" expanded="true" />
           </folding>
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/../../config.py">
+    <entry file="file://$PROJECT_DIR$/../../verifacation.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="61">
-          <caret line="63" column="8" selection-start-line="63" selection-start-column="8" selection-end-line="63" selection-end-column="8" />
+        <state relative-caret-position="1542">
+          <caret line="166" column="9" selection-start-line="166" selection-start-column="9" selection-end-line="166" selection-end-column="9" />
           <folding>
-            <element signature="e#0#38#0" expanded="true" />
-            <element signature="e#311#441#0" />
+            <element signature="e#1181#1199#0" expanded="true" />
           </folding>
         </state>
       </provider>
     </entry>
     <entry file="file://$PROJECT_DIR$/../../train.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="525">
-          <caret line="32" selection-start-line="32" selection-end-line="32" />
+        <state relative-caret-position="447">
+          <caret line="48" column="33" selection-start-line="48" selection-start-column="33" selection-end-line="48" selection-end-column="33" />
           <folding>
             <element signature="e#0#9#0" expanded="true" />
           </folding>
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/../../Learner.py">
+    <entry file="file://$PROJECT_DIR$/../../config.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="465">
-          <caret line="653" selection-start-line="653" selection-end-line="653" />
+        <state relative-caret-position="175">
+          <caret line="16" column="34" selection-start-line="16" selection-start-column="29" selection-end-line="16" selection-end-column="34" />
+          <folding>
+            <element signature="e#0#38#0" expanded="true" />
+          </folding>
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/../../.gitignore">
+    <entry file="file://$USER_HOME$/anaconda3/lib/python3.6/site-packages/tensorboardX/writer.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="15">
-          <caret line="1" column="4" selection-start-line="1" selection-start-column="4" selection-end-line="1" selection-end-column="4" />
+        <state relative-caret-position="357">
+          <caret line="211" lean-forward="true" selection-start-line="211" selection-end-line="211" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/../../Learner.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="520">
+          <caret line="688" column="24" lean-forward="true" selection-start-line="688" selection-start-column="24" selection-end-line="688" selection-end-column="24" />
+          <folding>
+            <element signature="e#0#9#0" expanded="true" />
+          </folding>
         </state>
       </provider>
     </entry>
