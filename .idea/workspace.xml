@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="c1f49d57-7723-453e-8687-e6a4bd6d80ce" name="Default" comment="add lz.py">
+    <list default="true" id="c1f49d57-7723-453e-8687-e6a4bd6d80ce" name="Default" comment="add requirements">
       <change beforePath="$PROJECT_DIR$/../../.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/../../.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../Learner.py" beforeDir="false" afterPath="$PROJECT_DIR$/../../Learner.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../lz.py" beforeDir="false" afterPath="$PROJECT_DIR$/../../lz.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../../train.py" beforeDir="false" afterPath="$PROJECT_DIR$/../../train.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../config.py" beforeDir="false" afterPath="$PROJECT_DIR$/../../config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/../../utils.py" afterDir="false" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
@@ -21,7 +20,7 @@
     <SUITE FILE_PATH="coverage/_$lz.coverage" NAME="lz Coverage Results" MODIFIED="1540008123074" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/.." />
     <SUITE FILE_PATH="coverage/_$face_verify.coverage" NAME="face_verify Coverage Results" MODIFIED="1539662214137" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/.." />
     <SUITE FILE_PATH="coverage/_$prepare_data.coverage" NAME="prepare_data Coverage Results" MODIFIED="1540121009438" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/.." />
-    <SUITE FILE_PATH="coverage/_$train.coverage" NAME="train Coverage Results" MODIFIED="1541220632485" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../.." />
+    <SUITE FILE_PATH="coverage/_$train.coverage" NAME="train Coverage Results" MODIFIED="1541252818942" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../.." />
   </component>
   <component name="FUSProjectUsageTrigger">
     <session id="-1322957193">
@@ -36,34 +35,37 @@
         <counts>
           <entry key="gitignore" value="1" />
           <entry key="ipynb" value="1" />
-          <entry key="py" value="51" />
+          <entry key="py" value="53" />
           <entry key="pyi" value="1" />
+          <entry key="txt" value="1" />
           <entry key="vmoptions" value="1" />
+          <entry key="xml" value="1" />
         </counts>
       </usages-collector>
       <usages-collector id="statistics.file.types.open">
         <counts>
           <entry key="Git file" value="1" />
           <entry key="IPNB" value="1" />
-          <entry key="PLAIN_TEXT" value="1" />
-          <entry key="Python" value="51" />
+          <entry key="PLAIN_TEXT" value="2" />
+          <entry key="Python" value="53" />
           <entry key="PythonStub" value="1" />
+          <entry key="XML" value="1" />
         </counts>
       </usages-collector>
       <usages-collector id="statistics.file.extensions.edit">
         <counts>
           <entry key="Python Console" value="524" />
           <entry key="gitignore" value="14" />
-          <entry key="py" value="5577" />
-          <entry key="txt" value="23" />
+          <entry key="py" value="5586" />
+          <entry key="txt" value="57" />
           <entry key="vmoptions" value="1" />
         </counts>
       </usages-collector>
       <usages-collector id="statistics.file.types.edit">
         <counts>
           <entry key="Git file" value="14" />
-          <entry key="PLAIN_TEXT" value="24" />
-          <entry key="Python" value="6101" />
+          <entry key="PLAIN_TEXT" value="58" />
+          <entry key="Python" value="6110" />
         </counts>
       </usages-collector>
       <usages-collector id="statistics.vcs.git.usages">
@@ -90,14 +92,23 @@
               </provider>
             </entry>
           </file>
-          <file pinned="false" current-in-tab="true">
+          <file pinned="false" current-in-tab="false">
             <entry file="file://$PROJECT_DIR$/../../Learner.py">
               <provider selected="true" editor-type-id="text-editor">
-                <state relative-caret-position="520">
-                  <caret line="688" column="24" lean-forward="true" selection-start-line="688" selection-start-column="24" selection-end-line="688" selection-end-column="24" />
+                <state relative-caret-position="190">
+                  <caret line="507" selection-start-line="507" selection-end-line="507" />
                   <folding>
                     <element signature="e#0#9#0" expanded="true" />
                   </folding>
+                </state>
+              </provider>
+            </entry>
+          </file>
+          <file pinned="false" current-in-tab="false">
+            <entry file="file://$PROJECT_DIR$/../../requirements.txt">
+              <provider selected="true" editor-type-id="text-editor">
+                <state relative-caret-position="405">
+                  <caret line="27" selection-start-line="27" selection-end-line="27" />
                 </state>
               </provider>
             </entry>
@@ -114,11 +125,11 @@
               </provider>
             </entry>
           </file>
-          <file pinned="false" current-in-tab="false">
+          <file pinned="false" current-in-tab="true">
             <entry file="file://$PROJECT_DIR$/../../utils.py">
               <provider selected="true" editor-type-id="text-editor">
-                <state relative-caret-position="222">
-                  <caret line="17" selection-start-line="17" selection-end-line="17" />
+                <state relative-caret-position="255">
+                  <caret line="19" column="27" selection-start-line="19" selection-start-column="20" selection-end-line="19" selection-end-column="27" />
                   <folding>
                     <element signature="e#0#29#0" expanded="true" />
                   </folding>
@@ -132,14 +143,18 @@
         <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
           <file pinned="false" current-in-tab="false">
             <entry file="file://$PROJECT_DIR$/../../Learner.py">
-              <provider selected="true" editor-type-id="text-editor" />
+              <provider selected="true" editor-type-id="text-editor">
+                <state relative-caret-position="904">
+                  <caret line="506" selection-start-line="506" selection-end-line="506" />
+                </state>
+              </provider>
             </entry>
           </file>
           <file pinned="false" current-in-tab="false">
             <entry file="file://$PROJECT_DIR$/../../train.py">
               <provider selected="true" editor-type-id="text-editor">
-                <state relative-caret-position="447">
-                  <caret line="48" column="33" selection-start-line="48" selection-start-column="33" selection-end-line="48" selection-end-column="33" />
+                <state relative-caret-position="720">
+                  <caret line="45" selection-start-line="45" selection-end-line="45" />
                   <folding>
                     <element signature="e#0#9#0" expanded="true" />
                   </folding>
@@ -150,8 +165,8 @@
           <file pinned="false" current-in-tab="true">
             <entry file="file://$PROJECT_DIR$/../../config.py">
               <provider selected="true" editor-type-id="text-editor">
-                <state relative-caret-position="175">
-                  <caret line="16" column="34" selection-start-line="16" selection-start-column="29" selection-end-line="16" selection-end-column="34" />
+                <state relative-caret-position="382">
+                  <caret line="28" column="26" selection-start-line="28" selection-start-column="26" selection-end-line="28" selection-end-column="26" />
                   <folding>
                     <element signature="e#0#38#0" expanded="true" />
                   </folding>
@@ -177,7 +192,6 @@
   </component>
   <component name="FindInProjectRecents">
     <findStrings>
-      <find>matshow</find>
       <find>writer</find>
       <find>todo</find>
       <find>get_dev</find>
@@ -205,6 +219,7 @@
       <find>mail</find>
       <find>dbg</find>
       <find>train</find>
+      <find>cvbase</find>
       <find>epoch</find>
       <find>todo log lr</find>
     </findStrings>
@@ -232,16 +247,17 @@
         <option value="$PROJECT_DIR$/../config.py" />
         <option value="$PROJECT_DIR$/../Learner.py" />
         <option value="$PROJECT_DIR$/../../face_extract_fea.py" />
-        <option value="$PROJECT_DIR$/../../utils.py" />
         <option value="$PROJECT_DIR$/../../test.py" />
         <option value="$APPLICATION_CONFIG_DIR$/pycharm64.vmoptions" />
         <option value="$PROJECT_DIR$/../../verifacation.py" />
         <option value="$PROJECT_DIR$/../../lz.py" />
         <option value="$PROJECT_DIR$/../../model.py" />
-        <option value="$PROJECT_DIR$/../../config.py" />
         <option value="$PROJECT_DIR$/../../.gitignore" />
         <option value="$PROJECT_DIR$/../../train.py" />
         <option value="$PROJECT_DIR$/../../Learner.py" />
+        <option value="$PROJECT_DIR$/../../requirements.txt" />
+        <option value="$PROJECT_DIR$/../../utils.py" />
+        <option value="$PROJECT_DIR$/../../config.py" />
       </list>
     </option>
   </component>
@@ -434,7 +450,14 @@
       <option name="project" value="LOCAL" />
       <updated>1541251018303</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="add requirements">
+      <created>1541252510840</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1541252510840</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="TodoView">
@@ -448,21 +471,20 @@
   </component>
   <component name="ToolWindowManager">
     <frame x="-1" y="31" width="1922" height="1029" extended-state="6" />
-    <editor active="true" />
     <layout>
-      <window_info active="true" content_ui="combo" id="Project" order="0" sideWeight="0.4900332" visible="true" weight="0.12686567" />
+      <window_info content_ui="combo" id="Project" order="0" sideWeight="0.4900332" visible="true" weight="0.12686567" />
       <window_info id="Structure" order="1" sideWeight="0.5099668" side_tool="true" weight="0.12686567" />
       <window_info id="Favorites" order="2" side_tool="true" />
       <window_info id="Julia Document" order="3" side_tool="true" />
       <window_info anchor="bottom" id="Message" order="0" />
       <window_info anchor="bottom" id="Find" order="1" />
-      <window_info anchor="bottom" id="Run" order="2" sideWeight="0.4978678" visible="true" weight="0.33259425" />
+      <window_info anchor="bottom" id="Run" order="2" sideWeight="0.4978678" weight="0.33259425" />
       <window_info anchor="bottom" id="Debug" order="3" weight="0.40354767" />
       <window_info anchor="bottom" id="Cvs" order="4" weight="0.25" />
       <window_info anchor="bottom" id="Inspection" order="5" weight="0.4" />
       <window_info anchor="bottom" id="TODO" order="6" weight="0.3292683" />
       <window_info anchor="bottom" id="Docker" order="7" show_stripe_button="false" />
-      <window_info anchor="bottom" id="Version Control" order="8" sideWeight="0.4968017" weight="0.32815966" />
+      <window_info active="true" anchor="bottom" id="Version Control" order="8" sideWeight="0.4968017" visible="true" weight="0.32815966" />
       <window_info anchor="bottom" id="Terminal" order="9" sideWeight="0.4968017" weight="0.32815966" />
       <window_info anchor="bottom" id="Event Log" order="10" sideWeight="0.50319827" side_tool="true" weight="0.32815966" />
       <window_info anchor="bottom" id="Database Changes" order="11" show_stripe_button="false" />
@@ -514,7 +536,8 @@
     <MESSAGE value="add sftmax fgg" />
     <MESSAGE value="new dataloader" />
     <MESSAGE value="add lz.py" />
-    <option name="LAST_COMMIT_MESSAGE" value="add lz.py" />
+    <MESSAGE value="add requirements" />
+    <option name="LAST_COMMIT_MESSAGE" value="add requirements" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -539,12 +562,15 @@
           <line>16</line>
           <option name="timeStamp" value="62" />
         </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/../../Learner.py</url>
+          <line>506</line>
+          <option name="timeStamp" value="66" />
+        </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>
   </component>
   <component name="editorHistoryManager">
-    <entry file="file://$PROJECT_DIR$/../../mtcnn.py" />
-    <entry file="file://$PROJECT_DIR$/../proc.sh" />
     <entry file="file://$USER_HOME$/anaconda3/lib/python3.6/site-packages/matplotlib/pyplot.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="192">
@@ -646,13 +672,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$USER_HOME$/anaconda3/lib/python3.6/site-packages/torch/nn/modules/module.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="170">
-          <caret line="893" selection-start-line="893" selection-end-line="893" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$USER_HOME$/anaconda3/lib/python3.6/site-packages/scipy/spatial/distance.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="-3460">
@@ -699,16 +718,6 @@
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="417">
           <caret line="206" selection-start-line="206" selection-end-line="206" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/../../utils.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="222">
-          <caret line="17" selection-start-line="17" selection-end-line="17" />
-          <folding>
-            <element signature="e#0#29#0" expanded="true" />
-          </folding>
         </state>
       </provider>
     </entry>
@@ -817,84 +826,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/../../lz.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="230">
-          <caret line="1315" column="30" selection-start-line="1315" selection-start-column="30" selection-end-line="1315" selection-end-column="30" />
-          <folding>
-            <element signature="e#86#103#0" expanded="true" />
-            <element signature="e#104#129#0" />
-            <element signature="e#506#539#0" />
-            <element signature="e#872#1489#0" />
-            <element signature="e#1098#1276#0" />
-            <element signature="e#1316#1441#0" />
-            <element signature="e#1529#1875#0" />
-            <element signature="e#1664#1822#0" />
-            <element signature="e#1927#2115#0" />
-            <element signature="e#1978#2005#0" />
-            <element signature="e#2333#2551#1" />
-            <element signature="e#2554#2610#0" />
-            <element signature="e#2703#2975#0" />
-            <element signature="e#3043#3318#0" />
-            <element signature="e#3363#3519#0" />
-            <element signature="e#3582#3738#0" />
-            <element signature="e#3780#3830#0" />
-            <element signature="e#4318#4806#0" />
-            <element signature="e#4838#4957#0" />
-            <element signature="e#4990#5288#0" />
-            <element signature="e#5725#5882#0" />
-            <element signature="e#5914#6160#0" />
-            <element signature="e#6193#6256#0" />
-            <element signature="e#6289#6808#0" />
-            <element signature="e#6289#6459#1" />
-            <element signature="e#6506#6614#0" />
-            <element signature="e#6835#6985#0" />
-            <element signature="e#7016#7130#0" />
-            <element signature="e#7166#7285#0" />
-            <element signature="e#7204#7270#0" />
-            <element signature="e#7357#8047#0" />
-            <element signature="e#7478#7671#0" />
-            <element signature="e#7813#8027#0" />
-            <element signature="e#8098#8226#0" />
-            <element signature="e#8261#8328#0" />
-            <element signature="e#8367#8533#0" />
-            <element signature="e#8562#9356#0" />
-            <element signature="e#8622#8822#0" />
-            <element signature="e#8712#8822#0" />
-            <element signature="e#8855#8867#0" />
-            <element signature="e#8902#8906#0" />
-            <element signature="e#8947#8959#0" />
-            <element signature="e#8995#9085#0" />
-            <element signature="e#9116#9241#0" />
-            <element signature="e#9183#9241#0" />
-            <element signature="e#9272#9356#0" />
-            <element signature="e#9401#9494#0" />
-            <element signature="e#9522#11742#0" />
-            <element signature="e#9522#10133#1" />
-            <element signature="e#10196#10328#0" />
-            <element signature="e#10378#10459#0" />
-            <element signature="e#10494#10526#0" />
-            <element signature="e#10584#10671#0" />
-            <element signature="e#10702#10868#0" />
-            <element signature="e#10770#10833#0" />
-            <element signature="e#10913#11267#0" />
-            <element signature="e#10913#11011#1" />
-            <element signature="e#11317#11742#0" />
-            <element signature="e#11317#11495#1" />
-            <element signature="e#11767#11909#0" />
-            <element signature="e#11940#12125#0" />
-            <element signature="e#12252#13348#0" />
-            <element signature="e#12252#12357#1" />
-            <element signature="e#12429#12543#0" />
-            <element signature="e#12578#13071#0" />
-            <element signature="e#12837#12979#0" />
-            <element signature="e#13123#13137#0" />
-            <element signature="e#13170#13348#0" />
-            <element signature="e#13217#13348#0" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/../../face_extract_fea.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="185">
@@ -932,10 +863,51 @@
         </state>
       </provider>
     </entry>
+    <entry file="file://$USER_HOME$/anaconda3/lib/python3.6/site-packages/tensorboardX/writer.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="357">
+          <caret line="211" lean-forward="true" selection-start-line="211" selection-end-line="211" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/../../.idea/workspace.xml">
+      <provider selected="true" editor-type-id="text-editor" />
+    </entry>
+    <entry file="file://$PROJECT_DIR$/../../lz.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="230">
+          <caret line="1315" column="30" selection-start-line="1315" selection-start-column="30" selection-end-line="1315" selection-end-column="30" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/../../requirements.txt">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="405">
+          <caret line="27" selection-start-line="27" selection-end-line="27" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/../../Learner.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="190">
+          <caret line="507" selection-start-line="507" selection-end-line="507" />
+          <folding>
+            <element signature="e#0#9#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$USER_HOME$/anaconda3/lib/python3.6/site-packages/torch/nn/modules/module.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="365">
+          <caret line="517" column="37" selection-start-line="517" selection-start-column="37" selection-end-line="517" selection-end-column="37" />
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/../../train.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="447">
-          <caret line="48" column="33" selection-start-line="48" selection-start-column="33" selection-end-line="48" selection-end-column="33" />
+        <state relative-caret-position="720">
+          <caret line="45" selection-start-line="45" selection-end-line="45" />
           <folding>
             <element signature="e#0#9#0" expanded="true" />
           </folding>
@@ -944,27 +916,20 @@
     </entry>
     <entry file="file://$PROJECT_DIR$/../../config.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="175">
-          <caret line="16" column="34" selection-start-line="16" selection-start-column="29" selection-end-line="16" selection-end-column="34" />
+        <state relative-caret-position="382">
+          <caret line="28" column="26" selection-start-line="28" selection-start-column="26" selection-end-line="28" selection-end-column="26" />
           <folding>
             <element signature="e#0#38#0" expanded="true" />
           </folding>
         </state>
       </provider>
     </entry>
-    <entry file="file://$USER_HOME$/anaconda3/lib/python3.6/site-packages/tensorboardX/writer.py">
+    <entry file="file://$PROJECT_DIR$/../../utils.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="357">
-          <caret line="211" lean-forward="true" selection-start-line="211" selection-end-line="211" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/../../Learner.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="520">
-          <caret line="688" column="24" lean-forward="true" selection-start-line="688" selection-start-column="24" selection-end-line="688" selection-end-column="24" />
+        <state relative-caret-position="255">
+          <caret line="19" column="27" selection-start-line="19" selection-start-column="20" selection-end-line="19" selection-end-column="27" />
           <folding>
-            <element signature="e#0#9#0" expanded="true" />
+            <element signature="e#0#29#0" expanded="true" />
           </folding>
         </state>
       </provider>
