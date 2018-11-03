@@ -26,7 +26,7 @@ def get_config(training=True):
     conf.loss = 'softmax'  # softmax arcface
     conf.fgg = ''  # g gg ''
     conf.fgg_wei = 0  # 1
-    conf.start_eval = True
+    conf.start_eval = False
 
     conf.data_path = Path('/data2/share/')
     conf.work_path = Path('work_space/dbg.bak/')
