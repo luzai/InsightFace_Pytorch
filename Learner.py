@@ -41,13 +41,13 @@ logger = logging.getLogger()
 
 # 85k id, 3.8M imgs
 
-class FaceImageIter(io.DataIter):
+class MxnetImgIter(io.DataIter):
     def __init__(self, batch_size, data_shape,
                  path_imgrec=None,
                  shuffle=False, aug_list=None, mean=None,
                  rand_mirror=False, cutoff=0,
                  data_name='data', label_name='softmax_label', **kwargs):
-        super(FaceImageIter, self).__init__()
+        super(MxnetImgIter, self).__init__()
         assert path_imgrec
         if path_imgrec:
             logging.info('loading recordio %s...',
@@ -279,7 +279,7 @@ class FaceImageIter(io.DataIter):
         return nd.transpose(datum, axes=(2, 0, 1))
 
 
-class Dataset(object):
+class MxnetImgDataset(object):
     def __init__(self, train_iter, batch_size=100, root_path=None):
         # self.transform = trans.Compose([
         #     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
@@ -335,15 +335,15 @@ class Dataset(object):
         # T.Normalize(mean=[0.485, 0.456, 0.406],
         #             std=[0.229, 0.224, 0.225])
         labels = next_data_batch.label[0].asnumpy()
-        return {'imgs': np.array(imgs, dtype=np.float32), 'labels': int(labels)}
+        return {'imgs': np.array(imgs, dtype=np.float32), 'labels': np.asarray(labels, dtype=np.int64)}
 
 
-class Loader2():
+class MxnetLoader():
     def __init__(self, conf):
         # root_path = lz.work_path + 'faces_small/train.rec'
         root_path = conf.ms1m_folder / 'train.rec'
         root_path = str(root_path)
-        train_dataiter = FaceImageIter(
+        train_dataiter = MxnetImgIter(
             batch_size=conf.batch_size,
             data_shape=(3, 112, 112),
             path_imgrec=root_path,
@@ -353,7 +353,7 @@ class Loader2():
             cutoff=0,
         )
         train_dataiter = mx.io.PrefetchingIter(train_dataiter)
-        self.dataset = Dataset(train_dataiter, batch_size=conf.batch_size, root_path=root_path)
+        self.dataset = MxnetImgDataset(train_dataiter, batch_size=conf.batch_size, root_path=root_path)
         train_loader = DataLoader(
             self.dataset, batch_size=1, num_workers=0,
         )
@@ -371,7 +371,7 @@ class Loader2():
             labels = torch.squeeze(labels).long()  # .cuda()
             assert imgs is not None
             self.ind += 1
-            return imgs, labels
+            return {'imgs': imgs, 'labels': labels}
         # else:
         if self.int >= len(self):
             self.int = 0
@@ -384,7 +384,7 @@ class Loader2():
 # todo data aug: face iter --> dataset2
 # todo clean up path
 # todo more dataset (ms1m, vgg, imdb ... )
-class Dataset2(object):
+class TorchDataset(object):
     def __init__(self,
                  path_ms1m=lz.share_path2 + 'faces_ms1m_112x112/',
                  ):
@@ -393,14 +393,28 @@ class Dataset2(object):
         path_imgrec = path_ms1m + '/train.rec'
         path_imgidx = path_imgrec[0:-4] + ".idx"
         assert os.path.exists(path_imgidx)
-        self.imgrec = recordio.MXIndexedRecordIO(
-            path_imgidx, path_imgrec,
-            'r')
+        self.path_imgidx = path_imgidx
+        self.path_imgrec = path_imgrec
+        self.imgrecs = []
+        self.locks = []
+        lz.timer.since_last_check('start timer')
+        for _ in range(16):
+            self.imgrecs.append(
+                recordio.MXIndexedRecordIO(
+                    path_imgidx, path_imgrec,
+                    'r')
+            )
+            self.locks.append(mp.Lock())
+        lz.timer.since_last_check('five reader init')  # 27 s / 5 reader
+
         self.imgidx, self.ids, self.id2range = lz.msgpack_load(path_ms1m + '/info.pk')
 
         self.num_classes = len(self.ids)
         self.cur = 0
-        self.lock = mp.Lock()
+        # self.imgrec = recordio.MXIndexedRecordIO(
+        #     path_imgidx, path_imgrec,
+        #     'r')
+        # self.lock = mp.Lock()
 
     def __len__(self):
         return len(self.imgidx)
@@ -434,19 +448,38 @@ class Dataset2(object):
         # index = self.imgidx[index]
         index += 1
         assert index != 0 and index < len(self) + 1
-        succ = self.lock.acquire()
-        # if succ:
-        s = self.imgrec.read_idx(index)  # from [ 1 to 3804846 ]
-        rls_succ = self.lock.release()
+        succ = False
+
+        ## rand until lock
+        while True:
+            for ind in range(len(self.locks)):
+                succ = self.locks[ind].acquire(timeout=0)
+                if succ: break
+            if succ: break
+
+        ##  locality based todo which is better?
+        # ind = index // ((gl_conf.num_imgs + 1) // len(self.locks))
+        # succ = self.lock s[ind].acquire()
+
+        # for ind in range(len(self.locks)):
+        #     succ = self.locks[ind].acquire(timeout=0)
+        #     if succ: break
+        # if not succ:
+        #     print(f'not succ ind is {ind}')
+        #     self.locks.append(mp.Lock())
+        #     self.imgrecs.append(recordio.MXIndexedRecordIO(
+        #         self.path_imgidx, self.path_imgrec, 'r'))
+        #     print(f'add a imgrec, ttl num {len(self.locks)}')
+        #     ind = len(self.locks) - 1
+        #     succ = self.locks[ind].acquire()
+
+        # succ = self.lock.acquire(timeout=0)
+
+        s = self.imgrecs[ind].read_idx(index)  # from [ 1 to 3804846 ]
+        rls_succ = self.locks[ind].release()
         header, img = recordio.unpack(s)
         imgs = self.imdecode(img)
         label = header.label
-        # else:
-        #     s = self.imgrec.read_idx(index)  # from [ 1 to 3804846 ]
-        #     rls_succ = self.lock.release()
-        #     header, img = recordio.unpack(s)
-        #     imgs = self.imdecode(img)
-        #     label = header.label
 
         _rd = random.randint(0, 1)
         if _rd == 1:
@@ -490,16 +523,20 @@ class face_learner(object):
         if not inference:
             self.milestones = conf.milestones
             if need_loader:
+                ## image folder
                 # self.loader, self.class_num = get_train_loader(conf)
-
-                self.dataset = Dataset2()
+                ## torch reader
+                self.dataset = TorchDataset()
                 self.loader = DataLoader(
                     self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
                     shuffle=True, pin_memory=True
                 )
-
-                # self.loader = Loader2(conf)
                 self.class_num = 85164
+
+                ## mxnet load serialized data
+                # self.loader = MxnetLoader(conf)
+                # self.class_num = 85164
+
                 print(self.class_num, 'classes, load ok ')
             else:
                 import copy
@@ -535,7 +572,7 @@ class face_learner(object):
                     {'params': paras_only_bn}
                 ], lr=conf.lr, momentum=conf.momentum)
             print(self.optimizer)
-            #             self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=40, verbose=True)
+            # self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=40, verbose=True)
             print('optimizers generated')
             self.board_loss_every = 100  # len(self.loader) // 100
             self.evaluate_every = len(self.loader) // 10
@@ -549,6 +586,7 @@ class face_learner(object):
         self.model.train()
         running_loss = 0.
         loader = self.loader
+
         if conf.start_eval:
             accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.agedb_30,
                                                                        self.agedb_30_issame)
@@ -558,10 +596,12 @@ class face_learner(object):
             accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.cfp_fp,
                                                                        self.cfp_fp_issame)
             self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor)
-
+        lz.timer.since_last_check('start train')
+        data_meter = lz.AverageMeter()
+        loss_meter = lz.AverageMeter()
         for e in range(epochs):
             accuracy = 0
-            print('epoch {} started'.format(e))
+            lz.timer.since_last_check('epoch {} started'.format(e))
             if e == self.milestones[0]:
                 self.schedule_lr()
             if e == self.milestones[1]:
@@ -571,6 +611,9 @@ class face_learner(object):
             # todo log lr
             self.writer.add_scalar('log_lr', math.log10((self.optimizer.param_groups[0])['lr']), e)
             for data in loader:
+                data_meter.update(
+                    lz.timer.since_last_check('load data ok', verbose=False)
+                )
                 imgs = data['imgs']
                 labels = data['labels']
                 imgs = imgs.to(conf.device)
@@ -615,7 +658,9 @@ class face_learner(object):
                 if self.step % 100 == 0:
                     logging.info(f'epoch {e} step {self.step}: ' +
                                  f'img {imgs.mean()} {imgs.max()} {imgs.min()} ' +
-                                 f'loss: {loss.item()/conf.batch_size} ')
+                                 f'loss: {loss.item()/conf.batch_size} ' +
+                                 f'data time: {data_meter.avg} ' +
+                                 f'loss time: {loss_meter.avg} ')
 
                 if not conf.no_eval:
                     if self.step % self.board_loss_every == 0 and self.step != 0:
@@ -653,6 +698,10 @@ class face_learner(object):
                 if self.step % conf.num_steps_per_epoch == 0 and self.step != 0:
                     # print('! break')
                     break
+                loss_meter.update(
+                    lz.timer.since_last_check('loss ok', verbose=False)
+                )
+
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
     def schedule_lr(self):
@@ -883,7 +932,7 @@ class face_learner(object):
 
 if __name__ == '__main__':
     # test thread safe
-    ds = Dataset2()
+    ds = TorchDataset()
     print(len(ds))
 
 

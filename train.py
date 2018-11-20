@@ -18,12 +18,12 @@ if __name__ == '__main__':
     parser.add_argument("-d", "--data_mode", help="use which database, [vgg, ms1m, emore, concat]", default='emore',
                         type=str)
     parser.set_defaults(
-        epochs=8, # 4 epoch for test2 performance
+        epochs=8,  # todo 4 epoch for test2 performance
         net='ir_se',
         net_depth='50',
         lr=0.028,  # 0.028 , 1e-2
         batch_size=100 if not lz.dbg else 8,
-        num_workers=18 if not lz.dbg else 0,
+        num_workers=12 if not lz.dbg else 0,
         data_mode="ms1m",
     )
     # todo make dbg useful again

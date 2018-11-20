@@ -5,8 +5,8 @@ import lz
 from torch.nn import CrossEntropyLoss
 from torchvision import transforms as trans
 
-lz.init_dev(lz.get_dev(n=1))
-# lz.init_dev((0, 1))
+# lz.init_dev(lz.get_dev(n=1))
+lz.init_dev(range(4))
 
 
 def get_config(training=True):
@@ -23,6 +23,7 @@ def get_config(training=True):
         # conf.num_steps_per_epoch = 3
         conf.no_eval = False
         # conf.no_eval = True
+    conf.num_imgs = 3804846
     conf.loss = 'softmax'  # softmax arcface
     conf.fgg = ''  # g gg ''
     conf.fgg_wei = 0  # 1
@@ -53,6 +54,7 @@ def get_config(training=True):
     else:
         conf.ms1m_folder = conf.data_path / 'faces_ms1m_112x112'
     conf.emore_folder = conf.data_path / 'faces_emore'
+    # conf.batch_size = 100  # irse net depth 50
     conf.batch_size = 100  # irse net depth 50
     #   conf.batch_size = 200 # mobilefacenet
     # --------------------Training Config ------------------------

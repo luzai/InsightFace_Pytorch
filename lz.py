@@ -1,11 +1,8 @@
 # from __future__ import print_function, absolute_import, division, unicode_literals
 
-import matplotlib
-# matplotlib.use('TkAgg')
-# matplotlib.use('Agg')
-# plt.switch_backend('agg')
-
 import matplotlib.pyplot as plt
+plt.switch_backend('Agg')
+# plt.switch_backend('TkAgg')
 
 import os, sys, time, \
     random, \
@@ -30,6 +27,19 @@ import collections
 os.environ.setdefault('log', '1')
 os.environ.setdefault('pytorch', '1')
 os.environ.setdefault('tensorflow', '0')
+os.environ.setdefault('chainer', '0')
+timer = cvb.Timer()
+if os.environ.get('chainer', "1") == "1":
+    import chainer
+    from chainer import cuda
+
+    # xp = cuda.get_array_module( )
+    old_repr = chainer.Variable.__repr__
+    chainer.Variable.__str__ = lambda obj: (f'ch {tuple(obj.shape)} {obj.dtype} '
+                                            f'{old_repr(obj)} '
+                                            f'type: {obj.dtype} shape: {obj.shape} ch')
+    chainer.Variable.__repr__ = chainer.Variable.__str__
+    logging.info(f'import chainer {timer.since_last_check()}')
 
 if os.environ.get('pytorch', "1") == "1":
     tic = time.time()
@@ -40,13 +50,13 @@ if os.environ.get('pytorch', "1") == "1":
     import torch.nn.functional as F
 
     old_repr = torch.Tensor.__repr__
-    torch.Tensor.__repr__ = lambda obj: (f'{tuple(obj.shape)} {obj.type()} '
+    torch.Tensor.__repr__ = lambda obj: (f'th {tuple(obj.shape)} {obj.type()} '
                                          f'{old_repr(obj)} '
-                                         f'type: {obj.type()} shape: {obj.shape}') if obj.is_contiguous() else (
+                                         f'type: {obj.type()} shape: {obj.shape} th') if obj.is_contiguous() else (
         f'{tuple(obj.shape)} {obj.type()} '
         f'{old_repr(obj.contiguous())} '
         f'type: {obj.type()} shape: {obj.shape}')
-    print('import pytorch', time.time() - tic)
+    logging.info(f'import pytorch {time.time() - tic}')
 
 # dbg = True
 dbg = False
@@ -99,7 +109,7 @@ InteractiveShell.ast_node_interactivity = "all"
 
 
 # torch.set_default_tensor_type(torch.cuda.DoubleTensor)
-# ori_np_err = np.seterr(all='raise')
+# ori_np_err = np.seterr(all='raise') # 1/100000=0 will be error
 
 
 def set_stream_logger(log_level=logging.DEBUG):
@@ -122,29 +132,29 @@ def set_file_logger(work_dir=None, log_level=logging.DEBUG):
 
 
 if os.environ.get('log', '0') == '1':
-    logging.root.setLevel(logging.DEBUG)
+    logging.root.setLevel(logging.INFO)
     # set_stream_logger(logging.DEBUG)
     set_stream_logger(logging.INFO)
     set_file_logger(log_level=logging.DEBUG)
 
 ## ndarray will be pretty
-np.set_string_function(lambda arr: f'{arr.shape} {arr.dtype} '
+np.set_string_function(lambda arr: f'np {arr.shape} {arr.dtype} '
                                    f'{arr.__str__()} '
-                                   f'dtype:{arr.dtype} shape:{arr.shape}', repr=True)
-
-logging.info('import lz')
-
+                                   f'dtype:{arr.dtype} shape:{arr.shape} np', repr=True)
 
 ## print(ndarray) will be pretty (and pycharm dbg)
-# np.set_string_function(lambda arr: f'{arr.shape} {arr.dtype} \n'
+# np.set_string_function(lambda arr: f'np {arr.shape} {arr.dtype} \n'
 #                                    f'{arr.__repr__()} \n'
-#                                    f'dtype:{arr.dtype} shape:{arr.shape}', repr=False)
+#                                    f'dtype:{arr.dtype} shape:{arr.shape} np', repr=False)
 
-
+## fail
 # old_np_repr = np.ndarray.__repr__
 # np.ndarray.__repr__ = lambda arr: (f'{arr.shape} {arr.dtype} \n'
 #                                    f'{old_np_repr(arr)} \n'
 #                                    f'dtype:{arr.dtype} shape:{arr.shape}')
+
+logging.info('import lz')
+
 
 def init_dev(n=(0,)):
     import os
@@ -171,6 +181,7 @@ def set_env(key, value):
         os.environ[key] = value
 
 
+# todo occupy and release
 def occupy(dev=range(8)):
     import tensorflow as tf
     init_dev(dev)
@@ -264,7 +275,7 @@ def show_dev(devs=range(4)):
     return res
 
 
-def get_dev(n=1, ok=range(4), mem_thresh=(0.4, 0.15), sleep=20):
+def get_dev(n=1, ok=range(4), mem_thresh=(0.1, 0.15), sleep=23.3): # 0.3: now occupy smaller than 0.3
     if not isinstance(mem_thresh, collections.Sequence):
         mem_thresh = (mem_thresh,)
 
@@ -417,7 +428,7 @@ class Timer(object):
         logging.info(f'{aux} time {self.print_tmpl.format(self._t_last - self._t_start)}')
         return self._t_last - self._t_start
 
-    def since_last_check(self, aux=''):
+    def since_last_check(self, aux='', verbose = True ):
         """Time since the last checking.
 
         Either :func:`since_start` or :func:`since_last_check` is a checking operation.
@@ -428,8 +439,12 @@ class Timer(object):
             raise ValueError('timer is not running')
         dur = time.time() - self._t_last
         self._t_last = time.time()
-        logging.info(f'{aux} time {self.print_tmpl.format(dur)}')
+        if verbose:
+            logging.info(f'{aux} time {self.print_tmpl.format(dur)}')
         return dur
+
+
+timer = Timer()
 
 
 def get_md5(url):
@@ -868,9 +883,17 @@ def msgpack_dump(obj, file, **kwargs):
     if allow_np:
         kwargs.setdefault('default', m.encode)
     kwargs.setdefault('use_bin_type', True)
-
-    with open(file, 'wb') as fp:
-        msgpack.pack(obj, fp, **kwargs)
+    try:
+        with open(file, 'wb') as fp:
+            msgpack.pack(obj, fp, **kwargs)
+    except Exception  as e:
+        logging.warning(f'{e}')
+        logging.warning('cannot dump')
+        obj = copy.deepcopy(obj)
+        obj2 = to_json_format(obj)
+        with open(file, 'wb') as fp:
+            msgpack.pack(obj2, fp, **kwargs)
+        logging.warning('dump succes')
 
 
 def msgpack_dumps(obj, **kwargs):
@@ -880,7 +903,6 @@ def msgpack_dumps(obj, **kwargs):
     if allow_np:
         kwargs.setdefault('default', m.encode)
     kwargs.setdefault('use_bin_type', True)
-
     return msgpack.packb(obj, **kwargs)
 
 
@@ -1053,10 +1075,37 @@ def plt_imshow(img, ax=None):
         plt.axis('off')
     else:
         ax.imshow(img)
+        ax.set_yticks([])
+        ax.set_xticks([])
         ax.axis('off')
 
 
+def plt_imshow_board(img, ax=None, color=None):
+    img = to_img(img)
+    if ax is None:
+        plt.figure()
+        plt.imshow(img)
+        plt.axis('off')
+    else:
+        ax.imshow(img)
+        import matplotlib.patches as patches
+        M, N = img.shape[0], img.shape[1]
+        line = [(0, 0), (0, M),
+                (N, M), (N, 0),
+                ]
+        path = patches.Polygon(line, facecolor='none', edgecolor=color,
+                               linewidth=5, closed=True, joinstyle='round')
+        ax.add_patch(path)
+        ax.axis('off')
+        ax.set_yticks([])
+        ax.set_xticks([])
+        margin = 2
+        ax.set_xlim(-margin, N + margin)
+        ax.set_ylim(M + margin, -margin)
+
+
 def to_img(img, ):
+    img = np.asarray(img)
     img = img.copy()
     shape = img.shape
     if len(shape) == 3 and shape[0] == 3:
@@ -1158,6 +1207,8 @@ def dict_concat(d_l):
 def dict_update(to, from_dict, must_exist=True):
     to = to.copy()
     from_dict = from_dict.copy()
+    to = edict(to)
+    from_dict = edict(from_dict)
     for k, v in from_dict.items():
         if k not in to:
             if not must_exist:
@@ -1300,6 +1351,7 @@ def my_wget(fid, fname):
     return task
 
 
+# caution: may be shallow!
 def to_json_format(obj, allow_np=True):
     import collections, torch
     if isinstance(obj, np.ndarray):
@@ -1309,14 +1361,14 @@ def to_json_format(obj, allow_np=True):
             if allow_np:
                 return np.asarray(obj, order="C")
             else:
-                return obj.tolist()
-    elif isinstance(obj, list) or isinstance(obj, tuple) or isinstance(obj, collections.deque):
+                return to_json_format(obj.tolist())
+    elif isinstance(obj,(list,tuple,collections.deque)):
         return [to_json_format(subobj, allow_np) for subobj in obj]
     elif isinstance(obj, dict):
         for key in obj.keys():
             obj[key] = to_json_format(obj[key], allow_np)
         return obj
-    elif isinstance(obj, int) or isinstance(obj, str) or isinstance(obj, float):
+    elif isinstance(obj, (int,str,float)):
         return obj
     elif isinstance(obj, torch.Tensor):
         return obj.cpu().numpy()
@@ -1498,8 +1550,8 @@ def face_orientation(frame, landmarks):
 
 def cal_sim(yyfea, yy2fea):
     from scipy.spatial.distance import cdist
-    dist = cdist(yyfea, yy2fea)
-    cossim = (2 - dist) / 2
+    dist = cdist(yyfea, yy2fea, metric='cosine')
+    cossim = 1 - dist
     return cossim
 
 
@@ -1536,5 +1588,120 @@ random_colors = [(0, 255, 0), (255, 0, 0), (0, 0, 255),
                  (91, 145, 136),
                  ]
 
+
+def df_unique(df):
+    def is_all_same(lst):
+        lst = [lsti if not isinstance(lsti, np.ndarray) else lsti.tolist() for lsti in lst]
+        res = [lsti == lst[0] for lsti in lst]
+        try:
+            return np.asarray(res).all()
+        except Exception as e:
+            print(e)
+
+    res = []
+    for j in range(df.shape[1]):
+        if not is_all_same(df.iloc[:, j].tolist()):
+            res.append(j)
+    res = [df.columns[r] for r in res]
+    df1 = df[res]
+    return df1
+
+
+class UniformDistribution(object):
+    def __init__(self, low, high):
+        assert low <= high
+        self.low = low
+        self.high = high
+
+    def rvs(self, size=None, random_state=None):
+        uniform = random_state.uniform if random_state else np.random.uniform
+        return uniform(self.low, self.high, size)
+
+
+class LogUniformDistribution(object):
+    def __init__(self, low, high, precision='.1e'):
+        assert low <= high
+        self.low = low
+        self.high = high
+        self.precision = precision
+
+    def rvs(self, size=None, random_state=None):
+        uniform = random_state.uniform if random_state else np.random.uniform
+        res = np.exp(uniform(np.log(self.low), np.log(self.high), size))
+        # todo precision
+        res = float(f'{res:.1e}')
+        return res
+
+
+from sklearn.model_selection import ParameterSampler, ParameterGrid
+
+
+def my_softmax(arr):
+    from chainer import cuda
+    from chainer import functions as F
+    try:
+        arr = cuda.to_cpu(arr.array)
+    except:
+        pass
+    arr = np.array(arr, dtype=np.float32).reshape(1, -1)
+    arr = F.softmax(arr)
+    arr = cuda.to_cpu(arr.array)
+    arr = np.array(arr).reshape(-1)
+    return arr
+
+
+def l2_normalize(x):
+    # can only handle (128,2048) or (128,2048,8,4)
+    shape = x.size()
+    x1 = x.view(shape[0], -1)
+    x2 = x1 / x1.norm(p=2, dim=1, keepdim=True)
+    return x2.view(shape)
+
+
+def get_adv(loss, inp, norm='l2', eps=.1, ):
+    features_grad = torch.autograd.grad(
+        outputs=loss, inputs=inp,
+        create_graph=True, retain_graph=True,
+        only_inputs=True
+    )[0].detach()
+    if 'l2' in norm:
+        xa_advtrue = inp + eps * l2_normalize(features_grad)
+    elif 'linf' in norm:
+        xa_advtrue = inp + eps * torch.sign(features_grad)
+    elif 'lno' in norm:
+        xa_advtrue = inp + eps * (features_grad)
+    else:
+        raise ValueError(f'no {norm}')
+    return xa_advtrue
+
+
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+
+    def __init__(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        try:
+            val = float(val)
+        except Exception as inst:
+            print(inst)
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+
 if __name__ == '__main__':
-    pass
+    plt.plot(range(10))
+    plt.show()
