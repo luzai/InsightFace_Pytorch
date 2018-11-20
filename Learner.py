@@ -1,5 +1,5 @@
 import lz
-from data.data_pipe import de_preprocess, get_train_loader, get_val_data
+from data.data_pipe import de_preprocess, get_train_loader, get_val_data, get_val_pair
 from model import Backbone, Arcface, MobileFaceNet, Am_softmax, l2_norm, MySoftmax
 from verifacation import evaluate
 import torch
@@ -8,7 +8,7 @@ import numpy as np
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
 from matplotlib import pyplot as plt
-from utils import get_time, gen_plot, hflip_batch, separate_bn_paras
+from utils import get_time, gen_plot, hflip_batch, separate_bn_paras, hflip
 from PIL import Image
 from torchvision import transforms as trans
 
@@ -33,6 +33,8 @@ from torch.utils.data import DataLoader
 from config import gl_conf
 import torch.autograd
 import torch.multiprocessing as mp
+
+import time
 
 logger = logging.getLogger()
 
@@ -458,6 +460,21 @@ class Dataset2(object):
         return {'imgs': np.array(imgs, dtype=np.float32), 'labels': int(label)}
 
 
+class Dataset_val(torch.utils.data.Dataset):
+    def __init__(self, path, name, transform=None):
+        self.carray, self.issame = get_val_pair(path, name)
+        self.transform = transform
+
+    def __getitem__(self, index):
+        if(self.transform):
+            fliped_carray = self.transform(torch.tensor(self.carray[index]))
+            return {'carray': self.carray[index], 'issame': 1.0*self.issame[index], 'fliped_carray': fliped_carray}
+        else:
+            return {'carray': self.carray[index], 'issame': 1.0*self.issame[index]}
+
+    def __len__(self):
+        return len(self.issame)
+
 class face_learner(object):
     def __init__(self, conf, inference=False, need_loader=True):
         print(conf)
@@ -523,8 +540,8 @@ class face_learner(object):
             self.board_loss_every = 100  # len(self.loader) // 100
             self.evaluate_every = len(self.loader) // 10
             self.save_every = len(self.loader) // 5
-            self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
-                self.loader.dataset.root_path)
+            #self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
+            #    self.loader.dataset.root_path)
         else:
             self.threshold = conf.threshold
 
@@ -552,6 +569,7 @@ class face_learner(object):
             if e == self.milestones[2]:
                 self.schedule_lr()
             # todo log lr
+            self.writer.add_scalar('log_lr', math.log10((self.optimizer.param_groups[0])['lr']), e)
             for data in loader:
                 imgs = data['imgs']
                 labels = data['labels']
@@ -606,14 +624,28 @@ class face_learner(object):
                         # self.scheduler.step(loss_board)
                         running_loss = 0.
                     if self.step % self.evaluate_every == 0 and self.step != 0:
-                        accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.agedb_30,
-                                                                                   self.agedb_30_issame)
+                        
+                        #tic = time.time()
+                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
+                                                                                              'agedb_30')
+                        #toc = time.time()
+                        #print("accelerate "+str(toc-tic))
+                        
+                        #accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, agedb_30,
+                        #                                                           agedb_30_issame)
                         self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor)
-                        accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.lfw, self.lfw_issame)
+                        logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
+                        #accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.lfw, self.lfw_issame)
+                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
+                                                                                              'lfw')
                         self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor)
-                        accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.cfp_fp,
-                                                                                   self.cfp_fp_issame)
+                        logging.info(f'validation accuracy on lfw is {accuracy} ')
+                        #accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.cfp_fp,
+                        #                                                           self.cfp_fp_issame)
+                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
+                                                                                              'cfp_fp')
                         self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor)
+                        logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
                     if self.step % self.save_every == 0 and self.step != 0:
                         self.save_state(conf, accuracy)
 
@@ -692,11 +724,50 @@ class face_learner(object):
         #         self.writer.add_scalar('{}_val:true accept ratio'.format(db_name), val, self.step)
         #         self.writer.add_scalar('{}_val_std'.format(db_name), val_std, self.step)
         #         self.writer.add_scalar('{}_far:False Acceptance Ratio'.format(db_name), far, self.step)
+    
+
+    def evaluate_accelerate(self, conf, path, name, nrof_folds=5, tta=False):
+        logging.info('start eval')
+        self.model.eval() # set the module in evaluation mode
+        idx = 0
+        if tta:
+            dataset = Dataset_val(path, name, transform=hflip)
+        else:
+            dataset = Dataset_val(path, name)
+        loader = DataLoader(dataset, batch_size=conf.batch_size, num_workers=conf.num_workers, 
+                            shuffle=False, pin_memory=True)
+        length = len(dataset)
+        embeddings = np.zeros([length, conf.embedding_size])
+        issame = np.zeros(length)
+        
+        with torch.no_grad():
+            for data in loader:
+                carray_batch = data['carray']
+                issame_batch = data['issame']
+                if tta:
+                    fliped = data['fliped_carray']
+                    emb_batch = self.model(carray_batch.to(conf.device)) + self.model(fliped.to(conf.device))
+                    embeddings[idx: (idx+conf.batch_size > length)*(length)+(idx+conf.batch_size <= length)*(idx+conf.batch_size)] = l2_norm(emb_batch)
+                else:
+                    embeddings[idx: (idx+conf.batch_size > length)*(length)+(idx+conf.batch_size <= length)*(idx+conf.batch_size)] = self.model(carray_batch.to(conf.device)).cpu()
+                issame[idx: (idx+conf.batch_size > length)*(length)+(idx+conf.batch_size <= length)*(idx+conf.batch_size)] = issame_batch
+                idx += conf.batch_size
+        
+        # tpr/fpr is averaged over various fold division
+        tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
+        buf = gen_plot(fpr, tpr)
+        roc_curve = Image.open(buf)
+        roc_curve_tensor = trans.ToTensor()(roc_curve)
+        self.model.train()
+        logging.info('eval end')
+        return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
+
+    
 
     def evaluate(self, conf, carray, issame, nrof_folds=5, tta=False):
         # todo accelerate eval
         logging.info('start eval')
-        self.model.eval()
+        self.model.eval() # set the module in evaluation mode
         idx = 0
         embeddings = np.zeros([len(carray), conf.embedding_size])
         with torch.no_grad():
@@ -724,6 +795,25 @@ class face_learner(object):
         self.model.train()
         logging.info('eval end')
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
+
+
+    def validate(self, conf, fixed_str, from_save_folder=False, model_only=False):
+        self.load_state(conf, fixed_str, from_save_folder=from_save_folder, model_only=model_only)
+
+        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
+                                                                                              'agedb_30')
+        logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
+        
+
+        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
+                                                                              'lfw')
+        logging.info(f'validation accuracy on lfw is {accuracy} ')
+        
+
+        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
+                                                                              'cfp_fp')
+        logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
+
 
     def find_lr(self,
                 conf,
