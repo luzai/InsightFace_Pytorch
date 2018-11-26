@@ -1,10 +1,10 @@
+from lz import *
 from torch.nn import Linear, Conv2d, BatchNorm1d, BatchNorm2d, PReLU, ReLU, Sigmoid, Dropout2d, Dropout, AvgPool2d, \
     MaxPool2d, AdaptiveAvgPool2d, Sequential, Module, Parameter
 import torch.nn.functional as F
 import torch
 from collections import namedtuple
 import math
-import pdb
 
 
 ##################################  Original Arcface Model #############################################################
@@ -295,12 +295,12 @@ class Arcface(Module):
         #     -m<=theta<=pi-m
         cond_v = cos_theta - self.threshold
         cond_mask = cond_v <= 0
-        keep_val = (cos_theta - self.mm) # when theta not in [0,pi], use cosface instead
+        keep_val = (cos_theta - self.mm)  # when theta not in [0,pi], use cosface instead
         cos_theta_m[cond_mask] = keep_val[cond_mask]
-        output = cos_theta * 1.0 # a little bit hacky way to prevent in_place operation on cos_theta
+        output = cos_theta * 1.0  # a little bit hacky way to prevent in_place operation on cos_theta
         idx_ = torch.arange(0, nB, dtype=torch.long)
         output[idx_, label] = cos_theta_m[idx_, label]
-        output *= self.s # scale up in order to make softmax work, first introduced in normface
+        output *= self.s  # scale up in order to make softmax work, first introduced in normface
         return output
 
 
@@ -345,3 +345,86 @@ class MySoftmax(Module):
         kernel_norm = l2_norm(self.kernel, axis=0)
         cos_theta = torch.mm(embeddings, kernel_norm).clamp(-1, 1) * self.s
         return cos_theta
+
+
+class TripletLoss(Module):
+    """Triplet loss with hard positive/negative mining.
+
+    Reference:
+    Hermans et al. In Defense of the Triplet Loss for Person Re-Identification. arXiv:1703.07737.
+    Code imported from https://github.com/Cysu/open-reid/blob/master/reid/loss/triplet.py.
+
+    Args:
+    - margin (float): margin for triplet.
+    """
+
+    def __init__(self, margin=0.3):
+        super(TripletLoss, self).__init__()
+        self.margin = margin
+        self.ranking_loss = nn.MarginRankingLoss(margin=margin)
+
+    def forward(self, inputs, targets):
+        n = inputs.size(0)  # todo is this version  correct?
+
+        # Compute pairwise distance, replace by the official when merged
+        dist = torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(n, n)
+        dist = dist + dist.t()
+        dist.addmm_(1, -2, inputs, inputs.t()).clamp_(min=1e-12).sqrt_()
+        # dist = dist.clamp(min=1e-12).sqrt()  # for numerical stability
+
+        # For each anchor, find the hardest positive and negative
+        mask = targets.expand(n, n).eq(targets.expand(n, n).t())
+        daps = dist[mask].view(n, 4)
+        dans = dist[mask == 0].view(n, -1)
+        ap_wei = F.softmax(daps.detach(), dim=1)
+        an_wei = F.softmax(-dans.detach(), dim=1)
+        dist_ap = (daps * ap_wei).sum(dim=1)
+        dist_an = (dans * an_wei).sum(dim=1)
+        loss = F.softplus(dist_ap - dist_an).mean()
+
+        return loss
+
+    def forward_slow(self, inputs, targets):
+        """
+        Args:
+        - inputs: feature matrix with shape (batch_size, feat_dim)
+        - targets: ground truth labels with shape (num_classes)
+        """
+        n = inputs.size(0)
+
+        # Compute pairwise distance, replace by the official when merged
+        dist = torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(n, n)
+        dist = dist + dist.t()
+        dist.addmm_(1, -2, inputs, inputs.t()).clamp_(min=1e-12).sqrt_()
+        # dist = dist.clamp(min=1e-12).sqrt()  # for numerical stability
+
+        # For each anchor, find the hardest positive and negative
+        mask = targets.expand(n, n).eq(targets.expand(n, n).t())
+        dist_ap, dist_an = [], []
+        for i in range(n):  # todo turn to matrix operation
+            # dist_ap.append(dist[i][mask[i]].max().unsqueeze(0))
+            # dist_an.append(dist[i][mask[i] == 0].min().unsqueeze(0))
+            tmp = mask[i]
+            # assert tmp[i].item()==1
+            tmp[i] = 0
+            daps = dist[i][mask[i]]  # todo fx  bug  : should  remove self, ? will it affects?
+            ap_wei = F.softmax(daps.detach(), dim=0)
+            # ap_wei = F.softmax(daps.detach() / (128 ** (1/2)), dim=0)
+            # ap_wei = F.softmax(daps, dim=0) # allow atention on weright
+            dist_ap.append((daps * ap_wei).sum().unsqueeze(0))
+
+            dans = dist[i][mask[i] == 0]
+            an_wei = F.softmax(-dans.detach(), dim=0)
+            # an_wei = F.softmax(-dans.detach() / (128 ** (1/2)) , dim=0)
+            # an_wei = F.softmax(-dans, dim=0)
+            dist_an.append((dans * an_wei).sum().unsqueeze(0))
+
+        dist_ap = torch.cat(dist_ap)
+        dist_an = torch.cat(dist_an)
+
+        # Compute ranking hinge loss
+        # y = torch.ones_like(dist_an)
+        # loss = self.ranking_loss(dist_an, dist_ap, y)
+        ## soft margin
+        loss = F.softplus(dist_ap - dist_an).mean()
+        return loss

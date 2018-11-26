@@ -1,5 +1,5 @@
 import lz
-from config import get_config
+from config import get_config, gl_conf
 from Learner import face_learner
 import argparse
 
@@ -21,9 +21,9 @@ if __name__ == '__main__':
         epochs=8,  # todo 4 epoch for test2 performance
         net='ir_se',
         net_depth='50',
-        lr=0.028,  # 0.028 , 1e-2
-        batch_size=100 if not lz.dbg else 8,
-        num_workers=12 if not lz.dbg else 0,
+        lr=0.03926,  # 0.028,  # 0.028 , 1e-2
+        batch_size=gl_conf.batch_size,
+        num_workers=gl_conf.num_workers,
         data_mode="ms1m",
     )
     # todo make dbg useful again
@@ -43,8 +43,11 @@ if __name__ == '__main__':
     conf.batch_size = args.batch_size
     conf.num_workers = args.num_workers
     conf.data_mode = args.data_mode
-    learner = face_learner(conf)
-    # learner.load_state(conf,'2018-10-24-12-02_accuracy:0.876_step:304456_final.pth', True, True )
-    # print(learner.find_lr(conf, num=1500))
-    # todo start epoch for resume
+    learner = face_learner(conf, )
+    # for resume or evaluate
+    learner.load_state(conf,
+                       '2018-11-26-09-37_accuracy:0.8048571428571428_step:30730_None.pth',
+                       from_save_folder=False,
+                       model_only=False)
+    # print(learner.find_lr(conf,num=1500 ))
     learner.train(conf, args.epochs)

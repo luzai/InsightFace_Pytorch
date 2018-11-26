@@ -1,6 +1,6 @@
 import lz
 from data.data_pipe import de_preprocess, get_train_loader, get_val_data, get_val_pair
-from model import Backbone, Arcface, MobileFaceNet, Am_softmax, l2_norm, MySoftmax
+from model import *
 from verifacation import evaluate
 import torch
 from torch import optim
@@ -386,7 +386,7 @@ class MxnetLoader():
 # todo more dataset (ms1m, vgg, imdb ... )
 class TorchDataset(object):
     def __init__(self,
-                 path_ms1m=lz.share_path2 + 'faces_ms1m_112x112/',
+                 path_ms1m=lz.share_path2 + 'faces_ms1m_112x112/',  # todo seems ssd hhd no difference on pseed
                  ):
         self.path_ms1m = path_ms1m
         self.root_path = Path(path_ms1m)
@@ -397,24 +397,20 @@ class TorchDataset(object):
         self.path_imgrec = path_imgrec
         self.imgrecs = []
         self.locks = []
-        lz.timer.since_last_check('start timer')
-        for _ in range(16):
+        lz.timer.since_last_check('start timer for imgrec')
+        for _ in range(gl_conf.num_recs):
             self.imgrecs.append(
                 recordio.MXIndexedRecordIO(
                     path_imgidx, path_imgrec,
                     'r')
             )
             self.locks.append(mp.Lock())
-        lz.timer.since_last_check('five reader init')  # 27 s / 5 reader
+        lz.timer.since_last_check(f'{gl_conf.num_recs} imgrec readers init')  # 27 s / 5 reader
 
         self.imgidx, self.ids, self.id2range = lz.msgpack_load(path_ms1m + '/info.pk')
 
         self.num_classes = len(self.ids)
         self.cur = 0
-        # self.imgrec = recordio.MXIndexedRecordIO(
-        #     path_imgidx, path_imgrec,
-        #     'r')
-        # self.lock = mp.Lock()
 
     def __len__(self):
         return len(self.imgidx)
@@ -446,7 +442,7 @@ class TorchDataset(object):
     def _get_single_item(self, index):
         # self.cur += 1
         # index = self.imgidx[index]
-        index += 1
+        index += 1  # pytorch index (imgidx) start from 0, but .rec start from 1
         assert index != 0 and index < len(self) + 1
         succ = False
 
@@ -459,7 +455,7 @@ class TorchDataset(object):
 
         ##  locality based todo which is better?
         # ind = index // ((gl_conf.num_imgs + 1) // len(self.locks))
-        # succ = self.lock s[ind].acquire()
+        # succ = self.locks[ind].acquire()
 
         # for ind in range(len(self.locks)):
         #     succ = self.locks[ind].acquire(timeout=0)
@@ -499,54 +495,165 @@ class Dataset_val(torch.utils.data.Dataset):
         self.transform = transform
 
     def __getitem__(self, index):
-        if(self.transform):
+        if (self.transform):
             fliped_carray = self.transform(torch.tensor(self.carray[index]))
-            return {'carray': self.carray[index], 'issame': 1.0*self.issame[index], 'fliped_carray': fliped_carray}
+            return {'carray': self.carray[index], 'issame': 1.0 * self.issame[index], 'fliped_carray': fliped_carray}
         else:
-            return {'carray': self.carray[index], 'issame': 1.0*self.issame[index]}
+            return {'carray': self.carray[index], 'issame': 1.0 * self.issame[index]}
 
     def __len__(self):
         return len(self.issame)
+
+
+from torch.utils.data.sampler import Sampler
+from collections import defaultdict
+
+
+# todo dop mining
+# improve locality and improve load speed!
+class RandomIdSampler(Sampler):
+    def __init__(self):
+        path_ms1m = lz.share_path3 + 'faces_ms1m_112x112/'
+        self.imgidx, self.ids, self.id2range = lz.msgpack_load(path_ms1m + '/info.pk')
+        # above is the imgidx of .rec file
+        # remember -1 to convert to pytorch imgidx
+        self.num_instances = 4  # todo move to config
+        self.batch_size = gl_conf.batch_size
+        assert self.batch_size % self.num_instances == 0
+        self.num_pids_per_batch = self.batch_size // self.num_instances
+        self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1]))) - 1).tolist()
+                          for id, idxs in self.id2range.items()}
+        self.ids = list(self.ids)
+
+        # estimate number of examples in an epoch
+        self.length = 0
+        for pid in self.ids:
+            idxs = self.index_dic[pid]
+            num = len(idxs)
+            if num < self.num_instances:
+                num = self.num_instances
+            self.length += num - num % self.num_instances
+
+    def __len__(self):
+        return self.length
+
+    def get_batch_ids(self):
+        pids = []
+        pids_now = np.random.choice(self.ids,
+                                    size=(self.num_pids_per_batch),
+                                    replace=False)
+        pids.extend(pids_now.tolist())
+        while len(pids) < self.num_pids_per_batch:
+            pids_next = []
+            for pid in pids_now:
+                pids_next.extend(np.random.choice(self.ids, size=(1,)).tolist())
+            pids.extend(pids_next)
+            pids_now = pids_next
+
+        return pids
+
+    def get_batch_idxs(self):
+        inds = []
+        pids = self.get_batch_ids()
+        for pid in pids:
+            inds.extend(
+                np.random.choice(
+                    self.index_dic[pid],
+                    size=(self.num_instances,),
+                    replace=True,
+                ).tolist()
+            )
+        inds = inds[:self.batch_size]
+        # todo whether shuffle, how affects performance? how affects speed?
+        return inds
+
+    def __iter__(self):
+        cnt = 0
+        while cnt < len(self):
+            inds = self.get_batch_idxs()
+            for ind in inds:
+                cnt += 1
+                yield ind
+
+        # batch_idxs_dict = defaultdict(list)
+        #
+        # for pid in self.ids:
+        #     idxs = copy.deepcopy(self.index_dic[pid])
+        #     if len(idxs) < self.num_instances:
+        #         idxs = np.random.choice(idxs, size=self.num_instances, replace=True)
+        #     random.shuffle(idxs)
+        #     batch_idxs = []
+        #     for idx in idxs:
+        #         batch_idxs.append(idx)
+        #         if len(batch_idxs) == self.num_instances:
+        #             batch_idxs_dict[pid].append(batch_idxs)
+        #             batch_idxs = []
+        #
+        # avai_pids = copy.deepcopy(self.ids)
+        # final_idxs = []
+        #
+        # while len(avai_pids) >= self.num_pids_per_batch:
+        #     selected_pids = random.sample(avai_pids, self.num_pids_per_batch)
+        #     for pid in selected_pids:
+        #         batch_idxs = batch_idxs_dict[pid].pop(0)
+        #         final_idxs.extend(batch_idxs)
+        #         if len(batch_idxs_dict[pid]) == 0:
+        #             avai_pids.remove(pid)
+
+        #  wherther shuffle seems no need
+
+        # final_idxs2 = []
+        # for start in range(0, len(final_idxs), self.batch_size):
+        #     end = start + self.batch_size
+        #     tmp_idxs = final_idxs[start:end]
+        #     random.shuffle(tmp_idxs)
+        #     final_idxs2.extend(tmp_idxs)
+        # final_idxs = final_idxs2
+        # return iter(final_idxs)
+
 
 class face_learner(object):
     def __init__(self, conf, inference=False, need_loader=True):
         print(conf)
         if conf.use_mobilfacenet:
-            # self.model = MobileFaceNet(conf.embedding_size).to(conf.device)
             self.model = torch.nn.DataParallel(MobileFaceNet(conf.embedding_size)).cuda()
             print('MobileFaceNet model generated')
         else:
-            # self.model = Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode).to(conf.device)
             self.model = torch.nn.DataParallel(Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)).cuda()
             print('{}_{} model generated'.format(conf.net_mode, conf.net_depth))
 
         if not inference:
             self.milestones = conf.milestones
-            if need_loader:
-                ## image folder
-                # self.loader, self.class_num = get_train_loader(conf)
-                ## torch reader
-                self.dataset = TorchDataset()
-                self.loader = DataLoader(
-                    self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
-                    shuffle=True, pin_memory=True
-                )
-                self.class_num = 85164
+            # if need_loader:
 
-                ## mxnet load serialized data
-                # self.loader = MxnetLoader(conf)
-                # self.class_num = 85164
+            ## image folder
+            # self.loader, self.class_num = get_train_loader(conf)
+            ## torch reader
+            self.dataset = TorchDataset()
+            self.loader = DataLoader(
+                self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
+                shuffle=False, sampler=RandomIdSampler(), drop_last=True,
+                pin_memory=True,
+            )
+            # todo triplet
+            self.class_num = 85164
 
-                print(self.class_num, 'classes, load ok ')
-            else:
-                import copy
-                conf_t = copy.deepcopy(conf)
-                conf_t.data_mode = 'emore'
-                self.loader, self.class_num = get_train_loader(conf_t)
-                print(self.class_num)
-                self.class_num = 85164
-            lz.mkdir_p(conf.log_path, delete=True
-                       )
+            ## mxnet load serialized data
+            # self.loader = MxnetLoader(conf)
+            # self.class_num = 85164
+
+            print(self.class_num, 'classes, load ok ')
+
+            # else:
+            #     import copy
+            #     conf_t = copy.deepcopy(conf)
+            #     conf_t.data_mode = 'emore'
+            #     self.loader, self.class_num = get_train_loader(conf_t)
+            #     print(self.class_num)
+            #     self.class_num = 85164
+
+            lz.mkdir_p(conf.log_path,
+                       delete=True)
             self.writer = SummaryWriter(conf.log_path)
             self.step = 0
             if conf.loss == 'arcface':
@@ -555,6 +662,8 @@ class face_learner(object):
                 self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num).to(conf.device)
             else:
                 raise ValueError(f'{conf.loss}')
+            ## todo triplet
+            self.head_triplet = TripletLoss().to(conf.device)  # todo maybe device 1, since features loc at device1?
 
             print('two model heads generated')
 
@@ -577,14 +686,13 @@ class face_learner(object):
             self.board_loss_every = 100  # len(self.loader) // 100
             self.evaluate_every = len(self.loader) // 10
             self.save_every = len(self.loader) // 5
-            #self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
-            #    self.loader.dataset.root_path)
+            self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
+                self.loader.dataset.root_path)  # todo postpone load eval
         else:
             self.threshold = conf.threshold
 
     def train(self, conf, epochs):
         self.model.train()
-        running_loss = 0.
         loader = self.loader
 
         if conf.start_eval:
@@ -597,9 +705,12 @@ class face_learner(object):
                                                                        self.cfp_fp_issame)
             self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor)
         lz.timer.since_last_check('start train')
-        data_meter = lz.AverageMeter()
+        data_time = lz.AverageMeter()
+        loss_time = lz.AverageMeter()
         loss_meter = lz.AverageMeter()
-        for e in range(epochs):
+        loss_tri_meter = lz.AverageMeter()
+
+        for e in range(conf.start_epoch, epochs):
             accuracy = 0
             lz.timer.since_last_check('epoch {} started'.format(e))
             if e == self.milestones[0]:
@@ -608,11 +719,12 @@ class face_learner(object):
                 self.schedule_lr()
             if e == self.milestones[2]:
                 self.schedule_lr()
-            # todo log lr
-            self.writer.add_scalar('log_lr', math.log10((self.optimizer.param_groups[0])['lr']), e)
-            for data in loader:
-                data_meter.update(
-                    lz.timer.since_last_check('load data ok', verbose=False)
+
+            for ind_data, data in enumerate(loader):
+                data_time.update(
+                    lz.timer.since_last_check(f'load data ok ind {ind_data}',
+                                              verbose=False  # if ind_data > 2 else True
+                                              )
                 )
                 imgs = data['imgs']
                 labels = data['labels']
@@ -624,6 +736,19 @@ class face_learner(object):
                     embeddings = self.model(imgs)
                     thetas = self.head(embeddings, labels)
                     loss = conf.ce_loss(thetas, labels)
+                    # todo triplet seems make loss computation slow
+                    # todo balance loss since this is 46
+                    # head = Arcface(512, 85164)
+                    # input = torch.randn(128, 512, requires_grad=True)
+                    # input=l2_norm(input)
+                    # target = torch.empty(128, dtype=torch.long).random_(85164)
+                    # thetas = head(input, target)
+                    # l = nn.CrossEntropyLoss()(thetas, target)
+                    # l.item()
+                    loss_triplet = self.head_triplet(embeddings, labels)
+                    loss_meter.update(loss.item())
+                    loss_tri_meter.update(loss_triplet.item())
+                    loss = loss + loss_triplet
                     loss.backward()
                 elif conf.fgg == 'g':
                     embeddings_o = self.model(imgs)
@@ -651,54 +776,50 @@ class face_learner(object):
                     loss.backward()
                 else:
                     raise ValueError(f'{conf.fgg}')
-
-                running_loss += loss.item() / conf.batch_size
                 self.optimizer.step()
-                # print(self.step)
+
                 if self.step % 100 == 0:
                     logging.info(f'epoch {e} step {self.step}: ' +
-                                 f'img {imgs.mean()} {imgs.max()} {imgs.min()} ' +
-                                 f'loss: {loss.item()/conf.batch_size} ' +
-                                 f'data time: {data_meter.avg} ' +
-                                 f'loss time: {loss_meter.avg} ')
-
-                if not conf.no_eval:
-                    if self.step % self.board_loss_every == 0 and self.step != 0:
-                        loss_board = running_loss / self.board_loss_every
-                        self.writer.add_scalar('train_loss', loss_board, self.step)
-                        # self.scheduler.step(loss_board)
-                        running_loss = 0.
-                    if self.step % self.evaluate_every == 0 and self.step != 0:
-                        
-                        #tic = time.time()
-                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
-                                                                                              'agedb_30')
-                        #toc = time.time()
-                        #print("accelerate "+str(toc-tic))
-                        
-                        #accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, agedb_30,
-                        #                                                           agedb_30_issame)
-                        self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor)
-                        logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-                        #accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.lfw, self.lfw_issame)
-                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
-                                                                                              'lfw')
-                        self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor)
-                        logging.info(f'validation accuracy on lfw is {accuracy} ')
-                        #accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.cfp_fp,
-                        #                                                           self.cfp_fp_issame)
-                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
-                                                                                              'cfp_fp')
-                        self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor)
-                        logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
-                    if self.step % self.save_every == 0 and self.step != 0:
-                        self.save_state(conf, accuracy)
+                                 # f'img {imgs.mean()} {imgs.max()} {imgs.min()} ' +
+                                 f'loss: {loss.item()} ' +
+                                 f'data time: {data_time.avg} ' +
+                                 f'loss time: {loss_time.avg} ')
+                if self.step % self.board_loss_every == 0 and self.step != 0:
+                    # record lr
+                    self.writer.add_scalar('lr', self.optimizer.param_groups[0]['lr'], self.step)
+                    self.writer.add_scalar('train_loss', loss_meter.avg + loss_tri_meter.avg, self.step)
+                    self.writer.add_scalar('loss/xent', loss_meter.avg, self.step)
+                    self.writer.add_scalar('loss/triplet', loss_tri_meter.avg, self.step)
+                    # self.scheduler.step(loss_board)
+                if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
+                                                                                          self.loader.dataset.root_path,
+                                                                                          'agedb_30')
+                    # accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, agedb_30,
+                    #                                                           agedb_30_issame)
+                    self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor)
+                    logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
+                    # accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.lfw, self.lfw_issame)
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
+                                                                                          self.loader.dataset.root_path,
+                                                                                          'lfw')
+                    self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor)
+                    logging.info(f'validation accuracy on lfw is {accuracy} ')
+                    # accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.cfp_fp,
+                    #                                                           self.cfp_fp_issame)
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
+                                                                                          self.loader.dataset.root_path,
+                                                                                          'cfp_fp')
+                    self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor)
+                    logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
+                if self.step % self.save_every == 0 and self.step != 0:
+                    self.save_state(conf, accuracy)
 
                 self.step += 1
                 if self.step % conf.num_steps_per_epoch == 0 and self.step != 0:
                     # print('! break')
                     break
-                loss_meter.update(
+                loss_time.update(
                     lz.timer.since_last_check('loss ok', verbose=False)
                 )
 
@@ -773,22 +894,21 @@ class face_learner(object):
         #         self.writer.add_scalar('{}_val:true accept ratio'.format(db_name), val, self.step)
         #         self.writer.add_scalar('{}_val_std'.format(db_name), val_std, self.step)
         #         self.writer.add_scalar('{}_far:False Acceptance Ratio'.format(db_name), far, self.step)
-    
 
     def evaluate_accelerate(self, conf, path, name, nrof_folds=5, tta=False):
         logging.info('start eval')
-        self.model.eval() # set the module in evaluation mode
+        self.model.eval()  # set the module in evaluation mode
         idx = 0
         if tta:
             dataset = Dataset_val(path, name, transform=hflip)
         else:
             dataset = Dataset_val(path, name)
-        loader = DataLoader(dataset, batch_size=conf.batch_size, num_workers=conf.num_workers, 
-                            shuffle=False, pin_memory=True)
+        loader = DataLoader(dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
+                            shuffle=False, pin_memory=True)  # todo why shuffle must false
         length = len(dataset)
         embeddings = np.zeros([length, conf.embedding_size])
         issame = np.zeros(length)
-        
+
         with torch.no_grad():
             for data in loader:
                 carray_batch = data['carray']
@@ -796,12 +916,15 @@ class face_learner(object):
                 if tta:
                     fliped = data['fliped_carray']
                     emb_batch = self.model(carray_batch.to(conf.device)) + self.model(fliped.to(conf.device))
-                    embeddings[idx: (idx+conf.batch_size > length)*(length)+(idx+conf.batch_size <= length)*(idx+conf.batch_size)] = l2_norm(emb_batch)
+                    embeddings[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
+                            idx + conf.batch_size)] = l2_norm(emb_batch)
                 else:
-                    embeddings[idx: (idx+conf.batch_size > length)*(length)+(idx+conf.batch_size <= length)*(idx+conf.batch_size)] = self.model(carray_batch.to(conf.device)).cpu()
-                issame[idx: (idx+conf.batch_size > length)*(length)+(idx+conf.batch_size <= length)*(idx+conf.batch_size)] = issame_batch
+                    embeddings[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
+                            idx + conf.batch_size)] = self.model(carray_batch.to(conf.device)).cpu()
+                issame[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
+                        idx + conf.batch_size)] = issame_batch
                 idx += conf.batch_size
-        
+
         # tpr/fpr is averaged over various fold division
         tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
         buf = gen_plot(fpr, tpr)
@@ -811,12 +934,10 @@ class face_learner(object):
         logging.info('eval end')
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
 
-    
-
     def evaluate(self, conf, carray, issame, nrof_folds=5, tta=False):
-        # todo accelerate eval
+        # accelerate eval
         logging.info('start eval')
-        self.model.eval() # set the module in evaluation mode
+        self.model.eval()  # set the module in evaluation mode
         idx = 0
         embeddings = np.zeros([len(carray), conf.embedding_size])
         with torch.no_grad():
@@ -845,24 +966,20 @@ class face_learner(object):
         logging.info('eval end')
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
 
-
     def validate(self, conf, fixed_str, from_save_folder=False, model_only=False):
         self.load_state(conf, fixed_str, from_save_folder=from_save_folder, model_only=model_only)
 
         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
-                                                                                              'agedb_30')
+                                                                              'agedb_30')
         logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-        
 
         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
                                                                               'lfw')
         logging.info(f'validation accuracy on lfw is {accuracy} ')
-        
 
         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
                                                                               'cfp_fp')
         logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
-
 
     def find_lr(self,
                 conf,
@@ -883,9 +1000,11 @@ class face_learner(object):
         batch_num = 0
         losses = []
         log_lrs = []
-        for i, (imgs, labels) in enumerate(self.loader):
+        for i, data in enumerate(self.loader):
+            imgs = data['imgs']
+            labels = data['labels']
             if i % 100 == 0:
-                print(i)
+                logging.info(f'ok {i}')
             imgs = imgs.to(conf.device)
             labels = labels.to(conf.device)
             batch_num += 1
@@ -894,7 +1013,7 @@ class face_learner(object):
 
             embeddings = self.model(imgs)
             thetas = self.head(embeddings, labels)
-            loss = conf.ce_loss(thetas, labels)
+            loss = conf.ce_loss(thetas, labels)  # todo combine teiplet /  only triplet find best lr
 
             # Compute the smoothed loss
             avg_loss = beta * avg_loss + (1 - beta) * loss.item()
@@ -932,25 +1051,42 @@ class face_learner(object):
 
 if __name__ == '__main__':
     # test thread safe
-    ds = TorchDataset()
-    print(len(ds))
+    # ds = TorchDataset()
+    # print(len(ds))
+    #
+    #
+    # def read(ds):
+    #     ind = random.randint(len(ds) - 10, len(ds) - 1)
+    #     # ind = random.randint(1, 2)
+    #     data = ds[ind]
+    #     # logging.info(data['imgs'].shape)
+    #     print(ind, data['imgs'].shape)
+    #
+    #
+    # import torch.multiprocessing as mp
+    #
+    # ps = []
+    # for _ in range(100):
+    #     p = mp.Process(target=read, args=(ds))
+    #     p.start()
+    #     ps.append(p)
+    #
+    # for p in ps:
+    #     p.join()
 
-
-    def read(ds):
-        ind = random.randint(len(ds) - 10, len(ds) - 1)
-        # ind = random.randint(1, 2)
-        data = ds[ind]
-        # logging.info(data['imgs'].shape)
-        print(ind, data['imgs'].shape)
-
-
-    import torch.multiprocessing as mp
-
-    ps = []
-    for _ in range(100):
-        p = mp.Process(target=read, args=(ds))
-        p.start()
-        ps.append(p)
-
-    for p in ps:
-        p.join()
+    # test random id smpler
+    lz.timer.since_last_check('start')
+    smpler = RandomIdSampler()
+    for idx in smpler:
+        print(idx)
+        break
+    print(len(smpler))
+    lz.timer.since_last_check('construct ')
+    # flag = False
+    # for ids in smpler:
+    #     # print(ids)
+    #     ids = np.asarray(ids)
+    #     assert np.min(ids) >= 0
+    #     if np.isclose(ids, 0):
+    #         flag = True
+    # print(flag)

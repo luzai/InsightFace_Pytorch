@@ -1,7 +1,8 @@
 # from __future__ import print_function, absolute_import, division, unicode_literals
 
 import matplotlib.pyplot as plt
-plt.switch_backend('Agg')
+
+# plt.switch_backend('Agg')
 # plt.switch_backend('TkAgg')
 
 import os, sys, time, \
@@ -92,6 +93,7 @@ root_path = osp.normpath(
 home_path = os.environ['HOME'] + '/'
 work_path = home_path + '/work/'
 share_path = '/data1/share/'
+share_path3 = '/home/share/'
 share_path2 = '/data2/share/'
 
 sys.path.insert(0, root_path)
@@ -275,7 +277,7 @@ def show_dev(devs=range(4)):
     return res
 
 
-def get_dev(n=1, ok=range(4), mem_thresh=(0.1, 0.15), sleep=23.3): # 0.3: now occupy smaller than 0.3
+def get_dev(n=1, ok=range(4), mem_thresh=(0.1, 0.15), sleep=23.3):  # 0.3: now occupy smaller than 0.3
     if not isinstance(mem_thresh, collections.Sequence):
         mem_thresh = (mem_thresh,)
 
@@ -428,7 +430,7 @@ class Timer(object):
         logging.info(f'{aux} time {self.print_tmpl.format(self._t_last - self._t_start)}')
         return self._t_last - self._t_start
 
-    def since_last_check(self, aux='', verbose = True ):
+    def since_last_check(self, aux='', verbose=True):
         """Time since the last checking.
 
         Either :func:`since_start` or :func:`since_last_check` is a checking operation.
@@ -1114,7 +1116,7 @@ def to_img(img, ):
     # if img.dtype == np.float32 or img.dtype == np.float64:
     if img.max() < 1.1:
         img -= img.min()
-        img /= img.max()
+        img = img / (img.max() + 1e-6)
         img *= 255
     img = np.array(img, dtype=np.uint8)
     if len(shape) == 3 and shape[-1] == 1:
@@ -1362,13 +1364,13 @@ def to_json_format(obj, allow_np=True):
                 return np.asarray(obj, order="C")
             else:
                 return to_json_format(obj.tolist())
-    elif isinstance(obj,(list,tuple,collections.deque)):
+    elif isinstance(obj, (list, tuple, collections.deque)):
         return [to_json_format(subobj, allow_np) for subobj in obj]
     elif isinstance(obj, dict):
         for key in obj.keys():
             obj[key] = to_json_format(obj[key], allow_np)
         return obj
-    elif isinstance(obj, (int,str,float)):
+    elif isinstance(obj, (int, str, float)):
         return obj
     elif isinstance(obj, torch.Tensor):
         return obj.cpu().numpy()
@@ -1675,7 +1677,6 @@ def get_adv(loss, inp, norm='l2', eps=.1, ):
     return xa_advtrue
 
 
-
 class AverageMeter(object):
     """Computes and stores the average and current value"""
 
@@ -1703,5 +1704,27 @@ class AverageMeter(object):
 
 
 if __name__ == '__main__':
-    plt.plot(range(10))
-    plt.show()
+    ncol = 6
+    nrow = 27 // ncol + 1
+    # fs = glob.glob('/home/xinglu/work/yy.ld.30.body/*.png')
+    fs = glob.glob(work_path + 'youeryuan/20180930 新中二班-缪蕾老师班-29、30/中二班9月30日-正侧背/front/*.JPG')
+    len(fs)
+    fig, axes = plt.subplots(nrows=nrow, ncols=ncol,
+                             figsize=(6 * 10,
+                                      int(5 * 2 / (4032 / 3024)) * 10)
+                             )
+    axes = np.ravel(axes)
+
+    for f, ax in zip(fs, axes):
+        img = cvb.read_img(f)
+        # img = cvb.resize_keep_ar(img, 500,500)
+        _ = plt_imshow(img[..., ::-1], ax=ax)
+
+    plt_imshow(np.ones_like(img[..., ::-1], )
+               , ax=axes[-1])
+    plt_imshow(np.ones_like(img[..., ::-1], )
+               , ax=axes[-2])
+    plt_imshow(np.ones_like(img[..., ::-1], )
+               , ax=axes[-3])
+    plt.tight_layout()
+    plt.savefig(work_path + 't.png')
