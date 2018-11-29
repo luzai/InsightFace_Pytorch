@@ -21,7 +21,7 @@ if __name__ == '__main__':
         epochs=8,  # todo 4 epoch for test2 performance
         net='ir_se',
         net_depth='50',
-        lr=0.03926,  # 0.028,  # 0.028 , 1e-2
+        lr=0.04,  # 0.028,  # 0.028 , 1e-2
         batch_size=gl_conf.batch_size,
         num_workers=gl_conf.num_workers,
         data_mode="ms1m",
@@ -45,9 +45,9 @@ if __name__ == '__main__':
     conf.data_mode = args.data_mode
     learner = face_learner(conf, )
     # for resume or evaluate
-    learner.load_state(conf,
-                       '2018-11-26-09-37_accuracy:0.8048571428571428_step:30730_None.pth',
-                       from_save_folder=False,
-                       model_only=False)
+    # learner.load_state(conf,
+    #                    '2018-11-26-09-37_accuracy:0.8048571428571428_step:30730_None.pth',
+    #                    from_save_folder=False,
+    #                    model_only=False)
     # print(learner.find_lr(conf,num=1500 ))
     learner.train(conf, args.epochs)

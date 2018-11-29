@@ -513,7 +513,7 @@ from collections import defaultdict
 # improve locality and improve load speed!
 class RandomIdSampler(Sampler):
     def __init__(self):
-        path_ms1m = lz.share_path3 + 'faces_ms1m_112x112/'
+        path_ms1m = lz.share_path2 + 'faces_ms1m_112x112/'
         self.imgidx, self.ids, self.id2range = lz.msgpack_load(path_ms1m + '/info.pk')
         # above is the imgidx of .rec file
         # remember -1 to convert to pytorch imgidx
@@ -635,7 +635,7 @@ class face_learner(object):
                 shuffle=False, sampler=RandomIdSampler(), drop_last=True,
                 pin_memory=True,
             )
-            # todo triplet
+            # todo randomid sample, will it affects xent?
             self.class_num = 85164
 
             ## mxnet load serialized data
@@ -745,10 +745,11 @@ class face_learner(object):
                     # thetas = head(input, target)
                     # l = nn.CrossEntropyLoss()(thetas, target)
                     # l.item()
-                    loss_triplet = self.head_triplet(embeddings, labels)
+                    # todo below shorter baseline is not use triplet
+                    # loss_triplet = self.head_triplet(embeddings, labels)
                     loss_meter.update(loss.item())
-                    loss_tri_meter.update(loss_triplet.item())
-                    loss = loss + loss_triplet
+                    # loss_tri_meter.update(loss_triplet.item())
+                    # loss = loss + 0.1 * loss_triplet
                     loss.backward()
                 elif conf.fgg == 'g':
                     embeddings_o = self.model(imgs)
@@ -787,7 +788,7 @@ class face_learner(object):
                 if self.step % self.board_loss_every == 0 and self.step != 0:
                     # record lr
                     self.writer.add_scalar('lr', self.optimizer.param_groups[0]['lr'], self.step)
-                    self.writer.add_scalar('train_loss', loss_meter.avg + loss_tri_meter.avg, self.step)
+                    self.writer.add_scalar('train_loss', loss_meter.avg + 0.1 * loss_tri_meter.avg, self.step)
                     self.writer.add_scalar('loss/xent', loss_meter.avg, self.step)
                     self.writer.add_scalar('loss/triplet', loss_tri_meter.avg, self.step)
                     # self.scheduler.step(loss_board)
@@ -817,7 +818,6 @@ class face_learner(object):
 
                 self.step += 1
                 if self.step % conf.num_steps_per_epoch == 0 and self.step != 0:
-                    # print('! break')
                     break
                 loss_time.update(
                     lz.timer.since_last_check('loss ok', verbose=False)
@@ -1013,7 +1013,7 @@ class face_learner(object):
 
             embeddings = self.model(imgs)
             thetas = self.head(embeddings, labels)
-            loss = conf.ce_loss(thetas, labels)  # todo combine teiplet /  only triplet find best lr
+            loss = conf.ce_loss(thetas, labels)  # todo combine triplet /  only triplet find best lr
 
             # Compute the smoothed loss
             avg_loss = beta * avg_loss + (1 - beta) * loss.item()

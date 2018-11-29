@@ -7,7 +7,8 @@ from torchvision import transforms as trans
 
 # lz.init_dev(lz.get_dev(n=2))
 # lz.init_dev(range(2, 4) if lz.dbg else range(2))
-lz.init_dev(lz.get_dev(4))
+num_devs = 2
+lz.init_dev(lz.get_dev(num_devs))
 
 
 def get_config(training=True):
@@ -30,7 +31,7 @@ def get_config(training=True):
 
     conf.data_path = Path('/data2/share/')
     # conf.work_path = Path('work_space/dbg.bak/')
-    conf.work_path = Path('work_space/arcsft.triadap')
+    conf.work_path = Path('work_space/arcsft.bs2')
     conf.model_path = conf.work_path / 'models'
     conf.log_path = conf.work_path / 'log'
     conf.save_path = conf.work_path / 'save'
@@ -56,7 +57,7 @@ def get_config(training=True):
     # else:
     conf.ms1m_folder = conf.data_path / 'faces_ms1m_112x112'
     conf.emore_folder = conf.data_path / 'faces_emore'
-    conf.batch_size = 84 * 4 if not dbg else 8  # irse net depth 50 # 100 -- 7111M
+    conf.batch_size = 96 * num_devs if not dbg else 8  # irse net depth 50 # 100 -- 7111M
     #   conf.batch_size = 200 # mobilefacenet
     conf.num_recs = 2 if not dbg else 1 # todo too much worse soeed ?
     # --------------------Training Config ------------------------
@@ -65,7 +66,8 @@ def get_config(training=True):
         conf.save_path = conf.work_path / 'save'
         #     conf.weight_decay = 5e-4
         conf.lr = 1e-2
-        conf.milestones = [12, 15, 18]
+        # conf.milestones = [12, 15, 18]
+        conf.milestones = [4, 6, 8]
         conf.momentum = 0.9
         conf.pin_memory = True
         conf.num_workers = 12 if not dbg else 0

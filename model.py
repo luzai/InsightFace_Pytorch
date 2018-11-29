@@ -370,6 +370,8 @@ class TripletLoss(Module):
         dist = torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(n, n)
         dist = dist + dist.t()
         dist.addmm_(1, -2, inputs, inputs.t()).clamp_(min=1e-12).sqrt_()
+        dist *= 64
+        # todo how to use triplet only, can use temprature decay/progessive learinig curriculum learning
         # dist = dist.clamp(min=1e-12).sqrt()  # for numerical stability
 
         # For each anchor, find the hardest positive and negative
