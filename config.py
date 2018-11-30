@@ -7,11 +7,11 @@ from torchvision import transforms as trans
 
 # lz.init_dev(lz.get_dev(n=2))
 # lz.init_dev(range(2, 4) if lz.dbg else range(2))
-num_devs = 2
+num_devs = 1
 lz.init_dev(lz.get_dev(num_devs))
 
 
-def get_config(training=True):
+def get_config(training=True,work_path =None ):
     conf = edict()
 
     dbg = lz.dbg
@@ -30,8 +30,7 @@ def get_config(training=True):
     conf.start_eval = False
 
     conf.data_path = Path('/data2/share/')
-    # conf.work_path = Path('work_space/dbg.bak/')
-    conf.work_path = Path('work_space/arcsft.bs2')
+    conf.work_path = work_path or Path('work_space/arcsft.bs2')
     conf.model_path = conf.work_path / 'models'
     conf.log_path = conf.work_path / 'log'
     conf.save_path = conf.work_path / 'save'
@@ -59,7 +58,7 @@ def get_config(training=True):
     conf.emore_folder = conf.data_path / 'faces_emore'
     conf.batch_size = 96 * num_devs if not dbg else 8  # irse net depth 50 # 100 -- 7111M
     #   conf.batch_size = 200 # mobilefacenet
-    conf.num_recs = 2 if not dbg else 1 # todo too much worse soeed ?
+    conf.num_recs = 2 if not dbg else 1 # todo too much worse speed ?
     # --------------------Training Config ------------------------
     if training:
         conf.log_path = conf.work_path / 'log'
@@ -71,7 +70,7 @@ def get_config(training=True):
         conf.momentum = 0.9
         conf.pin_memory = True
         conf.num_workers = 12 if not dbg else 0
-        conf.ce_loss = CrossEntropyLoss(reduce=True)
+        conf.ce_loss = CrossEntropyLoss( )
 
         conf.facebank_path = conf.data_path / 'facebank'
         conf.threshold = 1.5
