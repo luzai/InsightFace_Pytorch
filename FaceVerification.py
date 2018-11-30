@@ -37,10 +37,9 @@ def imgp2face(img_path1):
     img1 = io.imread(img_path1)  # this is rgb
     img1 = img1[..., ::-1]
     img1 = Image.fromarray(img1)
-    bboxes, faces = mtcnn.align_multi(img1, conf.face_limit, 16)
-    # todo handle multi bboxes
-    face1 = faces[0]
-    return face1
+    face = mtcnn.align_best(img1, conf.face_limit, 16)
+    # todo better align
+    return face
 
 
 def face2fea(img):
@@ -52,14 +51,15 @@ def face2fea(img):
     return fea
 
 
-def FaceVerification(img_path1, img_path2, thresh=1.4):  # 1.7 1.5 1.4
+def FaceVerification(img_path1, img_path2, thresh=1.7):  # 1.7 1.5 1.4
     face1 = imgp2face(img_path1)
     face2 = imgp2face(img_path2)
 
     fea1 = face2fea(face1)
     fea2 = face2fea(face2)
     diff = np.subtract(fea1, fea2)
-    dist = np.sum(np.square(diff), )  # dist is 0 - 2
+    dist = np.sum(np.square(diff), )  # dist is 0 - 4
+    # logging.info(f'dist: {dist} {img_path1} ')
     if dist > thresh:
         return 0
     else:

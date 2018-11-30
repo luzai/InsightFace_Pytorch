@@ -30,7 +30,7 @@ class MTCNN():
         # cvb.show_img(warped_face)
         return Image.fromarray(warped_face)
 
-    def align_multi(self, img, limit=None, min_face_size=30.0):
+    def align_multi(self, img, limit=None, min_face_size=20.0):
         boxes, landmarks = self.detect_faces(img, min_face_size)
         if limit:
             boxes = boxes[:limit]
@@ -42,8 +42,37 @@ class MTCNN():
             faces.append(Image.fromarray(warped_face))
         return boxes, faces
 
+    def align_best(self, img, limit=None, min_face_size=20.0):
+        boxes, landmarks = self.detect_faces(img, min_face_size)
+        img = np.asarray(img)
+        if limit:
+            boxes = boxes[:limit]
+            landmarks = landmarks[:limit]
+        nrof_faces = len(boxes)
+        boxes = np.asarray(boxes)
+        if nrof_faces > 0:
+            det = boxes[:, 0:4]
+            img_size = np.asarray(img.shape)[0:2]
+            bindex = 0
+            if nrof_faces > 1:
+                bounding_box_size = (det[:, 2] - det[:, 0]) * (det[:, 3] - det[:, 1])
+                img_center = img_size / 2
+                offsets = np.vstack(
+                    [(det[:, 0] + det[:, 2]) / 2 - img_center[1], (det[:, 1] + det[:, 3]) / 2 - img_center[0]])
+                offset_dist_squared = np.sum(np.power(offsets, 2.0), 0)
+                bindex = np.argmax(
+                    bounding_box_size - offset_dist_squared * 2.0)  # some extra weight on the centering
+            boxes = boxes[bindex, 0:4]
+            landmarks = landmarks[bindex, :]
+            facial5points = [[landmarks[j], landmarks[j + 5]] for j in range(5)]
+            warped_face = warp_and_crop_face(np.array(img), facial5points, self.refrence, crop_size=(112, 112))
+            return Image.fromarray(warped_face)
+        else:
+            return Image.fromarray(img).resize((112,112), Image.BILINEAR)
+
     def detect_faces(self, image, min_face_size=20.0,
                      thresholds=[0.6, 0.7, 0.8],
+                     # thresholds=[0.6, 0.7, 0.9],
                      nms_thresholds=[0.7, 0.7, 0.7]):
         """
         Arguments:
@@ -147,7 +176,7 @@ class MTCNN():
             # while keep.shape[0] == 0:
             #     thresh -= 0.01
             #     keep = np.where(probs[:, 1] > thresh)[0]
-            print('3 stage one thresh', thresh)
+            # print('3 stage one thresh', thresh)
 
             bounding_boxes = bounding_boxes[keep]
             bounding_boxes[:, 4] = probs[keep, 1].reshape((-1,))

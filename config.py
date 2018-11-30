@@ -11,7 +11,7 @@ num_devs = 1
 lz.init_dev(lz.get_dev(num_devs))
 
 
-def get_config(training=True,work_path =None ):
+def get_config(training=True, work_path=None):
     conf = edict()
 
     dbg = lz.dbg
@@ -42,8 +42,7 @@ def get_config(training=True,work_path =None ):
     conf.net_mode = 'ir_se'  # or 'ir'
     conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     conf.device2 = torch.device("cuda:1")  # todo for at least two gpu, seems no need
-    conf.start_epoch = 2 # 0
-
+    conf.start_epoch = 2  # 0
 
     conf.test_transform = trans.Compose([
         trans.ToTensor(),
@@ -58,7 +57,7 @@ def get_config(training=True,work_path =None ):
     conf.emore_folder = conf.data_path / 'faces_emore'
     conf.batch_size = 96 * num_devs if not dbg else 8  # irse net depth 50 # 100 -- 7111M
     #   conf.batch_size = 200 # mobilefacenet
-    conf.num_recs = 2 if not dbg else 1 # todo too much worse speed ?
+    conf.num_recs = 2 if not dbg else 1  # todo too much worse speed ?
     # --------------------Training Config ------------------------
     if training:
         conf.log_path = conf.work_path / 'log'
@@ -70,7 +69,7 @@ def get_config(training=True,work_path =None ):
         conf.momentum = 0.9
         conf.pin_memory = True
         conf.num_workers = 12 if not dbg else 0
-        conf.ce_loss = CrossEntropyLoss( )
+        conf.ce_loss = CrossEntropyLoss()
 
         conf.facebank_path = conf.data_path / 'facebank'
         conf.threshold = 1.5
