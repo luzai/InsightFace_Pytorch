@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from collections import OrderedDict
 import numpy as np
+import lz
 
 
 class Flatten(nn.Module):
@@ -27,7 +28,6 @@ class Flatten(nn.Module):
 class PNet(nn.Module):
 
     def __init__(self):
-
         super(PNet, self).__init__()
 
         # suppose we have input with size HxW, then
@@ -52,7 +52,7 @@ class PNet(nn.Module):
         self.conv4_1 = nn.Conv2d(32, 2, 1, 1)
         self.conv4_2 = nn.Conv2d(32, 4, 1, 1)
 
-        weights = np.load('mtcnn_pytorch/src/weights/pnet.npy')[()]
+        weights = np.load(lz.root_path + 'mtcnn_pytorch/src/weights/pnet.npy')[()]
         for n, p in self.named_parameters():
             p.data = torch.FloatTensor(weights[n])
 
@@ -74,7 +74,6 @@ class PNet(nn.Module):
 class RNet(nn.Module):
 
     def __init__(self):
-
         super(RNet, self).__init__()
 
         self.features = nn.Sequential(OrderedDict([
@@ -97,7 +96,7 @@ class RNet(nn.Module):
         self.conv5_1 = nn.Linear(128, 2)
         self.conv5_2 = nn.Linear(128, 4)
 
-        weights = np.load('mtcnn_pytorch/src/weights/rnet.npy')[()]
+        weights = np.load(lz.root_path + 'mtcnn_pytorch/src/weights/rnet.npy')[()]
         for n, p in self.named_parameters():
             p.data = torch.FloatTensor(weights[n])
 
@@ -119,7 +118,6 @@ class RNet(nn.Module):
 class ONet(nn.Module):
 
     def __init__(self):
-
         super(ONet, self).__init__()
 
         self.features = nn.Sequential(OrderedDict([
@@ -148,7 +146,7 @@ class ONet(nn.Module):
         self.conv6_2 = nn.Linear(256, 4)
         self.conv6_3 = nn.Linear(256, 10)
 
-        weights = np.load('mtcnn_pytorch/src/weights/onet.npy')[()]
+        weights = np.load(lz.root_path + 'mtcnn_pytorch/src/weights/onet.npy')[()]
         for n, p in self.named_parameters():
             p.data = torch.FloatTensor(weights[n])
 
@@ -165,5 +163,5 @@ class ONet(nn.Module):
         a = self.conv6_1(x)
         b = self.conv6_2(x)
         c = self.conv6_3(x)
-        a = F.softmax(a, dim = -1)
+        a = F.softmax(a, dim=-1)
         return c, b, a
