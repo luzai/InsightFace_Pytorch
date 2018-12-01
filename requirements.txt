@@ -25,3 +25,5 @@ tensorboard
 tqdm
 mxnet_cu90mkl
 bcolz
+pandas
+sklearn

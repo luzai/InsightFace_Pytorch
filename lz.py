@@ -571,8 +571,15 @@ def desel_np(s):
     A = np.array(A, dtype=sav['dtype']).reshape(sav['shape'])
     return A
 
+def to_image(arr):
+    from PIL import Image
+    if type(arr).__module__ == 'PIL.Image':
+        return arr
+    if type(arr).__module__=='numpy':
+        return Image.fromarray(arr)
 
 def to_numpy(tensor):
+    import  PIL
     if isinstance(tensor, torch.autograd.Variable):
         tensor = tensor.detach()
     if torch.is_tensor(tensor):
@@ -585,6 +592,8 @@ def to_numpy(tensor):
         else:
             tensor = tensor.cpu().numpy()
             tensor = np.asarray(tensor)
+    if type(tensor).__module__  == 'PIL.Image':
+        tensor = np.asarray(tensor)
     # elif type(tensor).__module__ != 'numpy':
     #     raise ValueError("Cannot convert {} to numpy array"
     #                      .format(type(tensor)))

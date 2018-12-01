@@ -15,9 +15,9 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class MTCNN():
     def __init__(self):
-        self.pnet = PNet().cuda()
-        self.rnet = RNet().cuda()
-        self.onet = ONet().cuda()
+        self.pnet = PNet().to(device)
+        self.rnet = RNet().to(device)
+        self.onet = ONet().to(device)
         self.onet.eval()
         self.rnet.eval()
         self.onet.eval()
@@ -48,7 +48,7 @@ class MTCNN():
     def align_best(self, img, limit=None, min_face_size=20.0):
         try:
             boxes, landmarks = self.detect_faces(img, min_face_size)
-            img = np.asarray(img)
+            img = to_numpy(img)
             if limit:
                 boxes = boxes[:limit]
                 landmarks = landmarks[:limit]
@@ -70,13 +70,12 @@ class MTCNN():
                 landmarks = landmarks[bindex, :]
                 facial5points = [[landmarks[j], landmarks[j + 5]] for j in range(5)]
                 warped_face = warp_and_crop_face(np.array(img), facial5points, self.refrence, crop_size=(112, 112))
-                return Image.fromarray(warped_face)
+                return to_image(warped_face)
             else:
-                return Image.fromarray(img).resize((112,112), Image.BILINEAR)
+                return to_image(img).resize((112,112), Image.BILINEAR)
         except:
-            # todo fx it!
-            logging.info('fail !! ')
-            return Image.fromarray(img).resize((112, 112), Image.BILINEAR)
+            logging.info(f'fail !! {img}')
+            return to_image(img).resize((112, 112), Image.BILINEAR)
 
     def detect_faces(self, image, min_face_size=20.0,
                      thresholds=[0.6, 0.7, 0.8],
@@ -93,7 +92,7 @@ class MTCNN():
             two float numpy arrays of shapes [n_boxes, 4] and [n_boxes, 10],
             bounding boxes and facial landmarks.
         """
-
+        image = to_image(image)
         # BUILD AN IMAGE PYRAMID
         width, height = image.size
         min_length = min(height, width)
