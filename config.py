@@ -13,7 +13,7 @@ lz.init_dev(lz.get_dev(num_devs))
 
 def get_config(training=True, work_path=None):
     conf = edict()
-
+    conf.num_devs=num_devs
     dbg = lz.dbg
     # if dbg:
     #     # conf.num_steps_per_epoch = 38049

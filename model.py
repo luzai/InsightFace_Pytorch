@@ -14,10 +14,13 @@ class Flatten(Module):
         return input.view(input.size(0), -1)
 
 
-def l2_norm(input, axis=1):
+def l2_norm(input, axis=1, need_norm=False):
     norm = torch.norm(input, 2, axis, True)
     output = torch.div(input, norm)
-    return output
+    if need_norm:
+        return output, norm
+    else:
+        return output
 
 
 class SEModule(Module):
@@ -144,14 +147,18 @@ class Backbone(Module):
                                 bottleneck.stride))
         self.body = Sequential(*modules)
 
-    def forward(self, x):
+    def forward(self, x, need_norm=False):
         x = self.input_layer(x)
         x = self.body(x)
         x = self.output_layer(x)
-        return l2_norm(x)
+        if not need_norm:
+            return l2_norm(x)
+        else:
+            x, norm = l2_norm(x, axis=1,  need_norm=need_norm)
+            return x, norm
 
+        ##################################  MobileFaceNet #############################################################
 
-##################################  MobileFaceNet #############################################################
 
 class Conv_block(Module):
     def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1):

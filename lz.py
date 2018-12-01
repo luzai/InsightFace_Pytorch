@@ -547,7 +547,7 @@ def df2md(df1):
 
 def stat_np(array):
     array = np.asarray(array)
-    return np.min(array), np.mean(array), np.median(array), np.max(array)
+    return np.min(array), np.mean(array), np.median(array), np.max(array), np.shape(array)
 
 
 def stat_th(tensor):
@@ -560,8 +560,7 @@ def sel_np(A):
     shape = A.shape
     A = A.ravel().tolist()
     sav = {'shape': shape, 'dtype': dtype,
-           'A': A
-           }
+           'A': A}
     return json.dumps(sav)
 
 

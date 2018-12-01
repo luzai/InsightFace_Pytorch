@@ -29,12 +29,12 @@ conf = get_config(training=False, work_path=chkpnt_path)
 
 from torch.utils.data.dataloader import default_collate
 
-mem = []
-true_batch_size = 100
+# mem = []
+true_batch_size = 100*3*conf.num_devs
 
 
 def my_collate(batch):
-    global mem
+    # global mem
     newb = []
     for b1 in batch:
         for b2 in b1:
@@ -85,14 +85,6 @@ if __name__ == '__main__':
     ds = DatasetIJBC()
     loader = torch.utils.data.DataLoader(ds, batch_size=1, num_workers=12, shuffle=False, pin_memory=True,
                                          collate_fn=my_collate)
-    t = []
-    for ind, res in enumerate(loader):
-        t.append(res['img'].shape[0])
-        # print(t[-1])
-    plt.hist(t)
-    plt.show()
-    print(stat_np(t))
-    exit(0)
 
     learner = face_learner(conf, inference=True)
     assert conf.device.type != 'cpu'
@@ -100,3 +92,35 @@ if __name__ == '__main__':
     learner.load_state(conf, prefix, True, True)
     learner.model.eval()
     logging.info('learner loaded')
+
+    timer.since_last_check('start')
+    db = Database(work_path + 'ijbc.h5')
+    for ind, res in enumerate(loader):
+        img = res['img']
+        print(img.shape[0])
+        sid = res['sid']
+        tid = res['tid']
+        finish = res['finish']
+        # extract fea
+        start = 0
+        fea_l = []
+        norm_l = []
+        with torch.no_grad():
+            while start < len(img):
+                img_now = img[start:start + true_batch_size]
+                # todo multi gpu
+                fea, norm = learner.model(img_now, need_norm=True)
+                start += true_batch_size
+                fea_l.append(fea.cpu())
+                norm_l.append(norm.cpu())
+        fea = torch.cat(fea_l).numpy()
+        norm = torch.cat(norm_l).numpy()
+        db[f'fea/{sid}/{tid}'] = fea
+        db[f'norm/{sid}/{tid}'] = norm
+        # save to db
+    db.close()
+    # load
+    # agg
+    # get acc
+
+    timer.since_last_check('end')
