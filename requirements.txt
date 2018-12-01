@@ -3,7 +3,7 @@ h5py
 numpy
 Pillow
 scipy
-torch
+# torch
 torchvision
 gpustat
 easydict

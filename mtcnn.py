@@ -7,22 +7,25 @@ from mtcnn_pytorch.src.box_utils import nms, calibrate_box, get_image_boxes, con
 from mtcnn_pytorch.src.first_stage import run_first_stage
 from mtcnn_pytorch.src.align_trans import get_reference_facial_points, warp_and_crop_face
 import cvbase as cvb
+from lz import *
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
 
 # device = 'cpu'
 
 class MTCNN():
     def __init__(self):
-        self.pnet = PNet().to(device)
-        self.rnet = RNet().to(device)
-        self.onet = ONet().to(device)
+        self.pnet = PNet().cuda()
+        self.rnet = RNet().cuda()
+        self.onet = ONet().cuda()
         self.onet.eval()
         self.rnet.eval()
         self.onet.eval()
         self.refrence = get_reference_facial_points(default_square=True)
-
+    def share_memory(self):
+        self.pnet.share_memory()
+        self.rnet.share_memory()
+        self.onet.share_memory()
     def align(self, img):
         _, landmarks = self.detect_faces(img)
         facial5points = [[landmarks[0][j], landmarks[0][j + 5]] for j in range(5)]
@@ -43,32 +46,37 @@ class MTCNN():
         return boxes, faces
 
     def align_best(self, img, limit=None, min_face_size=20.0):
-        boxes, landmarks = self.detect_faces(img, min_face_size)
-        img = np.asarray(img)
-        if limit:
-            boxes = boxes[:limit]
-            landmarks = landmarks[:limit]
-        nrof_faces = len(boxes)
-        boxes = np.asarray(boxes)
-        if nrof_faces > 0:
-            det = boxes[:, 0:4]
-            img_size = np.asarray(img.shape)[0:2]
-            bindex = 0
-            if nrof_faces > 1:
-                bounding_box_size = (det[:, 2] - det[:, 0]) * (det[:, 3] - det[:, 1])
-                img_center = img_size / 2
-                offsets = np.vstack(
-                    [(det[:, 0] + det[:, 2]) / 2 - img_center[1], (det[:, 1] + det[:, 3]) / 2 - img_center[0]])
-                offset_dist_squared = np.sum(np.power(offsets, 2.0), 0)
-                bindex = np.argmax(
-                    bounding_box_size - offset_dist_squared * 2.0)  # some extra weight on the centering
-            boxes = boxes[bindex, 0:4]
-            landmarks = landmarks[bindex, :]
-            facial5points = [[landmarks[j], landmarks[j + 5]] for j in range(5)]
-            warped_face = warp_and_crop_face(np.array(img), facial5points, self.refrence, crop_size=(112, 112))
-            return Image.fromarray(warped_face)
-        else:
-            return Image.fromarray(img).resize((112,112), Image.BILINEAR)
+        try:
+            boxes, landmarks = self.detect_faces(img, min_face_size)
+            img = np.asarray(img)
+            if limit:
+                boxes = boxes[:limit]
+                landmarks = landmarks[:limit]
+            nrof_faces = len(boxes)
+            boxes = np.asarray(boxes)
+            if nrof_faces > 0:
+                det = boxes[:, 0:4]
+                img_size = np.asarray(img.shape)[0:2]
+                bindex = 0
+                if nrof_faces > 1:
+                    bounding_box_size = (det[:, 2] - det[:, 0]) * (det[:, 3] - det[:, 1])
+                    img_center = img_size / 2
+                    offsets = np.vstack(
+                        [(det[:, 0] + det[:, 2]) / 2 - img_center[1], (det[:, 1] + det[:, 3]) / 2 - img_center[0]])
+                    offset_dist_squared = np.sum(np.power(offsets, 2.0), 0)
+                    bindex = np.argmax(
+                        bounding_box_size - offset_dist_squared * 2.0)  # some extra weight on the centering
+                boxes = boxes[bindex, 0:4]
+                landmarks = landmarks[bindex, :]
+                facial5points = [[landmarks[j], landmarks[j + 5]] for j in range(5)]
+                warped_face = warp_and_crop_face(np.array(img), facial5points, self.refrence, crop_size=(112, 112))
+                return Image.fromarray(warped_face)
+            else:
+                return Image.fromarray(img).resize((112,112), Image.BILINEAR)
+        except:
+            # todo fx it!
+            logging.info('fail !! ')
+            return Image.fromarray(img).resize((112, 112), Image.BILINEAR)
 
     def detect_faces(self, image, min_face_size=20.0,
                      thresholds=[0.6, 0.7, 0.8],
