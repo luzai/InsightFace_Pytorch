@@ -106,16 +106,15 @@ if __name__ == '__main__':
 
     multi_pool = Pool(processes=3, )
     inps = []
-    print(df_enroll.shape)
-    for ind, val in df_enroll.iterrows():
+    # for ind, val in df_enroll.iterrows():
+    for ind, val in df_verif.iterrows():
         tid = val['TEMPLATE_ID']
         sid = val['SUBJECT_ID']
         fn = val['FILENAME']
         x, y, w, h = val.iloc[-4:]
         x, y, w, h = list(map(int, [x, y, w, h]))
         inps.append([ind, tid, sid, fn, x, y, w, h, mtcnn])
-        # if ind > 9999: break
-    inps = inps[::-1]
+    # inps = inps[::-1]
     _ = multi_pool.map(do_align_by_list, inps)
     # _ = multi_pool.map_async(do_align_by_list, inps)
     multi_pool.close()

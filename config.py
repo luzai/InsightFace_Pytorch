@@ -8,7 +8,7 @@ from torchvision import transforms as trans
 # lz.init_dev(lz.get_dev(n=2))
 # lz.init_dev(range(2, 4) if lz.dbg else range(2))
 num_devs = 1
-# lz.init_dev(lz.get_dev(num_devs))
+lz.init_dev(lz.get_dev(num_devs))
 
 
 def get_config(training=True, work_path=None):

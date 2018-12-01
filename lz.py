@@ -546,6 +546,7 @@ def df2md(df1):
 
 
 def stat_np(array):
+    array = np.asarray(array)
     return np.min(array), np.mean(array), np.median(array), np.max(array)
 
 

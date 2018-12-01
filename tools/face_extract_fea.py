@@ -2,7 +2,6 @@ import cv2
 from PIL import Image
 import argparse
 from pathlib import Path
-from multiprocessing import Process, Pipe, Value, Array
 import torch
 from config import get_config
 from mtcnn import MTCNN

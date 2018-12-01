@@ -736,15 +736,6 @@ class face_learner(object):
                     embeddings = self.model(imgs)
                     thetas = self.head(embeddings, labels)
                     loss = conf.ce_loss(thetas, labels)
-                    # todo triplet seems make loss computation slow
-                    # todo balance loss since this is 46
-                    # head = Arcface(512, 85164)
-                    # input = torch.randn(128, 512, requires_grad=True)
-                    # input=l2_norm(input)
-                    # target = torch.empty(128, dtype=torch.long).random_(85164)
-                    # thetas = head(input, target)
-                    # l = nn.CrossEntropyLoss()(thetas, target)
-                    # l.item()
                     # todo below shorter baseline is not use triplet
                     # loss_triplet = self.head_triplet(embeddings, labels)
                     loss_meter.update(loss.item())
