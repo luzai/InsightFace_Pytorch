@@ -40,9 +40,9 @@ if __name__ == '__main__':
     #                    from_save_folder=False,
     #                    model_only=False)
     # todo make it load from model of any folder
-    log_lrs, losses = learner.find_lr(conf,
-                                      final_value=10,
-                                      num=1500)
-    best_lr = 10 ** (log_lrs[np.argmin(losses)])
+    # log_lrs, losses = learner.find_lr(conf,
+    #                                   final_value=10,
+    #                                   num=1500)
+    # best_lr = 10 ** (log_lrs[np.argmin(losses)])
     # conf.lr = best_lr
-    # learner.train(conf, args.epochs)
+    learner.train(conf, args.epochs)

@@ -1,7 +1,6 @@
-from easydict import EasyDict as edict
 from pathlib import Path
-import torch
 import lz
+from lz import *
 from torch.nn import CrossEntropyLoss
 from torchvision import transforms as trans
 
@@ -23,12 +22,15 @@ def get_config(training=True, work_path=None):
     # else:
     conf.num_steps_per_epoch = 38049
     conf.no_eval = False
-    conf.num_imgs = 3804846
-    conf.loss = 'softmax'  # softmax arcface
+    conf.num_imgs = 3804846  # 85k id, 3.8M imgs
+    conf.num_clss = 85164
+    conf.loss = 'arcface'  # softmax arcface # todo check softxmax, has bug?
+    conf.rand_ratio = 6/27
     conf.fgg = ''  # g gg ''
     conf.fgg_wei = 0  # 1
     conf.tri_wei = 0
     conf.scale = 64.  # 30.
+    conf.dop = np.ones(conf.num_clss) * -1
     conf.start_eval = False
 
     conf.data_path = Path('/data2/share/')
@@ -57,7 +59,7 @@ def get_config(training=True, work_path=None):
     # else:
     conf.ms1m_folder = conf.data_path / 'faces_ms1m_112x112'
     conf.emore_folder = conf.data_path / 'faces_emore'
-    conf.batch_size = 96 * num_devs if not dbg else 8 * num_devs  # irse net depth 50 # 100 -- 7111M
+    conf.batch_size = 96 * num_devs if not dbg else 8 * num_devs  # xent: 96 92 tri: 112 108
     #   conf.batch_size = 200 # mobilefacenet
     conf.num_recs = 2 if not dbg else 1  # todo too much worse speed ?
     # --------------------Training Config ------------------------
@@ -73,13 +75,12 @@ def get_config(training=True, work_path=None):
         conf.num_workers = 12 if not dbg else 0
         conf.ce_loss = CrossEntropyLoss()
 
-        conf.facebank_path = conf.data_path / 'facebank'
-        conf.threshold = 1.5
-        conf.face_limit = 10
-        # when inference, at maximum detect 10 faces in one image, my laptop is slow
-        conf.min_face_size = 30
-        # the larger this value, the faster deduction, comes with tradeoff in small faces
-
+        # conf.facebank_path = conf.data_path / 'facebank'
+        # conf.threshold = 1.5
+        # conf.face_limit = 10
+        # # when inference, at maximum detect 10 faces in one image, my laptop is slow
+        # conf.min_face_size = 30
+        # # the larger this value, the faster deduction, comes with tradeoff in small faces
 
     # --------------------Inference Config ------------------------
     else:

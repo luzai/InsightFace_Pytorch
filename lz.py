@@ -1,4 +1,8 @@
+
 import matplotlib.pyplot as plt
+
+# dbg = True
+dbg = False
 
 # plt.switch_backend('Agg')
 # plt.switch_backend('TkAgg')
@@ -57,8 +61,6 @@ if os.environ.get('pytorch', "1") == "1":
         f'type: {obj.type()} shape: {obj.shape}')
     logging.info(f'import pytorch {time.time() - tic}')
 
-# dbg = True
-dbg = False
 
 
 def allow_growth():

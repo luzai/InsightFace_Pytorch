@@ -39,8 +39,6 @@ import time
 logger = logging.getLogger()
 
 
-# 85k id, 3.8M imgs
-
 class MxnetImgIter(io.DataIter):
     def __init__(self, batch_size, data_shape,
                  path_imgrec=None,
@@ -386,7 +384,8 @@ class MxnetLoader():
 # todo more dataset (ms1m, vgg, imdb ... )
 class TorchDataset(object):
     def __init__(self,
-                 path_ms1m=lz.share_path2 + 'faces_ms1m_112x112/',  # todo seems ssd hhd no difference on pseed
+                 path_ms1m=lz.share_path2 + 'faces_ms1m_112x112/'
+                 ,  # todo seems ssd hhd no difference on pseed
                  ):
         self.path_ms1m = path_ms1m
         self.root_path = Path(path_ms1m)
@@ -539,14 +538,19 @@ class RandomIdSampler(Sampler):
 
     def get_batch_ids(self):
         pids = []
+        dop = gl_conf.dop
+        lz.logging.info(f'dop smapler {np.count_nonzero( dop == -1 )} {dop}')
         pids_now = np.random.choice(self.ids,
-                                    size=(self.num_pids_per_batch),
+                                    size=int(self.num_pids_per_batch * gl_conf.rand_ratio),
                                     replace=False)
         pids.extend(pids_now.tolist())
         while len(pids) < self.num_pids_per_batch:
             pids_next = []
             for pid in pids_now:
-                pids_next.extend(np.random.choice(self.ids, size=(1,)).tolist())
+                if dop[pid] == -1:
+                    pids_next.extend(np.random.choice(self.ids, size=(1,)).tolist())
+                else:
+                    pids.append(dop[pid])
             pids.extend(pids_next)
             pids_now = pids_next
 
@@ -652,8 +656,7 @@ class face_learner(object):
             #     print(self.class_num)
             #     self.class_num = 85164
 
-            lz.mkdir_p(conf.log_path,
-                       delete=True)
+            lz.mkdir_p(conf.log_path, delete=False)
             self.writer = SummaryWriter(conf.log_path)
             self.step = 0
             if conf.loss == 'arcface':
@@ -745,6 +748,13 @@ class face_learner(object):
                 labels = labels.to(conf.device)
                 self.optimizer.zero_grad()
 
+                def update_dop_cls(thetas, labels, dop):
+                    # dop = gl_conf.dop
+                    with torch.no_grad():
+                        bs = thetas.shape[0]
+                        thetas[torch.arange(0, bs, dtype=torch.long), labels] = thetas.min()
+                        dop[labels] = torch.argmax(thetas, dim=1)
+
                 if not conf.fgg:
                     # if tau > tau_thresh and ind_data < len(loader) - B_multi:  # todo enable it
                     #     logging.info('using sampling')
@@ -784,7 +794,6 @@ class face_learner(object):
                     # else:
                     embeddings = self.model(imgs)
                     thetas = self.head(embeddings, labels)
-                    thetas.requires_grad_(True)
                     loss = conf.ce_loss(thetas, labels)
                     # todo triplet s and best_init_lr relation?
                     loss_meter.update(loss.item())
@@ -792,11 +801,11 @@ class face_learner(object):
                         loss_triplet = self.head_triplet(embeddings, labels)
                         loss_tri_meter.update(loss_triplet.item())
                         loss = (1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet
-                    grad = torch.autograd.grad(loss, embeddings,
-                                               retain_graph=True, create_graph=False,
-                                               only_inputs=True)[0].detach()
+                    # grad = torch.autograd.grad(loss, embeddings,
+                    #                            retain_graph=True, create_graph=False,
+                    #                            only_inputs=True)[0].detach()
                     loss.backward()
-
+                    update_dop_cls(thetas, labels, gl_conf.dop)
                     #     gi = torch.norm(grad, dim=1)
                     #     gi = gi / gi.sum()
                     # tau = alpha_tau * tau + (1 - alpha_tau) * (
@@ -845,7 +854,7 @@ class face_learner(object):
                     # record lr
                     self.writer.add_scalar('lr', self.optimizer.param_groups[0]['lr'], self.step)
                     self.writer.add_scalar('train_loss', (
-                                1 - gl_conf.tri_wei) * loss_meter.avg + gl_conf.tri_wei * loss_tri_meter.avg,
+                            1 - gl_conf.tri_wei) * loss_meter.avg + gl_conf.tri_wei * loss_tri_meter.avg,
                                            self.step)
                     self.writer.add_scalar('loss/xent', loss_meter.avg, self.step)
                     self.writer.add_scalar('loss/triplet', loss_tri_meter.avg, self.step)
