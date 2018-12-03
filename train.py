@@ -43,4 +43,4 @@ if __name__ == '__main__':
     #                                   num=1500)
     # best_lr = 10 ** (log_lrs[np.argmin(losses)])
     # conf.lr = best_lr
-    learner.train(conf, args.epochs)
+    learner.train(conf, conf.epochs)

@@ -383,7 +383,8 @@ class TripletLoss(Module):
 
         # For each anchor, find the hardest positive and negative
         mask = targets.expand(n, n).eq(targets.expand(n, n).t())
-        daps = dist[mask].view(n, 4)
+        daps = dist[mask].view(n, -1) # here can use -1, assume the number of ap is the same, e.g., all is 4!
+        # todo how to copy with varied length?
         dans = dist[mask == 0].view(n, -1)
         ap_wei = F.softmax(daps.detach(), dim=1)
         an_wei = F.softmax(-dans.detach(), dim=1)

@@ -6,7 +6,7 @@ from torchvision import transforms as trans
 
 # lz.init_dev(lz.get_dev(n=2))
 # lz.init_dev(range(2, 4) if lz.dbg else range(2))
-num_devs = 2
+num_devs = 1
 lz.init_dev(lz.get_dev(num_devs))
 
 
@@ -24,7 +24,7 @@ def get_config(training=True, work_path=None):
     conf.no_eval = False
     conf.num_imgs = 3804846  # 85k id, 3.8M imgs
     conf.num_clss = 85164
-    conf.loss = 'arcface.triadap.dop'  # softmax arcface # todo check softxmax, has bug?
+    conf.loss = 'arcface'  # softmax arcface # todo check softxmax, has bug?
     conf.rand_ratio = 6 / 27
     conf.fgg = ''  # g gg ''
     conf.fgg_wei = 0  # 1
@@ -34,7 +34,7 @@ def get_config(training=True, work_path=None):
     conf.start_eval = False
 
     conf.data_path = Path('/data2/share/')
-    conf.work_path = work_path or Path('work_space/triadap.crash.bak')
+    conf.work_path = work_path or Path('work_space/arcsft.triadap.dop')
     conf.model_path = conf.work_path / 'models'
     conf.log_path = conf.work_path / 'log'
     conf.save_path = conf.work_path / 'save'

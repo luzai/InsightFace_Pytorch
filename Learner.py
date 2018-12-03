@@ -547,8 +547,12 @@ class RandomIdSampler(Sampler):
         while len(pids) < self.num_pids_per_batch:
             pids_next = []
             for pid in pids_now:
-                if dop[pid] == -1:
-                    pids_next.extend(np.random.choice(self.ids, size=(1,)).tolist())
+                if dop[pid] == -1 or dop[pid] in pids_next:
+                    pid_t = np.random.choice(self.ids, )
+                    # make sure id is unique
+                    while pid_t in pids_next:
+                        pid_t = np.random.choice(self.ids, )
+                    pids_next.extend(pid_t)
                 else:
                     pids.append(dop[pid])
             pids.extend(pids_next)
