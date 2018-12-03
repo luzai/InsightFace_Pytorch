@@ -711,7 +711,7 @@ class face_learner(object):
         loss_tri_meter = lz.AverageMeter()
 
         tau = 0
-        B_multi = 5
+        B_multi = 4  # todo monitor time
         Batch_size = gl_conf.batch_size * B_multi
         batch_size = gl_conf.batch_size
         # tau_thresh = 1.5
@@ -727,11 +727,12 @@ class face_learner(object):
             if e == self.milestones[2]:
                 self.schedule_lr()
             loader_enum = enumerate(loader)
+
             while True:
                 try:
                     ind_data, data = loader_enum.__next__()
                 except StopIteration as e:
-                    logging.info(f'one epoch finish {e}')
+                    logging.info(f'one epoch finish {e} {ind_data}')
                     break
                 data_time.update(
                     lz.timer.since_last_check(f'load data ok ind {ind_data}',
@@ -745,55 +746,64 @@ class face_learner(object):
                 self.optimizer.zero_grad()
 
                 if not conf.fgg:
-                    if tau > tau_thresh and ind_data < len(loader) - B_multi:
-                        imgsl = [imgs]
-                        labelsl = [labels]
-                        for _ in range(B_multi - 1):
-                            ind_data, data = loader_enum.__next__()
-                            imgs = data['imgs']
-                            labels = data['labels']
-                            imgs = imgs.to(conf.device)
-                            labels = labels.to(conf.device)
-                            imgsl.append(imgs)
-                            labelsl.append(labels)
-                        imgs = torch.cat(imgsl, dim=0)
-                        labels = torch.cat(labelsl, dim=0)
-                        with torch.no_grad():
-                            embeddings = self.model(imgs)
-                        embeddings.requires_grad(True)
-                        thetas = self.head(embeddings, labels)
-                        loss = conf.ce_loss(thetas, labels)
-                        grad = torch.autograd.grad(loss, embeddings,
-                                                   retain_graph=False, create_graph=False,
-                                                   only_inputs=True)[0].detach()
-                        gi = torch.norm(grad, dim=1)
-                        gi = gi / gi.sum()
-                        G_ind = torch.multinomial(gi, gl_conf.batch_size, replacement=True)
-                        imgs = imgs[G_ind]
-                        labels = labels[G_ind]
-                        wi = 1 / gl_conf.batch_size * (1 / gi)
-                        embeddings = self.model(imgs)
-                        thetas = self.head(embeddings, labels)
-                        loss = F.cross_entropy(thetas, labels, weight=wi, reduce='sum')
-                        loss_meter.update(loss.item())
-                        loss.backward()
-                    else:
-                        embeddings = self.model(imgs)
-                        thetas = self.head(embeddings, labels)
-                        thetas.require_grad(True)
-                        loss = conf.ce_loss(thetas, labels)
-                        # todo below shorter baseline is not use triplet
-                        # todo triplet s and best_init_lr relation?
-                        # loss_triplet = self.head_triplet(embeddings, labels)
-                        loss_meter.update(loss.item())
-                        # loss_tri_meter.update(loss_triplet.item())
-                        # loss = loss + 0.1 * loss_triplet
-                        loss.backward()
-                        gi = thetas.grad.detach()
-                        gi = torch.norm(gi, dim=1)
-                        gi = gi / gi.sum()
-                    tau = alpha_tau * tau + (1 - alpha_tau) * (
-                                1 - (1 / ((gi ** 2).sum())) * torch.norm(gi - 1 / Batch_size, dim=0).item())**(-1/2)
+                    # if tau > tau_thresh and ind_data < len(loader) - B_multi:  # todo enable it
+                    #     logging.info('using sampling')
+                    #     imgsl = [imgs]
+                    #     labelsl = [labels]
+                    #     for _ in range(B_multi - 1):
+                    #         ind_data, data = loader_enum.__next__()
+                    #         imgs = data['imgs']
+                    #         labels = data['labels']
+                    #         imgs = imgs.to(conf.device)
+                    #         labels = labels.to(conf.device)
+                    #         imgsl.append(imgs)
+                    #         labelsl.append(labels)
+                    #     imgs = torch.cat(imgsl, dim=0)
+                    #     labels = torch.cat(labelsl, dim=0)
+                    #     with torch.no_grad():
+                    #         embeddings = self.model(imgs)
+                    #     embeddings.requires_grad_(True)
+                    #     thetas = self.head(embeddings, labels)
+                    #     loss = conf.ce_loss(thetas, labels)
+                    #     grad = torch.autograd.grad(loss, embeddings,
+                    #                                retain_graph=False, create_graph=False,
+                    #                                only_inputs=True)[0].detach()
+                    #     gi = torch.norm(grad, dim=1)
+                    #     gi = gi / gi.sum()
+                    #     G_ind = torch.multinomial(gi, gl_conf.batch_size, replacement=True)
+                    #     imgs = imgs[G_ind]
+                    #     labels = labels[G_ind]
+                    #     gi = gi[G_ind]  # todo this is unbias
+                    #     gi = gi / gi.sum()
+                    #     wi = 1 / gl_conf.batch_size * (1 / gi)
+                    #     embeddings = self.model(imgs)
+                    #     thetas = self.head(embeddings, labels)
+                    #     loss = (F.cross_entropy(thetas, labels, reduction='none') * wi).mean()
+                    #     loss_meter.update(loss.item())
+                    #     loss.backward()
+                    # else:
+                    embeddings = self.model(imgs)
+                    thetas = self.head(embeddings, labels)
+                    thetas.requires_grad_(True)
+                    loss = conf.ce_loss(thetas, labels)
+                    # todo triplet s and best_init_lr relation?
+                    loss_meter.update(loss.item())
+                    if gl_conf.tri_wei != 0:
+                        loss_triplet = self.head_triplet(embeddings, labels)
+                        loss_tri_meter.update(loss_triplet.item())
+                        loss = (1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet
+                    grad = torch.autograd.grad(loss, embeddings,
+                                               retain_graph=True, create_graph=False,
+                                               only_inputs=True)[0].detach()
+                    loss.backward()
+
+                    #     gi = torch.norm(grad, dim=1)
+                    #     gi = gi / gi.sum()
+                    # tau = alpha_tau * tau + (1 - alpha_tau) * (
+                    #         1 -
+                    #         (1 / (gi ** 2).sum()).item() *
+                    #         (torch.norm(gi - 1 / len(gi), dim=0) ** 2).item()
+                    # ) ** (-1 / 2)
 
 
 
@@ -834,7 +844,9 @@ class face_learner(object):
                 if self.step % self.board_loss_every == 0 and self.step != 0:
                     # record lr
                     self.writer.add_scalar('lr', self.optimizer.param_groups[0]['lr'], self.step)
-                    self.writer.add_scalar('train_loss', loss_meter.avg + 0.1 * loss_tri_meter.avg, self.step)
+                    self.writer.add_scalar('train_loss', (
+                                1 - gl_conf.tri_wei) * loss_meter.avg + gl_conf.tri_wei * loss_tri_meter.avg,
+                                           self.step)
                     self.writer.add_scalar('loss/xent', loss_meter.avg, self.step)
                     self.writer.add_scalar('loss/triplet', loss_tri_meter.avg, self.step)
                     # self.scheduler.step(loss_board)
@@ -1029,8 +1041,8 @@ class face_learner(object):
 
     def find_lr(self,
                 conf,
-                init_value=1e-8,
-                final_value=10.,
+                init_value=1e-5,
+                final_value=1.,
                 beta=0.98,
                 bloding_scale=3.,
                 num=None):
@@ -1059,8 +1071,10 @@ class face_learner(object):
 
             embeddings = self.model(imgs)
             thetas = self.head(embeddings, labels)
-            loss = conf.ce_loss(thetas, labels)  # todo combine triplet /  only triplet find best lr
-
+            loss = conf.ce_loss(thetas, labels)
+            if gl_conf.tri_wei != 0:
+                loss_triplet = self.head_triplet(embeddings, labels)
+                loss = (1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet
             # Compute the smoothed loss
             avg_loss = beta * avg_loss + (1 - beta) * loss.item()
             self.writer.add_scalar('avg_loss', avg_loss, batch_num)

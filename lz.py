@@ -1,5 +1,3 @@
-# from __future__ import print_function, absolute_import, division, unicode_literals
-
 import matplotlib.pyplot as plt
 
 # plt.switch_backend('Agg')
@@ -1682,7 +1680,7 @@ def l2_normalize_np(x):
     x = np.asarray(x)
     shape = x.shape
     x1 = x.reshape(shape[0], -1)
-    norm =np.sqrt( (x1 ** 2).sum(axis=1, keepdims=True))
+    norm = np.sqrt((x1 ** 2).sum(axis=1, keepdims=True))
     x2 = x1 / norm
     return x2.reshape(shape)
 
@@ -1708,10 +1706,12 @@ class AverageMeter(object):
     """Computes and stores the average and current value"""
 
     def __init__(self):
+        import collections
         self.val = 0
         self.avg = 0
         self.sum = 0
         self.count = 0
+        self.mem = collections.deque(maxlen=100)
 
     def reset(self):
         self.val = 0
@@ -1720,14 +1720,17 @@ class AverageMeter(object):
         self.count = 0
 
     def update(self, val, n=1):
-        try:
-            val = float(val)
-        except Exception as inst:
-            print(inst)
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
+        # try:
+        val = float(val)
+        # except Exception as inst:
+        #     print(inst)
+        self.mem.append(val)
+        self.avg = np.mean(list(self.mem))
+        ## way 2
+        # self.val = val
+        # self.sum += val * n
+        # self.count += n
+        # self.avg = self.sum / self.count
 
 
 if __name__ == '__main__':

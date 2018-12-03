@@ -154,7 +154,7 @@ class Backbone(Module):
         if not need_norm:
             return l2_norm(x)
         else:
-            x, norm = l2_norm(x, axis=1,  need_norm=need_norm)
+            x, norm = l2_norm(x, axis=1, need_norm=need_norm)
             return x, norm
 
         ##################################  MobileFaceNet #############################################################
@@ -268,11 +268,13 @@ class MobileFaceNet(Module):
         return l2_norm(out)
 
 
-##################################  Arcface head #############################################################
+##################################  Arcface head #################
+from config import gl_conf
+
 
 class Arcface(Module):
     # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599    
-    def __init__(self, embedding_size=512, classnum=51332, s=64., m=0.5):
+    def __init__(self, embedding_size=512, classnum=51332, s=gl_conf.scale, m=0.5):
         super(Arcface, self).__init__()
         self.classnum = classnum
         self.kernel = Parameter(torch.Tensor(embedding_size, classnum))
@@ -311,7 +313,7 @@ class Arcface(Module):
         return output
 
 
-##################################  Cosface head #############################################################
+##################################  Cosface head #################
 
 class Am_softmax(Module):
     # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599    
@@ -345,8 +347,7 @@ class MySoftmax(Module):
         self.classnum = classnum
         self.kernel = Parameter(torch.Tensor(embedding_size, classnum))
         self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
-        self.s = 30.
-        # todo test scale 30 64 ...
+        self.s = gl_conf.scale
 
     def forward(self, embeddings, label):
         kernel_norm = l2_norm(self.kernel, axis=0)
@@ -377,9 +378,8 @@ class TripletLoss(Module):
         dist = torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(n, n)
         dist = dist + dist.t()
         dist.addmm_(1, -2, inputs, inputs.t()).clamp_(min=1e-12).sqrt_()
-        dist *= 64
+        dist = dist * gl_conf.scale
         # todo how to use triplet only, can use temprature decay/progessive learinig curriculum learning
-        # dist = dist.clamp(min=1e-12).sqrt()  # for numerical stability
 
         # For each anchor, find the hardest positive and negative
         mask = targets.expand(n, n).eq(targets.expand(n, n).t())
