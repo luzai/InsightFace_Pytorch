@@ -710,6 +710,13 @@ class face_learner(object):
         loss_meter = lz.AverageMeter()
         loss_tri_meter = lz.AverageMeter()
 
+        tau = 0
+        B_multi = 5
+        Batch_size = gl_conf.batch_size * B_multi
+        batch_size = gl_conf.batch_size
+        # tau_thresh = 1.5
+        tau_thresh = (Batch_size + 3 * batch_size) / (3 * batch_size)
+        alpha_tau = .9
         for e in range(conf.start_epoch, epochs):
             accuracy = 0
             lz.timer.since_last_check('epoch {} started'.format(e))
@@ -719,8 +726,13 @@ class face_learner(object):
                 self.schedule_lr()
             if e == self.milestones[2]:
                 self.schedule_lr()
-
-            for ind_data, data in enumerate(loader):
+            loader_enum = enumerate(loader)
+            while True:
+                try:
+                    ind_data, data = loader_enum.__next__()
+                except StopIteration as e:
+                    logging.info(f'one epoch finish {e}')
+                    break
                 data_time.update(
                     lz.timer.since_last_check(f'load data ok ind {ind_data}',
                                               verbose=False  # if ind_data > 2 else True
@@ -733,15 +745,58 @@ class face_learner(object):
                 self.optimizer.zero_grad()
 
                 if not conf.fgg:
-                    embeddings = self.model(imgs)
-                    thetas = self.head(embeddings, labels)
-                    loss = conf.ce_loss(thetas, labels)
-                    # todo below shorter baseline is not use triplet
-                    # loss_triplet = self.head_triplet(embeddings, labels)
-                    loss_meter.update(loss.item())
-                    # loss_tri_meter.update(loss_triplet.item())
-                    # loss = loss + 0.1 * loss_triplet
-                    loss.backward()
+                    if tau > tau_thresh and ind_data < len(loader) - B_multi:
+                        imgsl = [imgs]
+                        labelsl = [labels]
+                        for _ in range(B_multi - 1):
+                            ind_data, data = loader_enum.__next__()
+                            imgs = data['imgs']
+                            labels = data['labels']
+                            imgs = imgs.to(conf.device)
+                            labels = labels.to(conf.device)
+                            imgsl.append(imgs)
+                            labelsl.append(labels)
+                        imgs = torch.cat(imgsl, dim=0)
+                        labels = torch.cat(labelsl, dim=0)
+                        with torch.no_grad():
+                            embeddings = self.model(imgs)
+                        embeddings.requires_grad(True)
+                        thetas = self.head(embeddings, labels)
+                        loss = conf.ce_loss(thetas, labels)
+                        grad = torch.autograd.grad(loss, embeddings,
+                                                   retain_graph=False, create_graph=False,
+                                                   only_inputs=True)[0].detach()
+                        gi = torch.norm(grad, dim=1)
+                        gi = gi / gi.sum()
+                        G_ind = torch.multinomial(gi, gl_conf.batch_size, replacement=True)
+                        imgs = imgs[G_ind]
+                        labels = labels[G_ind]
+                        wi = 1 / gl_conf.batch_size * (1 / gi)
+                        embeddings = self.model(imgs)
+                        thetas = self.head(embeddings, labels)
+                        loss = F.cross_entropy(thetas, labels, weight=wi, reduce='sum')
+                        loss_meter.update(loss.item())
+                        loss.backward()
+                    else:
+                        embeddings = self.model(imgs)
+                        thetas = self.head(embeddings, labels)
+                        thetas.require_grad(True)
+                        loss = conf.ce_loss(thetas, labels)
+                        # todo below shorter baseline is not use triplet
+                        # todo triplet s and best_init_lr relation?
+                        # loss_triplet = self.head_triplet(embeddings, labels)
+                        loss_meter.update(loss.item())
+                        # loss_tri_meter.update(loss_triplet.item())
+                        # loss = loss + 0.1 * loss_triplet
+                        loss.backward()
+                        gi = thetas.grad.detach()
+                        gi = torch.norm(gi, dim=1)
+                        gi = gi / gi.sum()
+                    tau = alpha_tau * tau + (1 - alpha_tau) * (
+                                1 - (1 / ((gi ** 2).sum())) * torch.norm(gi - 1 / Batch_size, dim=0).item())**(-1/2)
+
+
+
                 elif conf.fgg == 'g':
                     embeddings_o = self.model(imgs)
                     thetas_o = self.head(embeddings_o, labels)

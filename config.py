@@ -7,7 +7,7 @@ from torchvision import transforms as trans
 
 # lz.init_dev(lz.get_dev(n=2))
 # lz.init_dev(range(2, 4) if lz.dbg else range(2))
-num_devs = 1
+num_devs = 2
 lz.init_dev(lz.get_dev(num_devs))
 
 
@@ -24,7 +24,7 @@ def get_config(training=True, work_path=None):
     conf.num_steps_per_epoch = 38049
     conf.no_eval = False
     conf.num_imgs = 3804846
-    conf.loss = 'arcface'  # softmax arcface
+    conf.loss = 'softmax'  # softmax arcface
     conf.fgg = ''  # g gg ''
     conf.fgg_wei = 0  # 1
     conf.start_eval = False
