@@ -165,8 +165,10 @@ if __name__ == '__main__':
     issames = np.asarray(issames)
     # feaes = np.concatenate(feaes, axis=0)
     # feavs = np.concatenate(feavs, axis=0)
-    dists = np.concatenate(dists, axis = 0 )
+    dists = np.concatenate(dists, axis=0)
     tpr, fpr, acc, best_threshs = calculate_roc_by_dist(threshs, dists, issames, )
     print('acc is ', acc)
     db.close()
+    from IPython import  embed
+    embed()
     timer.since_last_check('end')

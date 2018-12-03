@@ -547,17 +547,17 @@ class RandomIdSampler(Sampler):
         while len(pids) < self.num_pids_per_batch:
             pids_next = []
             for pid in pids_now:
-                if dop[pid] == -1 or dop[pid] in pids_next:
+                if dop[pid] == -1 or dop[pid] in pids_next or dop[pid] in pids:
                     pid_t = np.random.choice(self.ids, )
                     # make sure id is unique
-                    while pid_t in pids_next:
+                    while pid_t in pids_next or pid_t in pids:
                         pid_t = np.random.choice(self.ids, )
-                    pids_next.extend(pid_t)
+                    pids_next.append(pid_t)
                 else:
-                    pids.append(dop[pid])
+                    pids_next.append(dop[pid])
             pids.extend(pids_next)
             pids_now = pids_next
-
+        assert len(pids) == np.unique(pids).shape[0]
         return pids
 
     def get_batch_idxs(self):
