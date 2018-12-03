@@ -30,7 +30,7 @@ conf = get_config(training=False, work_path=chkpnt_path)
 from torch.utils.data.dataloader import default_collate
 
 # mem = []
-true_batch_size = 100*3*conf.num_devs
+true_batch_size = 100 * 2 * conf.num_devs
 
 
 def my_collate(batch):
@@ -68,8 +68,8 @@ class DatasetIJBC(torch.utils.data.Dataset):
             mirror = torchvision.transforms.functional.hflip(img)
             img = self.transform(img)
             mirror = self.transform(mirror)
-            res.append({'img': img, 'sid': sid, 'tid': tid, 'finish': 0})
-            res.append({'img': mirror, 'sid': sid, 'tid': tid, 'finish': 0})
+            res.append({'img': img, 'sid': sid, 'tid': tid, 'finish': 0, 'imgp': imp})
+            res.append({'img': mirror, 'sid': sid, 'tid': tid, 'finish': 0, 'imgp': imp})
         #     res.append(img)
         #     res.append(mirror)
         # res = torch.stack(res)
@@ -81,7 +81,9 @@ class DatasetIJBC(torch.utils.data.Dataset):
         return len(all_tids)
 
 
-if __name__ == '__main__':
+def extract2db(dbname=work_path + 'ijbc.h5'):
+    import tqdm
+
     ds = DatasetIJBC()
     loader = torch.utils.data.DataLoader(ds, batch_size=1, num_workers=12, shuffle=False, pin_memory=True,
                                          collate_fn=my_collate)
@@ -94,12 +96,16 @@ if __name__ == '__main__':
     logging.info('learner loaded')
 
     timer.since_last_check('start')
-    db = Database(work_path + 'ijbc.h5')
-    for ind, res in enumerate(loader):
+    db = Database(dbname)
+    for ind, res in tqdm.tqdm(enumerate(loader), ):
         img = res['img']
-        print(img.shape[0])
+        imp = res['imgp']
+        # print(img.shape[0])
         sid = res['sid']
         tid = res['tid']
+        # todo basthc size here msut 1
+        sid = sid[0].item()
+        tid = tid[0].item()
         finish = res['finish']
         # extract fea
         start = 0
@@ -108,19 +114,59 @@ if __name__ == '__main__':
         with torch.no_grad():
             while start < len(img):
                 img_now = img[start:start + true_batch_size]
-                # todo multi gpu
+                # todo multi gpu: fix dataparallel
                 fea, norm = learner.model(img_now, need_norm=True)
                 start += true_batch_size
                 fea_l.append(fea.cpu())
                 norm_l.append(norm.cpu())
         fea = torch.cat(fea_l).numpy()
         norm = torch.cat(norm_l).numpy()
+        ## save to db
         db[f'fea/{sid}/{tid}'] = fea
         db[f'norm/{sid}/{tid}'] = norm
-        # save to db
+        db[f'imp/{sid}/{tid}'] = msgpack_dumps(imp)
+        # msgpack_loads(db[f'imp/{sid}/{tid}'][...].tolist())
+        # if ind>10:break
     db.close()
+
+
+from verifacation import *
+
+if __name__ == '__main__':
     # load
     # agg
+    dbname = work_path + 'ijbc.h5'
+    # extract2db(dbname)
+    db = Database(dbname, mode='r')
+    # feaes = []
+    # feavs = []
+    dists = []
+    issames = []
+    timer.since_last_check('start ')
+    for ind, row in df_match.iterrows():
+        # print(ind, )
+        enroll, verif = row
+        tid = enroll
+        sid_e = t2s[tid]
+        fea_enroll = l2_normalize_np(db[f'fea/{sid_e}/{tid}'].mean(axis=0, keepdims=True))
+        tid = verif
+        sid_v = t2s[tid]
+        fea_verif = l2_normalize_np(db[f'fea/{sid_v}/{tid}'].mean(axis=0, keepdims=True))
+        # feaes.append(fea_enroll)
+        # feavs.append(fea_verif)
+        diff = np.subtract(fea_enroll, fea_verif)
+        dist = np.sum(np.square(diff), 1)
+        dists.append(dist)
+        issames.append(int(sid_e == sid_v))
+        # if ind > 100: break
     # get acc
-
+    timer.since_last_check('end ')
+    threshs = np.arange(0, 4, 0.01)
+    issames = np.asarray(issames)
+    # feaes = np.concatenate(feaes, axis=0)
+    # feavs = np.concatenate(feavs, axis=0)
+    dists = np.concatenate(dists, axis = 0 )
+    tpr, fpr, acc, best_threshs = calculate_roc_by_dist(threshs, dists, issames, )
+    print('acc is ', acc)
+    db.close()
     timer.since_last_check('end')

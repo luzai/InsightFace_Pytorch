@@ -30,7 +30,7 @@ def get_config(training=True, work_path=None):
     conf.start_eval = False
 
     conf.data_path = Path('/data2/share/')
-    conf.work_path = work_path or Path('work_space/arcsft.bs2')
+    conf.work_path = work_path or Path('work_space/arcsft.bs2.bak')
     conf.model_path = conf.work_path / 'models'
     conf.log_path = conf.work_path / 'log'
     conf.save_path = conf.work_path / 'save'

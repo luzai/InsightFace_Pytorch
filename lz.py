@@ -571,15 +571,17 @@ def desel_np(s):
     A = np.array(A, dtype=sav['dtype']).reshape(sav['shape'])
     return A
 
+
 def to_image(arr):
     from PIL import Image
     if type(arr).__module__ == 'PIL.Image':
         return arr
-    if type(arr).__module__=='numpy':
+    if type(arr).__module__ == 'numpy':
         return Image.fromarray(arr)
 
+
 def to_numpy(tensor):
-    import  PIL
+    import PIL
     if isinstance(tensor, torch.autograd.Variable):
         tensor = tensor.detach()
     if torch.is_tensor(tensor):
@@ -592,7 +594,7 @@ def to_numpy(tensor):
         else:
             tensor = tensor.cpu().numpy()
             tensor = np.asarray(tensor)
-    if type(tensor).__module__  == 'PIL.Image':
+    if type(tensor).__module__ == 'PIL.Image':
         tensor = np.asarray(tensor)
     # elif type(tensor).__module__ != 'numpy':
     #     raise ValueError("Cannot convert {} to numpy array"
@@ -743,13 +745,13 @@ def timeit(fn, info=''):
 class Database(object):
     def __init__(self, file, mode='a'):
         import h5py
-        try:
-            self.fid = h5py.File(file, mode)
-        except OSError as inst:
-            logging.error(f'{inst}')
-            rm(file)
-            self.fid = h5py.File(file, 'w')
-            logging.error(f'{file} is delete and write !!')
+        # try:
+        self.fid = h5py.File(file, mode)
+        # except OSError as inst:
+        #     logging.error(f'{inst}')
+        #     rm(file)
+        #     self.fid = h5py.File(file, 'w')
+        #     logging.error(f'{file} is delete and write !!')
 
     def __enter__(self):
         return self
@@ -933,7 +935,14 @@ def msgpack_load(file, **kwargs):
 
 
 def msgpack_loads(file, **kwargs):
-    pass
+    import msgpack, gc, msgpack_numpy as m
+    gc.disable()
+    kwargs.setdefault('use_list', False)
+    kwargs.setdefault('raw', False)
+    # todo support numpy
+    obj = msgpack.unpackb(file, **kwargs)
+    gc.enable()
+    return obj
 
 
 def json_load(file):
@@ -1647,7 +1656,7 @@ class LogUniformDistribution(object):
 from sklearn.model_selection import ParameterSampler, ParameterGrid
 
 
-def my_softmax(arr):
+def softmax_ch(arr):
     from chainer import cuda
     from chainer import functions as F
     try:
@@ -1661,12 +1670,21 @@ def my_softmax(arr):
     return arr
 
 
-def l2_normalize(x):
+def l2_normalize_th(x):
     # can only handle (128,2048) or (128,2048,8,4)
     shape = x.size()
     x1 = x.view(shape[0], -1)
     x2 = x1 / x1.norm(p=2, dim=1, keepdim=True)
     return x2.view(shape)
+
+
+def l2_normalize_np(x):
+    x = np.asarray(x)
+    shape = x.shape
+    x1 = x.reshape(shape[0], -1)
+    norm =np.sqrt( (x1 ** 2).sum(axis=1, keepdims=True))
+    x2 = x1 / norm
+    return x2.reshape(shape)
 
 
 def get_adv(loss, inp, norm='l2', eps=.1, ):
@@ -1676,7 +1694,7 @@ def get_adv(loss, inp, norm='l2', eps=.1, ):
         only_inputs=True
     )[0].detach()
     if 'l2' in norm:
-        xa_advtrue = inp + eps * l2_normalize(features_grad)
+        xa_advtrue = inp + eps * l2_normalize_th(features_grad)
     elif 'linf' in norm:
         xa_advtrue = inp + eps * torch.sign(features_grad)
     elif 'lno' in norm:
