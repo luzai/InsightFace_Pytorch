@@ -539,7 +539,7 @@ class RandomIdSampler(Sampler):
     def get_batch_ids(self):
         pids = []
         dop = gl_conf.dop
-        lz.logging.info(f'dop smapler {np.count_nonzero( dop == -1 )} {dop}')
+        # lz.logging.info(f'dop smapler {np.count_nonzero( dop == -1 )} {dop}')
         pids_now = np.random.choice(self.ids,
                                     size=int(self.num_pids_per_batch * gl_conf.rand_ratio),
                                     replace=False)

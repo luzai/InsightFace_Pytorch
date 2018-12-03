@@ -24,13 +24,13 @@ def get_config(training=True, work_path=None):
     conf.no_eval = False
     conf.num_imgs = 3804846  # 85k id, 3.8M imgs
     conf.num_clss = 85164
-    conf.loss = 'arcface'  # softmax arcface # todo check softxmax, has bug?
-    conf.rand_ratio = 6/27
+    conf.loss = 'arcface.triadap.dop'  # softmax arcface # todo check softxmax, has bug?
+    conf.rand_ratio = 6 / 27
     conf.fgg = ''  # g gg ''
     conf.fgg_wei = 0  # 1
-    conf.tri_wei = 0
+    conf.tri_wei = .5
     conf.scale = 64.  # 30.
-    conf.dop = np.ones(conf.num_clss) * -1
+    conf.dop = np.ones(conf.num_clss,dtype=int) * -1
     conf.start_eval = False
 
     conf.data_path = Path('/data2/share/')
@@ -64,11 +64,14 @@ def get_config(training=True, work_path=None):
     conf.num_recs = 2 if not dbg else 1  # todo too much worse speed ?
     # --------------------Training Config ------------------------
     if training:
+
         conf.log_path = conf.work_path / 'log'
         conf.save_path = conf.work_path / 'save'
         #     conf.weight_decay = 5e-4
         conf.lr = 4e-2  # lr=0.04,  # 0.028,  # 0.028 , 1e-2
+        # conf.epochs = 18
         # conf.milestones = [12, 15, 18]
+        conf.epochs = 8
         conf.milestones = [4, 6, 8]
         conf.momentum = 0.9
         conf.pin_memory = True
