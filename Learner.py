@@ -472,7 +472,7 @@ class TorchDataset(object):
 
         s = self.imgrecs[ind].read_idx(index)  # from [ 1 to 3804846 ]
         rls_succ = self.locks[ind].release()
-        header, img = recordio.unpack(s)
+        header, img = recordio.unpack(s)  # this is BGR format !
         imgs = self.imdecode(img)
         label = header.label
 

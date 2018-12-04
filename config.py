@@ -28,13 +28,13 @@ def get_config(training=True, work_path=None):
     conf.rand_ratio = 6 / 27
     conf.fgg = ''  # g gg ''
     conf.fgg_wei = 0  # 1
-    conf.tri_wei = .5
+    conf.tri_wei = 1
     conf.scale = 64.  # 30.
     conf.dop = np.ones(conf.num_clss,dtype=int) * -1
     conf.start_eval = False
 
     conf.data_path = Path('/data2/share/')
-    conf.work_path = work_path or Path('work_space/arcsft.triadap.dop')
+    conf.work_path = work_path or Path('work_space/arcsft.triadap.dop.bak')
     conf.model_path = conf.work_path / 'models'
     conf.log_path = conf.work_path / 'log'
     conf.save_path = conf.work_path / 'save'

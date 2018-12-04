@@ -158,7 +158,7 @@ if __name__ == '__main__':
         dist = np.sum(np.square(diff), 1)
         dists.append(dist)
         issames.append(int(sid_e == sid_v))
-        # if ind > 100: break
+        # if ind > 99999: break
     # get acc
     timer.since_last_check('end ')
     threshs = np.arange(0, 4, 0.01)
@@ -167,8 +167,14 @@ if __name__ == '__main__':
     # feavs = np.concatenate(feavs, axis=0)
     dists = np.concatenate(dists, axis=0)
     tpr, fpr, acc, best_threshs = calculate_roc_by_dist(threshs, dists, issames, )
-    print('acc is ', acc)
+    tprat = []
+    for fpr_thresh in [1e-5, 1e-4, 1e-3, 1e-2]:
+        ind = np.where(fpr <= fpr_thresh)[0][-1]
+        tprat.append(tpr[ind])
+    print('acc is ', acc.mean(), 'tprat is ', tprat)
+    plt.semilogx(fpr, tpr )
     db.close()
-    from IPython import  embed
+    from IPython import embed
+
     embed()
     timer.since_last_check('end')

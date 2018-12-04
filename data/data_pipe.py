@@ -99,9 +99,9 @@ def load_mx_rec(rec_path):
     max_idx = int(header.label[0])
     for idx in tqdm(range(1, max_idx)):
         img_info = imgrec.read_idx(idx)
-        header, img = mx.recordio.unpack_img(img_info)
+        header, img = mx.recordio.unpack_img(img_info)  # rec is BGR format
         label = int(header.label)
-        img = np.asarray(img)[:, :, ::-1]  # todo disk is RGB format
+        img = np.asarray(img)[:, :, ::-1]  # the saved file is GRB format
         img = Image.fromarray(img)
         label_path = save_path / str(label)
         if not label_path.exists():

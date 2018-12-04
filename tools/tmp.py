@@ -86,7 +86,7 @@ def main2():
 
     for ind, img_file in enumerate(img_files):
         ind = ind + 1
-        img = cv2.imread(img_file)
+        img = cv2.imread(img_file) # rec is BGR format!
         label = img_file.split('/')[-2]
         header = mx.recordio.IRHeader(0, label, ind, 0)
         s = mx.recordio.pack_img(header, img)
@@ -144,12 +144,15 @@ def load_ms1m_info():
     print(len(imgidx), len(ids), len(id2range))
     # while True:
     #     time.sleep(10)
-    # for indt in range(1):
-    #     id1 = ids[0]
-    #     imgid = id2range[id1][0]
-    #     s = self.imgrec.read_idx(imgid)
-    #     header, img = recordio.unpack(s)
-    #     print(header.label, id1)
+    for indt in range(1):
+        id1 = ids[0]
+        imgid = id2range[id1][0]
+        img_info = self.imgrec.read_idx(imgid)
+        header, img = recordio.unpack_img(img_info)
+        print(header.label, id1)
+
+        plt_imshow(img)  # on rec  is BGR format !
+        plt.show()
     imgidx, ids = np.array(imgidx), np.array(ids)
     print(stat_np(imgidx))
     print(stat_np(ids))
