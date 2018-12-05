@@ -818,8 +818,6 @@ class face_learner(object):
                     #         (torch.norm(gi - 1 / len(gi), dim=0) ** 2).item()
                     # ) ** (-1 / 2)
 
-
-
                 elif conf.fgg == 'g':
                     embeddings_o = self.model(imgs)
                     thetas_o = self.head(embeddings_o, labels)
@@ -947,12 +945,24 @@ class face_learner(object):
                                              ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy,
                                                                                                self.step, extra)))
 
-    def load_state(self, conf, fixed_str, from_save_folder=False, model_only=False):
+    def load_state(self, conf, fixed_str=None, from_save_folder=False, model_only=False):
         if from_save_folder:
             save_path = conf.save_path
         else:
             save_path = conf.model_path
-        self.model.load_state_dict(torch.load(save_path / 'model_{}'.format(fixed_str)))
+        modelp = save_path / 'model_{}'.format(fixed_str)
+        if not os.path.exists(modelp):
+            fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
+            step = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
+            step = np.asarray(step, dtype=int)
+            step_ind = step.argmax()
+            fixed_str = fixed_strs[step_ind].replace('model_', '')
+            modelp = save_path / 'model_{}'.format(fixed_str)
+        try:
+            # todo fx it
+            self.model.module.load_state_dict(torch.load(modelp))
+        except:
+            self.model.load_state_dict(torch.load(modelp))
         if not model_only:
             self.head.load_state_dict(torch.load(save_path / 'head_{}'.format(fixed_str)))
             self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))

@@ -68,8 +68,10 @@ class bottleneck_IR(Module):
 class bottleneck_IR_SE(Module):
     def __init__(self, in_channel, depth, stride):
         super(bottleneck_IR_SE, self).__init__()
-        if in_channel == depth and stride == 1:
-            self.shortcut_layer = None if upgrade else MaxPool2d(kernel_size=1, stride=stride)
+        if upgrade and in_channel == depth and stride == 1:
+            self.shortcut_layer = None
+        elif not upgrade and in_channel == depth:
+            self.shortcut_layer = MaxPool2d(kernel_size=1, stride=stride)
         else:
             self.shortcut_layer = Sequential(
                 Conv2d(in_channel, depth, (1, 1), stride, bias=False),
