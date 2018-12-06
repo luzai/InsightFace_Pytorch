@@ -1465,7 +1465,7 @@ def preprocess(img, bbox=None, landmark=None, **kwargs):
         if image_size[1] == 112:
             src[:, 0] += 8.0
         dst = landmark.astype(np.float32)
-        dst = dst.reshape(5, 2) # todo
+        dst = dst.reshape(5, 2)  # todo
         tform = trans.SimilarityTransform()
         tform.estimate(dst, src)
         M = tform.params[0:2, :]
@@ -1674,6 +1674,7 @@ def l2_normalize_th(x):
     x1 = x.view(shape[0], -1)
     x2 = x1 / x1.norm(p=2, dim=1, keepdim=True)
     return x2.view(shape)
+
 
 # from numba import  njit
 #

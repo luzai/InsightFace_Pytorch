@@ -15,6 +15,9 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
+chkpnt_path = Path('work_space/arcsft.bs2')
+model_path = chkpnt_path / 'save'
+conf = get_config(training=False, work_path=chkpnt_path)
 def read_template_media_list(path):
     path_pk = path.replace('.txt', '.pk')
     try:

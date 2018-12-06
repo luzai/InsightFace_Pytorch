@@ -202,7 +202,9 @@ if __name__ == '__main__':
     #     # if indt > 9999: break
 
     # get acc
-    lz.msgpack_dump([dists, issames], work_path + 't.pk')
+    lz.msgpack_dump([np.asarray(dists, order='C'),
+                     np.asarray(issames,order='C')
+                     ], work_path + 't.pk')
     timer.since_last_check('end ')
     tpr, fpr, acc = calculate_roc_by_dist(dists, issames)
     tprat = []
@@ -218,7 +220,7 @@ if __name__ == '__main__':
     for fpr_iter in np.arange(len(x_labels)):
         _, min_index = min(list(zip(abs(fpr - x_labels[fpr_iter]), range(len(fpr)))))
         print(x_labels[fpr_iter], tpr[min_index])
-    db.close()
+    # db.close()
     from IPython import embed
 
     embed()
