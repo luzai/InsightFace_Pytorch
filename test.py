@@ -131,48 +131,93 @@ def extract2db(dbname=work_path + 'ijbc.h5'):
 
 
 from verifacation import *
+# from torch.multiprocessing import Pool
+from multiprocessing import Pool
 
 if __name__ == '__main__':
     # load
     # agg
-    dbname = work_path + 'ijbc.h5'
+    # dbname = work_path + 'ijbc.h5'
     # extract2db(dbname)
-    db = Database(dbname, mode='r')
-    # feaes = []
-    # feavs = []
-    dists = []
-    issames = []
+    # db = Database(dbname, mode='r')
+    db = None
+
+
+    def init_db():
+        from lz import l2_normalize_np, Database, work_path
+        global db
+        dbname = work_path + 'ijbc.h5'
+        db = Database(dbname, 'r')
+        print(db, id(db), 'start')
+
+
     timer.since_last_check('start ')
-    for ind, row in df_match.iterrows():
-        # print(ind, )
-        enroll, verif = row
+    indt = 0
+    df_matchl = df_match.to_records(index=False).tolist()
+
+
+    def get_dist_label(enroll, verif=None):
+        from lz import l2_normalize_np, Database, work_path
+        if isinstance(enroll, tuple):
+            enroll, verif = enroll
         tid = enroll
         sid_e = t2s[tid]
-        fea_enroll = l2_normalize_np(db[f'fea/{sid_e}/{tid}'].mean(axis=0, keepdims=True))
+        try:
+            fea_enroll = db[f'fea/{sid_e}/{tid}'].mean(axis=0, keepdims=True)
+        except:
+            print(f'fea/{sid_e}/{tid}')
+            raise ValueError()
+        # fea_enroll = np.clip(fea_enroll, 1e-6, 1e6)
+        fea_enroll = l2_normalize_np(fea_enroll)
         tid = verif
         sid_v = t2s[tid]
-        fea_verif = l2_normalize_np(db[f'fea/{sid_v}/{tid}'].mean(axis=0, keepdims=True))
-        # feaes.append(fea_enroll)
-        # feavs.append(fea_verif)
-        diff = np.subtract(fea_enroll, fea_verif)
+        try:
+            fea_verif = db[f'fea/{sid_v}/{tid}'].mean(axis=0, keepdims=True)
+        except:
+            print(f'fea/{sid_v}/{tid}')
+            raise ValueError()
+        # fea_verif = np.clip(fea_verif, 1e-6, 1e6)
+        fea_verif = l2_normalize_np(fea_verif)
+        diff = np.subtract(fea_enroll, fea_verif).astype(np.float64)
         dist = np.sum(np.square(diff), 1)
-        dists.append(dist)
-        issames.append(int(sid_e == sid_v))
-        # if ind > 99999: break
+        # dist = 2 - 2 * (fea_enroll * fea_verif).sum()
+        return float(dist), int(sid_e == sid_v)
+
+
+    multi_pool = Pool(initializer=init_db, processes=38, )
+    res = multi_pool.map(get_dist_label, df_matchl)
+    res = np.asarray(res)
+    dists, issames = res[:, 0], res[:, 1]
+    issames = np.asarray(issames, dtype=int)
+
+    # dists = []
+    # issames = []
+    # for ind, (enroll, verif) in enumerate(df_matchl):
+    #     dist, label = get_dist_label(enroll, verif)
+    #     dists.append(dist)
+    #     issames.append(label)
+    #     indt += 1
+    #     if indt % 999 == 0:
+    #         logging.info(f'{indt} / {df_match.shape[0]}')
+    #     # if indt > 9999: break
+
     # get acc
+    lz.msgpack_dump([dists, issames], work_path + 't.pk')
     timer.since_last_check('end ')
-    threshs = np.arange(0, 4, 0.01)
-    issames = np.asarray(issames)
-    # feaes = np.concatenate(feaes, axis=0)
-    # feavs = np.concatenate(feavs, axis=0)
-    dists = np.concatenate(dists, axis=0)
-    tpr, fpr, acc, best_threshs = calculate_roc_by_dist(threshs, dists, issames, )
+    tpr, fpr, acc = calculate_roc_by_dist(dists, issames)
     tprat = []
     for fpr_thresh in [1e-5, 1e-4, 1e-3, 1e-2]:
         ind = np.where(fpr <= fpr_thresh)[0][-1]
         tprat.append(tpr[ind])
-    print('acc is ', acc.mean(), 'tprat is ', tprat)
-    plt.semilogx(fpr, tpr )
+    print('acc is ', acc, 'tprat is ', tprat)
+    plt.plot(fpr, tpr)
+    plt.show()
+    plt.semilogx(fpr, tpr)
+    plt.show()
+    x_labels = [10 ** -6, 10 ** -5, 10 ** -4, 10 ** -3, 10 ** -2, 10 ** -1]
+    for fpr_iter in np.arange(len(x_labels)):
+        _, min_index = min(list(zip(abs(fpr - x_labels[fpr_iter]), range(len(fpr)))))
+        print(x_labels[fpr_iter], tpr[min_index])
     db.close()
     from IPython import embed
 

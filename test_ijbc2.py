@@ -1,53 +1,14 @@
-import cv2
 from PIL import Image
 import argparse
-from pathlib import Path
-import torch
 from config import get_config
-from mtcnn import MTCNN
 from Learner import face_learner
 from utils import load_facebank, draw_box_name, prepare_facebank
 from lz import *
-
-ijb_path = '/data2/share/ijbc/'
-test1_path = ijb_path + '/IJB-C/protocols/test1/'
-img_path = ijb_path + 'IJB/IJB-C/images/'
-df_enroll = pd.read_csv(test1_path + '/enroll_templates.csv')
-df_verif = pd.read_csv(test1_path + '/verif_templates.csv')
-df_match = pd.read_csv(test1_path + '/match.csv')
-dst = ijb_path + '/ijb.test1.proc/'
-
-df1 = df_enroll[['TEMPLATE_ID', 'SUBJECT_ID']].groupby('TEMPLATE_ID').mean()
-df2 = df_verif[['TEMPLATE_ID', 'SUBJECT_ID']].groupby('TEMPLATE_ID').mean()
-df = pd.concat((df1, df2))
-t2s = dict(zip(df.index, df.SUBJECT_ID))
-all_tids = list(t2s.keys())
-
-chkpnt_path = Path('work_space/arcsft.triadap.s64.0.1/')
-model_path = chkpnt_path / 'save'
-conf = get_config(training=False, work_path=chkpnt_path)
-
-from torch.utils.data.dataloader import default_collate
-
-# mem = []
-true_batch_size = 100 * 2 * conf.num_devs
-
-import os
-import numpy as np
 import pickle as cPickle
 from sklearn.metrics import roc_curve, auc
-import matplotlib.pyplot as plt
 import timeit
 import sklearn
-import cv2
-import sys
-import glob
-
 sys.path.append('./recognition')
-
-# from menpo.visualize import print_progress
-# from menpo.visualize.viewmatplotlib import sample_colours_from_colourmap
-# from prettytable import PrettyTable
 from pathlib import Path
 import warnings
 
@@ -108,82 +69,69 @@ class Embedding():
         return fea.cpu().numpy()
 
 
-def get_image_feature(img_path, img_list_path, model_path, gpu_id):
-    img_list = open(img_list_path)
-    files = img_list.readlines()
-    dbimg = Database(img_path + '/imgs.h5')
+def get_image_feature(img_path, img_list_path, how='save',  **kwargs):
+    if how=='save':
+        img_list = open(img_list_path)
+        files = img_list.readlines()
+        dbimg = Database(img_path + '/imgs.h5')
 
-    class DatasetIJBC2(torch.utils.data.Dataset):
-        def __init__(self, flip=False):
-            self.flip = flip
+        class DatasetIJBC2(torch.utils.data.Dataset):
+            def __init__(self, flip=False):
+                self.flip = flip
 
-        def __len__(self):
-            return len(files)
+            def __len__(self):
+                return len(files)
 
-        def __getitem__(self, item):
-            img_index = item
-            each_line = files[img_index]
-            name_lmk_score = each_line.strip().split(' ')
-            img_name = os.path.join(img_path, name_lmk_score[0])
-            try:
-                warp_img = dbimg[img_name]
-            except:
-                img = cv2.imread(img_name)
-                lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
-                lmk = lmk.reshape((5, 2))
-                warp_img = preprocess(img, landmark=lmk)
-                dbimg[img_name] = warp_img
+            def __getitem__(self, item):
+                img_index = item
+                each_line = files[img_index]
+                name_lmk_score = each_line.strip().split(' ')
+                img_name = os.path.join(img_path, name_lmk_score[0])
+                try:
+                    warp_img = dbimg[img_name]
+                except:
+                    img = cv2.imread(img_name)
+                    lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
+                    lmk = lmk.reshape((5, 2))
+                    warp_img = preprocess(img, landmark=lmk)
+                    dbimg[img_name] = warp_img
 
-            warp_img = to_image(warp_img)
-            faceness_score = float(name_lmk_score[-1])
-            if self.flip:
-                warp_img = torch.utils.functional.hflip(warp_img)
-            img = conf.test_transform(warp_img)
-            return img, faceness_score
+                warp_img = to_image(warp_img)
+                faceness_score = float(name_lmk_score[-1])
+                if self.flip:
+                    warp_img = torch.utils.functional.hflip(warp_img)
+                img = conf.test_transform(warp_img)
+                return img, faceness_score
 
-    embedding = Embedding()
-    db = Database(work_path + 'ijbc.fea.2.h5')
-    ds = DatasetIJBC2()
-    bs = 128 * 4 * 2
-    loader = torch.utils.data.DataLoader(ds, batch_size=bs, num_workers=12, shuffle=False, pin_memory=True)
-    for ind, (img, faceness_score) in enumerate(loader):
-        if ind % 9 == 0:
-            logging.info(f'ok {ind} {len(loader)}')
-        with torch.no_grad():
-            img_feat = embedding.get_batch(img)
-        db[f'img_feats/{ind}'] = img_feat
-        db[f'faceness_score/{ind}'] = faceness_score
+        embedding = Embedding()
+        db = Database(work_path + 'ijbc.fea.2.h5')
+        ds = DatasetIJBC2()
+        bs = 128 * 4 * 2
+        loader = torch.utils.data.DataLoader(ds, batch_size=bs, num_workers=12, shuffle=False, pin_memory=True)
+        for ind, (img, faceness_score) in enumerate(loader):
+            if ind % 9 == 0:
+                logging.info(f'ok {ind} {len(loader)}')
+            with torch.no_grad():
+                img_feat = embedding.get_batch(img)
+            db[f'img_feats/{ind}'] = img_feat
+            db[f'faceness_score/{ind}'] = faceness_score
 
-    # for img_index, each_line in enumerate((files)):
-    #     if img_index % 99 == 0:
-    #         logging.info(f'ok {img_index} {len(files)}')
-    #     name_lmk_score = each_line.strip().split(' ')
-    #     img_name = os.path.join(img_path, name_lmk_score[0])
-    #     img = cv2.imread(img_name)
-    #     lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
-    #     lmk = lmk.reshape((5, 2))
-    #     img_feat = embedding.get(img, lmk)
-    #     db[f'img_feats/{img_index}'] = img_feat
-    #     faceness_score = float(name_lmk_score[-1])
-    #     db[f'faceness_score/{img_index}'] = faceness_score
-    #     img_feats.append(img_feat)
-    #     faceness_scores.append(faceness_score)
-
-    db.close()
-    from IPython import embed
-    embed()
-    db = Database(work_path + 'ijbc.fea.2.h5', 'r')
-    img_feats = []
-    faceness_scores = []
-    for ind in db.keys():
-        iind = int(ind)
-        fea = db[f'img_feats/{ind}']
-        score = db[f'faceness_score/{ind}']
-        img_feats.append(fea)
-        faceness_scores.append(score)
-    img_feats = np.array(img_feats).astype(np.float32)
-    faceness_scores = np.array(faceness_scores).astype(np.float32)
-    return img_feats, faceness_scores
+        db.close()
+        # from IPython import embed
+        # embed()
+    else:
+        db = Database(work_path + 'ijbc.fea.2.h5', 'r')
+        img_feats = []
+        faceness_scores = []
+        for ind in db['img_feats']:
+            iind = int(ind)
+            fea = db[f'img_feats/{ind}'].reshape(-1,512)
+            score = db[f'faceness_score/{ind}'].reshape(-1)
+            img_feats.append(fea)
+            faceness_scores.append(score)
+        img_feats = np.concatenate(img_feats, axis=0).astype(np.float32)
+        faceness_scores = np.concatenate(faceness_scores).astype(np.float32)
+        return img_feats, faceness_scores
 
 
 def image2template_feature(img_feats=None, templates=None, medias=None):
@@ -233,7 +181,7 @@ def verification(template_norm_feats=None, unique_templates=None, p1=None, p2=No
     for c, s in enumerate(sublists):
         feat1 = template_norm_feats[template2id[p1[s]]]
         feat2 = template_norm_feats[template2id[p2[s]]]
-        similarity_score = np.sum(feat1 * feat2, -1)
+        similarity_score = np.sum(feat1 * feat2, -1).flatten()
         score[s] = similarity_score
         if c % 10 == 0:
             print('Finish {}/{} pairs.'.format(c, total_sublists))
@@ -279,9 +227,8 @@ start = timeit.default_timer()
 # img_feats = read_image_feature('./MS1MV2/IJBB_MS1MV2_r100_arcface.pkl')
 img_path = IJBC_path + './IJBC/loose_crop'
 img_list_path = IJBC_path + './IJBC/meta/ijbc_name_5pts_score.txt'
-model_path = IJBC_path + './pretrained_models/MS1MV2-ResNet100-Arcface/model'
-gpu_id = 1
-img_feats, faceness_scores = get_image_feature(img_path, img_list_path, model_path, gpu_id)
+# get_image_feature(img_path, img_list_path,'save')
+img_feats, faceness_scores = get_image_feature(img_path, img_list_path,'load')
 stop = timeit.default_timer()
 print('Time: %.2f s. ' % (stop - start))
 print('Feature Shape: ({} , {}) .'.format(img_feats.shape[0], img_feats.shape[1]))
@@ -312,7 +259,8 @@ if use_flip_test:
     # add --- F2
     img_input_feats = img_feats[:, 0:img_feats.shape[1] / 2] + img_feats[:, img_feats.shape[1] / 2:]
 else:
-    img_input_feats = img_feats[:, 0:img_feats.shape[1] / 2]
+    # img_input_feats = img_feats[:, 0:img_feats.shape[1] / 2]
+    img_input_feats = img_feats[:, 0:img_feats.shape[1]]
 
 if use_norm_score:
     img_input_feats = img_input_feats
@@ -339,3 +287,4 @@ stop = timeit.default_timer()
 print('Time: %.2f s. ' % (stop - start))
 score_save_name = work_path + 'ijbc.res.npy'
 np.save(score_save_name, score)
+print(len(score))

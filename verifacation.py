@@ -26,14 +26,24 @@
 import numpy as np
 from sklearn.model_selection import KFold
 from sklearn.decomposition import PCA
+from sklearn.metrics import roc_curve, auc
 import sklearn
 from scipy import interpolate
 import datetime
 
 import lz
 
-def calculate_roc_by_dist(thresholds, dist,actual_issame=None, nrof_folds=10 ):
-    nrof_pairs =  len(actual_issame)
+
+def calculate_roc_by_dist(dist, actual_issame=None):
+    fpr, tpr, _ = roc_curve(actual_issame, 4 - dist)
+    roc_auc = auc(fpr, tpr)
+    fpr = np.flipud(fpr)
+    tpr = np.flipud(tpr)  # select largest tpr at same fpr
+    return tpr, fpr, roc_auc
+
+
+def calculate_roc_by_dist2(thresholds, dist, actual_issame=None, nrof_folds=10):
+    nrof_pairs = len(actual_issame)
     nrof_thresholds = len(thresholds)
     k_fold = KFold(n_splits=nrof_folds, shuffle=False)
 
@@ -55,16 +65,18 @@ def calculate_roc_by_dist(thresholds, dist,actual_issame=None, nrof_folds=10 ):
         #         print('best_threshold_index', best_threshold_index, acc_train[best_threshold_index])
         best_thresholds[fold_idx] = thresholds[best_threshold_index]
         for threshold_idx, threshold in enumerate(thresholds):
-            tprs[fold_idx, threshold_idx], fprs[fold_idx, threshold_idx], _ = calculate_accuracy(threshold,
-                                                                                                 dist[test_set],
-                                                                                                 actual_issame[
-                                                                                                     test_set])
+            tprs[fold_idx, threshold_idx], \
+            fprs[fold_idx, threshold_idx], _ = \
+                calculate_accuracy(threshold,
+                                   dist[test_set],
+                                   actual_issame[test_set])
         _, _, accuracy[fold_idx] = calculate_accuracy(thresholds[best_threshold_index], dist[test_set],
                                                       actual_issame[test_set])
 
     tpr = np.mean(tprs, 0)
     fpr = np.mean(fprs, 0)
     return tpr, fpr, accuracy, best_thresholds
+
 
 def calculate_roc(thresholds, embeddings1=None, embeddings2=None,
                   actual_issame=None, nrof_folds=10, pca=0):

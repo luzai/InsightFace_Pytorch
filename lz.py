@@ -1675,7 +1675,9 @@ def l2_normalize_th(x):
     x2 = x1 / x1.norm(p=2, dim=1, keepdim=True)
     return x2.view(shape)
 
-
+# from numba import  njit
+#
+# @njit
 def l2_normalize_np(x):
     x = np.asarray(x)
     shape = x.shape
