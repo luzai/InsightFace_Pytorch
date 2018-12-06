@@ -6,7 +6,7 @@ from torchvision import transforms as trans
 
 # lz.init_dev(lz.get_dev(n=2))
 # lz.init_dev(range(2, 4) if lz.dbg else range(2))
-num_devs = 1
+num_devs = 2
 lz.init_dev(lz.get_dev(num_devs))
 
 
@@ -15,10 +15,8 @@ def get_config(training=True, work_path=None):
     conf.num_devs = num_devs
     dbg = lz.dbg
     # if dbg:
-    #     # conf.num_steps_per_epoch = 38049
-    #     conf.num_steps_per_epoch = 3
-    #     # conf.no_eval = False
-    #     conf.no_eval = True
+    #     conf.num_steps_per_epoch = 38049
+    #     conf.no_eval = False
     # else:
     conf.num_steps_per_epoch = 38049
     conf.no_eval = False
@@ -28,10 +26,10 @@ def get_config(training=True, work_path=None):
     conf.rand_ratio = 6 / 27
     conf.fgg = ''  # g gg ''
     conf.fgg_wei = 0  # 1
-    conf.tri_wei = 1
+    conf.tri_wei = .5
     conf.scale = 64.  # 30.
     conf.dop = np.ones(conf.num_clss,dtype=int) * -1
-    conf.start_eval = False
+    conf.start_eval = True
 
     conf.data_path = Path('/data2/share/')
     conf.work_path = work_path or Path('work_space/arcsft.triadap.dop.bak')
@@ -45,7 +43,7 @@ def get_config(training=True, work_path=None):
     conf.drop_ratio = 0.6
     conf.net_mode = 'ir_se'  # or 'ir'
     conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    # conf.device2 = torch.device("cuda:1")  # todo for at least two gpu, seems no need
+    conf.device2 = torch.device("cuda:1")  # todo for at least two gpu, seems no need
     conf.start_epoch = 0  # 0
 
     conf.test_transform = trans.Compose([

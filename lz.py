@@ -1,4 +1,3 @@
-
 import matplotlib.pyplot as plt
 
 # dbg = True
@@ -60,7 +59,6 @@ if os.environ.get('pytorch', "1") == "1":
         f'{old_repr(obj.contiguous())} '
         f'type: {obj.type()} shape: {obj.shape}')
     logging.info(f'import pytorch {time.time() - tic}')
-
 
 
 def allow_growth():
@@ -1467,7 +1465,7 @@ def preprocess(img, bbox=None, landmark=None, **kwargs):
         if image_size[1] == 112:
             src[:, 0] += 8.0
         dst = landmark.astype(np.float32)
-
+        dst = dst.reshape(5, 2)
         tform = trans.SimilarityTransform()
         tform.estimate(dst, src)
         M = tform.params[0:2, :]
