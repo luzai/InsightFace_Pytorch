@@ -39,8 +39,8 @@ if __name__ == '__main__':
     #                    model_only=False)
     # todo make it load from model of any folder
     # log_lrs, losses = learner.find_lr(conf,
-    #                                   final_value=10,
-    #                                   num=1500)
+    #                                   # final_value=100,
+    #                                   num=200)
     # best_lr = 10 ** (log_lrs[np.argmin(losses)])
     # print(best_lr)
     # conf.lr = best_lr

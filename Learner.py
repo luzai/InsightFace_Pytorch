@@ -619,7 +619,7 @@ class RandomIdSampler(Sampler):
         # final_idxs = final_idxs2
         # return iter(final_idxs)
 
-
+# todo return unorm feature
 class face_learner(object):
     def __init__(self, conf, inference=False, need_loader=True):
         print(conf)
@@ -669,14 +669,17 @@ class face_learner(object):
                 self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num).to(conf.device)
             else:
                 raise ValueError(f'{conf.loss}')
-            ## todo triplet
             self.head_triplet = TripletLoss().to(conf.device)  # todo maybe device 1, since features loc at device1?
 
             print('two model heads generated')
 
             paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
-
-            if conf.use_mobilfacenet:
+            if conf.use_opt == 'adam':
+                self.optimizer = optim.Adam([{'params': paras_wo_bn + [self.head.kernel], 'weight_decay': 5e-4},
+                                            {'params': paras_only_bn}, ] ,
+                                            lr=conf.lr
+                                            )
+            elif conf.use_mobilfacenet:
                 self.optimizer = optim.SGD([
                     {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
                     {'params': [paras_wo_bn[-1]] + [self.head.kernel], 'weight_decay': 4e-4},
@@ -688,7 +691,7 @@ class face_learner(object):
                     {'params': paras_only_bn}
                 ], lr=conf.lr, momentum=conf.momentum)
             print(self.optimizer)
-            # self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=40, verbose=True)
+
             print('optimizers generated')
             self.board_loss_every = 100  # len(self.loader) // 100
             self.evaluate_every = len(self.loader) // 10
@@ -1065,7 +1068,7 @@ class face_learner(object):
     def find_lr(self,
                 conf,
                 init_value=1e-5,
-                final_value=1.,
+                final_value=10.,
                 beta=0.98,
                 bloding_scale=3.,
                 num=None):
@@ -1129,10 +1132,13 @@ class face_learner(object):
                 plt.plot(log_lrs[10:-5], losses[10:-5])
                 plt.show()
                 plt.savefig('/tmp/tmp.png')
+                from IPython import embed
+                embed()
                 return log_lrs, losses
 
 
 if __name__ == '__main__':
+    pass
     # test thread safe
     # ds = TorchDataset()
     # print(len(ds))

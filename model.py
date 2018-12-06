@@ -175,7 +175,7 @@ class Backbone(Module):
             x, norm = l2_norm(x, axis=1, need_norm=need_norm)
             return x, norm
 
-        ##################################  MobileFaceNet #############################################################
+##################################  MobileFaceNet #############################################################
 
 
 class Conv_block(Module):
@@ -398,7 +398,6 @@ class TripletLoss(Module):
         dist.addmm_(1, -2, inputs, inputs.t()).clamp_(min=1e-12).sqrt_()
         dist = dist * gl_conf.scale
         # todo how to use triplet only, can use temprature decay/progessive learinig curriculum learning
-
         # For each anchor, find the hardest positive and negative
         mask = targets.expand(n, n).eq(targets.expand(n, n).t())
         # a = to_numpy(targets)
@@ -426,7 +425,7 @@ class TripletLoss(Module):
         dist = torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(n, n)
         dist = dist + dist.t()
         dist.addmm_(1, -2, inputs, inputs.t()).clamp_(min=1e-12).sqrt_()
-        # dist = dist.clamp(min=1e-12).sqrt()  # for numerical stability
+
 
         # For each anchor, find the hardest positive and negative
         mask = targets.expand(n, n).eq(targets.expand(n, n).t())

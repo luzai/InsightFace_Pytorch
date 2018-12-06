@@ -115,7 +115,7 @@ if __name__ == '__main__':
         x, y, w, h = list(map(int, [x, y, w, h]))
         inps.append([ind, tid, sid, fn, x, y, w, h, mtcnn])
     # inps = inps[::-1]
-    random.shuffle(inps)
+    # random.shuffle(inps)
     _ = multi_pool.map(do_align_by_list, inps)
     # _ = multi_pool.map_async(do_align_by_list, inps)
     multi_pool.close()
