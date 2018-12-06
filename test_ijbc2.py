@@ -55,9 +55,14 @@ warnings.filterwarnings("ignore")
 
 
 def read_template_media_list(path):
-    ijb_meta = np.loadtxt(path, dtype=str)
-    templates = ijb_meta[:, 1].astype(np.int)
-    medias = ijb_meta[:, 2].astype(np.int)
+    path_pk = path.replace('.txt', '.pk')
+    try:
+        templates, medias = msgpack_load(path_pk)
+    except:
+        ijb_meta = np.loadtxt(path, dtype=str)
+        templates = ijb_meta[:, 1].astype(np.int)
+        medias = ijb_meta[:, 2].astype(np.int)
+        msgpack_dump([templates, medias], path_pk)
     return templates, medias
 
 
@@ -97,32 +102,87 @@ class Embedding():
             fea = self.learner.model(img)
         return fea.cpu().numpy().flatten()  # this norm =1 !
 
+    def get_batch(self, rimgs, ):
+        with torch.no_grad():
+            fea = self.learner.model(rimgs)
+        return fea.cpu().numpy()
+
 
 def get_image_feature(img_path, img_list_path, model_path, gpu_id):
     img_list = open(img_list_path)
-    # embedding = Embedding(model_path, 0, gpu_id)
-    embedding = Embedding()
     files = img_list.readlines()
-    db = Database(work_path + 'ijbc.fea.2.h5'  )
+    dbimg = Database(img_path + '/imgs.h5')
+
+    class DatasetIJBC2(torch.utils.data.Dataset):
+        def __init__(self, flip=False):
+            self.flip = flip
+
+        def __len__(self):
+            return len(files)
+
+        def __getitem__(self, item):
+            img_index = item
+            each_line = files[img_index]
+            name_lmk_score = each_line.strip().split(' ')
+            img_name = os.path.join(img_path, name_lmk_score[0])
+            try:
+                warp_img = dbimg[img_name]
+            except:
+                img = cv2.imread(img_name)
+                lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
+                lmk = lmk.reshape((5, 2))
+                warp_img = preprocess(img, landmark=lmk)
+                dbimg[img_name] = warp_img
+
+            warp_img = to_image(warp_img)
+            faceness_score = float(name_lmk_score[-1])
+            if self.flip:
+                warp_img = torch.utils.functional.hflip(warp_img)
+            img = conf.test_transform(warp_img)
+            return img, faceness_score
+
+    embedding = Embedding()
+    db = Database(work_path + 'ijbc.fea.2.h5')
+    ds = DatasetIJBC2()
+    bs = 128 * 4 * 2
+    loader = torch.utils.data.DataLoader(ds, batch_size=bs, num_workers=12, shuffle=False, pin_memory=True)
+    for ind, (img, faceness_score) in enumerate(loader):
+        if ind % 9 == 0:
+            logging.info(f'ok {ind} {len(loader)}')
+        with torch.no_grad():
+            img_feat = embedding.get_batch(img)
+        db[f'img_feats/{ind}'] = img_feat
+        db[f'faceness_score/{ind}'] = faceness_score
+
+    # for img_index, each_line in enumerate((files)):
+    #     if img_index % 99 == 0:
+    #         logging.info(f'ok {img_index} {len(files)}')
+    #     name_lmk_score = each_line.strip().split(' ')
+    #     img_name = os.path.join(img_path, name_lmk_score[0])
+    #     img = cv2.imread(img_name)
+    #     lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
+    #     lmk = lmk.reshape((5, 2))
+    #     img_feat = embedding.get(img, lmk)
+    #     db[f'img_feats/{img_index}'] = img_feat
+    #     faceness_score = float(name_lmk_score[-1])
+    #     db[f'faceness_score/{img_index}'] = faceness_score
+    #     img_feats.append(img_feat)
+    #     faceness_scores.append(faceness_score)
+
+    db.close()
+    from IPython import embed
+    embed()
+    db = Database(work_path + 'ijbc.fea.2.h5', 'r')
     img_feats = []
     faceness_scores = []
-    for img_index, each_line in enumerate((files)):
-        if img_index % 99 == 0:
-            logging.info(f'ok {img_index} {len(files)}')
-        name_lmk_score = each_line.strip().split(' ')
-        img_name = os.path.join(img_path, name_lmk_score[0])
-        img = cv2.imread(img_name)
-        lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
-        lmk = lmk.reshape((5, 2))
-        img_feat = embedding.get(img, lmk)
-        db[f'img_feats/{img_index}'] = img_feat
-        faceness_score = float(name_lmk_score[-1])
-        db[f'faceness_score/{img_index}'] = faceness_score
-        img_feats.append(img_feat)
-        faceness_scores.append(faceness_score)
+    for ind in db.keys():
+        iind = int(ind)
+        fea = db[f'img_feats/{ind}']
+        score = db[f'faceness_score/{ind}']
+        img_feats.append(fea)
+        faceness_scores.append(score)
     img_feats = np.array(img_feats).astype(np.float32)
     faceness_scores = np.array(faceness_scores).astype(np.float32)
-    db.close()
     return img_feats, faceness_scores
 
 
@@ -239,9 +299,12 @@ start = timeit.default_timer()
 # 1. FaceScore （Feature Norm）
 # 2. FaceScore （Detector）
 
-use_norm_score = True  # if Ture, TestMode(N1)   # todo has he use norm?
-use_detector_score = True  # if Ture, TestMode(D1)
-use_flip_test = True  # if Ture, TestMode(F1)
+# use_norm_score = True  # if Ture, TestMode(N1)   # todo has he use norm?
+# use_detector_score = True  # if Ture, TestMode(D1)
+# use_flip_test = True  # if Ture, TestMode(F1) # todo has he flip?
+use_norm_score = False  # if Ture, TestMode(N1)   # todo has he use norm?
+use_detector_score = False  # if Ture, TestMode(D1)
+use_flip_test = False  # if Ture, TestMode(F1) # todo has he flip?
 
 if use_flip_test:
     # concat --- F1

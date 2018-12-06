@@ -117,5 +117,26 @@ def db2np():
     save_mat(work_path + 'sfttri.bin', res)
     msgpack_dump(res, work_path + 'sfttri.pk', )
 
+def read_mat(f):
+    """
+    Reads an OpenCV mat from the given file opened in binary mode
+    """
+    rows, cols, stride, type_ = struct.unpack('iiii', f.read(4*4))
+    mat = np.fromstring(f.read(rows*stride),dtype=cv_type_to_dtype[type_])
+    return mat.reshape(rows,cols)
 
-db2np()
+
+def load_mat(filename):
+    """
+    Reads a OpenCV Mat from the given filename
+    """
+    return read_mat(open(filename,'rb'))
+
+def chknp():
+    mat = load_mat(work_path+'sfttri.bin')
+    print(mat.shape, mat.dtype)
+
+def rand2np():
+    res = np.random.rand(1862120, 2).astype(np.float32)
+    res = l2_normalize_np(res)
+    save_mat(work_path + 'test3.bin', res)
