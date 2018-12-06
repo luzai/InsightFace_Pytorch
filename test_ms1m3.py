@@ -53,72 +53,69 @@ ms1m_lmk_path = '/data1/share/testdata_lmk.txt'
 # msgpack_dump(lmks, work_path + 'lmk.pk')
 # lmks = msgpack_load(work_path + 'lmk.pk')
 lmks = pd.read_csv('/data1/share/testdata_lmk.txt', sep=' ', header=None).to_records(index=False).tolist()
+
+
 # chkpnt_path = Path('work_space/arcsft.bs2')
-chkpnt_path = Path('work_space/arcsft.triadap.s64.0.1')
-model_path = chkpnt_path / 'save'
-conf = get_config(training=False, work_path=chkpnt_path)
-learner = face_learner(conf, inference=True)
-learner.load_state(conf, None, True, True)
-learner.model.eval()
-logging.info('learner loaded')
+def img2db():
+    chkpnt_path = Path('work_space/arcsft.triadap.s64.0.1')
+    model_path = chkpnt_path / 'save'
+    conf = get_config(training=False, work_path=chkpnt_path)
+    learner = face_learner(conf, inference=True)
+    learner.load_state(conf, None, True, True)
+    learner.model.eval()
+    logging.info('learner loaded')
 
-from Learner import l2_norm
-from PIL import Image
+    from Learner import l2_norm
+    from PIL import Image
+
+    class DatasetMS1M3(torch.utils.data.Dataset):
+        def __init__(self):
+            pass
+
+        def __getitem__(self, item):
+            data = lmks[item]
+            imgfn = data[0]
+            lmk = np.asarray(data[1:])
+            img = cvb.read_img(f'{ms1m_path}/{imgfn}')
+            warp_img = preprocess(img, landmark=lmk)
+            warp_img = Image.fromarray(warp_img)
+            flip_img = torchvision.transforms.functional.hflip(warp_img)
+            warp_img = conf.test_transform(warp_img)
+            flip_img = conf.test_transform(flip_img)
+            return {'img': warp_img,
+                    'flip_img': flip_img,
+                    }
+
+        def __len__(self):
+            return len(lmks)
+
+    ds = DatasetMS1M3()
+    bs = 128 * 4 * 2
+    loader = torch.utils.data.DataLoader(ds, batch_size=bs, num_workers=12, shuffle=False, pin_memory=True)
+    db = Database(work_path + 'sfttri.h5', )
+    for ind, data in enumerate(loader):
+        if ind % 9 == 0:
+            logging.info(f'ind {ind}')
+        warp_img = data['img']
+        flip_img = data['flip_img']
+        with torch.no_grad():
+            fea = l2_norm(learner.model(warp_img) + learner.model(flip_img)).cpu().numpy()
+        db[f'{ind}'] = fea
+
+    db.close()
 
 
-class DatasetMS1M3(torch.utils.data.Dataset):
-    def __init__(self):
-        pass
+def db2np():
+    db = Database(work_path + 'sfttri.h5', 'r')
+    res = np.empty((len(lmks), 512), dtype=np.float32)
+    for ind in db.keys():
+        bs = db[ind].shape[0]
+        iind = int(ind)
+        res[iind * bs: iind * bs + bs, :] = db[ind]
+    db.close()
 
-    def __getitem__(self, item):
-        data = lmks[item]
-        imgfn = data[0]
-        lmk = np.asarray(data[1:])
-        img = cvb.read_img(f'{ms1m_path}/{imgfn}')
-        warp_img = preprocess(img, landmark=lmk)
-        warp_img = Image.fromarray(warp_img)
-        flip_img = torchvision.transforms.functional.hflip(warp_img)
-        warp_img = conf.test_transform(warp_img)
-        flip_img = conf.test_transform(flip_img)
-        return {'img': warp_img,
-                'flip_img': flip_img,
-                }
-
-    def __len__(self):
-        return len(lmks)
+    save_mat(work_path + 'sfttri.bin', res)
+    msgpack_dump(res, work_path + 'sfttri.pk', )
 
 
-# res = np.empty((len(lmks), 512), dtype=np.float32)
-
-# for ind, data in enumerate(lmks):
-#     if ind % 999 == 0:
-#         logging.info('ok')
-#     imgfn = data[0]
-#     lmk = np.asarray(data[1:])
-#     img = cvb.read_img(f'{ms1m_path}/{imgfn}')
-#     warp_img = preprocess(img, landmark=lmk)
-#     warp_img = Image.fromarray(warp_img)
-#     flip_img = torchvision.transforms.functional.hflip(warp_img)
-#     warp_img = conf.test_transform(warp_img).cuda().unsqueeze(0)
-#     flip_img = conf.test_transform(flip_img).cuda().unsqueeze(0)
-#     with torch.no_grad():
-#         fea = l2_norm(learner.model(warp_img) + learner.model(flip_img)).cpu().numpy()
-#     res[ind, :] = fea[0]
-
-ds = DatasetMS1M3()
-bs = 128 * 4 * 2
-loader = torch.utils.data.DataLoader(ds, batch_size=bs, num_workers=12, shuffle=False, pin_memory=True)
-db = Database(work_path + 'sfttri.h5', )
-for ind, data in enumerate(loader):
-    if ind % 9 == 0:
-        logging.info(f'ind {ind}')
-    warp_img = data['img']
-    flip_img = data['flip_img']
-    with torch.no_grad():
-        fea = l2_norm(learner.model(warp_img) + learner.model(flip_img)).cpu().numpy()
-    # res[ind * bs: ind * bs + bs, :] = fea
-    db[f'{ind}'] = fea
-
-# save_mat(work_path + 'sfttri.bin', res)
-# msgpack_dump(res, work_path + 'sfttri.pk', )
-db.close()
+db2np()
