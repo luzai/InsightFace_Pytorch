@@ -8,16 +8,18 @@ import pickle as cPickle
 from sklearn.metrics import roc_curve, auc
 import timeit
 import sklearn
+
 sys.path.append('./recognition')
 from pathlib import Path
 import warnings
 
 warnings.filterwarnings("ignore")
 
-
-chkpnt_path = Path('work_space/arcsft.bs2')
+chkpnt_path = Path('work_space/arcsft.triadap.s64.0.1')
 model_path = chkpnt_path / 'save'
 conf = get_config(training=False, work_path=chkpnt_path)
+
+
 def read_template_media_list(path):
     path_pk = path.replace('.txt', '.pk')
     try:
@@ -72,15 +74,16 @@ class Embedding():
         return fea.cpu().numpy()
 
 
-def get_image_feature(img_path, img_list_path, how='save',  **kwargs):
-    if how=='save':
+def get_image_feature(img_path, img_list_path, how='save', **kwargs):
+    if how == 'save':
         img_list = open(img_list_path)
         files = img_list.readlines()
-        dbimg = Database(img_path + '/imgs.h5')
 
+        # dbimg = Database(img_path + '/imgs.h5')
         class DatasetIJBC2(torch.utils.data.Dataset):
             def __init__(self, flip=False):
                 self.flip = flip
+                self.lock = torch.multiprocessing.Lock()
 
             def __len__(self):
                 return len(files)
@@ -90,45 +93,48 @@ def get_image_feature(img_path, img_list_path, how='save',  **kwargs):
                 each_line = files[img_index]
                 name_lmk_score = each_line.strip().split(' ')
                 img_name = os.path.join(img_path, name_lmk_score[0])
-                try:
-                    warp_img = dbimg[img_name]
-                except:
-                    img = cv2.imread(img_name)
-                    lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
-                    lmk = lmk.reshape((5, 2))
-                    warp_img = preprocess(img, landmark=lmk)
-                    dbimg[img_name] = warp_img
+                # try:
+                #     if lock.acquire(timeout=0):
+                #         warp_img = dbimg[name_lmk_score[0]]
+                #         lock.release()
+                #     else:
+                #         raise ValueError('can not lock')
+                # except:
+                img = cv2.imread(img_name)
+                lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
+                lmk = lmk.reshape((5, 2))
+                warp_img = preprocess(img, landmark=lmk)
+                # dbimg[name_lmk_score[0]] = warp_img
 
                 warp_img = to_image(warp_img)
                 faceness_score = float(name_lmk_score[-1])
                 if self.flip:
                     warp_img = torch.utils.functional.hflip(warp_img)
                 img = conf.test_transform(warp_img)
-                return img, faceness_score
+                return img, faceness_score, item, name_lmk_score[0]
 
         embedding = Embedding()
-        db = Database(work_path + 'ijbc.fea.2.h5')
+        db = Database(work_path + 'ijbc.fea.4.h5')
         ds = DatasetIJBC2()
-        bs = 128 * 4 * 2
+        bs = 128*4
         loader = torch.utils.data.DataLoader(ds, batch_size=bs, num_workers=12, shuffle=False, pin_memory=True)
-        for ind, (img, faceness_score) in enumerate(loader):
+        for ind, (img, faceness_score, items, names) in enumerate(loader):
             if ind % 9 == 0:
                 logging.info(f'ok {ind} {len(loader)}')
             with torch.no_grad():
                 img_feat = embedding.get_batch(img)
             db[f'img_feats/{ind}'] = img_feat
-            db[f'faceness_score/{ind}'] = faceness_score
-
+            db[f'faceness_score/{ind}'] = faceness_score.numpy().astype(np.float32)
         db.close()
         # from IPython import embed
         # embed()
     else:
-        db = Database(work_path + 'ijbc.fea.2.h5', 'r')
+        db = Database(work_path + 'ijbc.fea.4.h5', 'r')
         img_feats = []
         faceness_scores = []
         for ind in db['img_feats']:
             iind = int(ind)
-            fea = db[f'img_feats/{ind}'].reshape(-1,512)
+            fea = db[f'img_feats/{ind}'].reshape(-1, 512)
             score = db[f'faceness_score/{ind}'].reshape(-1)
             img_feats.append(fea)
             faceness_scores.append(score)
@@ -230,8 +236,8 @@ start = timeit.default_timer()
 # img_feats = read_image_feature('./MS1MV2/IJBB_MS1MV2_r100_arcface.pkl')
 img_path = IJBC_path + './IJBC/loose_crop'
 img_list_path = IJBC_path + './IJBC/meta/ijbc_name_5pts_score.txt'
-# get_image_feature(img_path, img_list_path,'save')
-img_feats, faceness_scores = get_image_feature(img_path, img_list_path,'load')
+get_image_feature(img_path, img_list_path, 'save')
+img_feats, faceness_scores = get_image_feature(img_path, img_list_path, 'load')
 stop = timeit.default_timer()
 print('Time: %.2f s. ' % (stop - start))
 print('Feature Shape: ({} , {}) .'.format(img_feats.shape[0], img_feats.shape[1]))
@@ -249,11 +255,8 @@ start = timeit.default_timer()
 # 1. FaceScore （Feature Norm）
 # 2. FaceScore （Detector）
 
-# use_norm_score = True  # if Ture, TestMode(N1)   # todo has he use norm?
-# use_detector_score = True  # if Ture, TestMode(D1)
-# use_flip_test = True  # if Ture, TestMode(F1) # todo has he flip?
-use_norm_score = False  # if Ture, TestMode(N1)   # todo has he use norm?
-use_detector_score = False  # if Ture, TestMode(D1)
+use_norm_score = True  # if Ture, TestMode(N1)   # todo has he use norm?
+use_detector_score = True  # if Ture, TestMode(D1)
 use_flip_test = False  # if Ture, TestMode(F1) # todo has he flip?
 
 if use_flip_test:
@@ -261,6 +264,7 @@ if use_flip_test:
     # img_input_feats = img_feats
     # add --- F2
     img_input_feats = img_feats[:, 0:img_feats.shape[1] / 2] + img_feats[:, img_feats.shape[1] / 2:]
+
 else:
     # img_input_feats = img_feats[:, 0:img_feats.shape[1] / 2]
     img_input_feats = img_feats[:, 0:img_feats.shape[1]]
@@ -291,3 +295,21 @@ print('Time: %.2f s. ' % (stop - start))
 score_save_name = work_path + 'ijbc.res.npy'
 np.save(score_save_name, score)
 print(len(score))
+
+# score = np.load( work_path + 'ijbc.res.npy' )
+
+len(label), len(score)
+fpr, tpr, _ = roc_curve(label, score)
+roc_auc = auc(fpr, tpr)
+fpr = np.flipud(fpr)
+tpr = np.flipud(tpr)  # select largest tpr at same fpr
+
+x_labels = [10 ** -6, 10 ** -5, 10 ** -4, 10 ** -3, 10 ** -2, 10 ** -1]
+for fpr_iter in np.arange(len(x_labels)):
+    _, min_index = min(list(zip(abs(fpr - x_labels[fpr_iter]), range(len(fpr)))))
+    print(x_labels[fpr_iter], tpr[min_index])
+plt.plot(fpr, tpr, lw=1,
+         label=(f'[  (AUC = {roc_auc*1000:.4f} %%)]'), )
+plt.show()
+plt.semilogx(fpr, tpr)
+plt.show()

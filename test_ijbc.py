@@ -23,14 +23,14 @@ df = pd.concat((df1, df2))
 t2s = dict(zip(df.index, df.SUBJECT_ID))
 all_tids = list(t2s.keys())
 
-chkpnt_path = Path('work_space/arcsft.bs2')
+chkpnt_path = Path('work_space/arcsft.triadap.s64.0.1')
 model_path = chkpnt_path / 'save'
 conf = get_config(training=False, work_path=chkpnt_path)
 
 from torch.utils.data.dataloader import default_collate
 
 # mem = []
-true_batch_size = 100 * 2 * conf.num_devs
+true_batch_size = 128 * 4 * conf.num_devs
 
 
 def my_collate(batch):
@@ -137,16 +137,15 @@ from multiprocessing import Pool
 if __name__ == '__main__':
     # load
     # agg
-    # dbname = work_path + 'ijbc.h5'
-    # extract2db(dbname)
-    # db = Database(dbname, mode='r')
+    dbname = work_path + 'ijbc.2.h5'
+    extract2db(dbname)
     db = None
 
 
     def init_db():
         from lz import l2_normalize_np, Database, work_path
         global db
-        dbname = work_path + 'ijbc.h5'
+        dbname = work_path + 'ijbc.2.h5'
         db = Database(dbname, 'r')
         print(db, id(db), 'start')
 
@@ -203,7 +202,7 @@ if __name__ == '__main__':
 
     # get acc
     lz.msgpack_dump([np.asarray(dists, order='C'),
-                     np.asarray(issames,order='C')
+                     np.asarray(issames, order='C')
                      ], work_path + 't.pk')
     timer.since_last_check('end ')
     tpr, fpr, acc = calculate_roc_by_dist(dists, issames)
