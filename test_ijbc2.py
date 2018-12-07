@@ -74,10 +74,13 @@ class Embedding():
         return fea.cpu().numpy()
 
 
-def get_image_feature(img_path, img_list_path, how='save', **kwargs):
+def get_image_feature(img_path, img_list_path, how='save', db_name='ijbc.fea.4.h5', **kwargs):
     if how == 'save':
         img_list = open(img_list_path)
         files = img_list.readlines()
+        num_imgs = len(files)
+        # src_names = [each_line.strip().split(' ')[0] for each_line in files]
+        # src_names = np.asarray(src_names)
 
         # dbimg = Database(img_path + '/imgs.h5')
         class DatasetIJBC2(torch.utils.data.Dataset):
@@ -114,29 +117,32 @@ def get_image_feature(img_path, img_list_path, how='save', **kwargs):
                 return img, faceness_score, item, name_lmk_score[0]
 
         embedding = Embedding()
-        db = Database(work_path + 'ijbc.fea.4.h5')
+        db = Database(work_path + db_name)
         ds = DatasetIJBC2()
-        bs = 128*4
-        loader = torch.utils.data.DataLoader(ds, batch_size=bs, num_workers=12, shuffle=False, pin_memory=True)
+        bs = 512
+        loader = torch.utils.data.DataLoader(ds, batch_size=bs,
+                                             num_workers=12, shuffle=False, pin_memory=True)
         for ind, (img, faceness_score, items, names) in enumerate(loader):
             if ind % 9 == 0:
                 logging.info(f'ok {ind} {len(loader)}')
             with torch.no_grad():
                 img_feat = embedding.get_batch(img)
-            db[f'img_feats/{ind}'] = img_feat
-            db[f'faceness_score/{ind}'] = faceness_score.numpy().astype(np.float32)
+            for ind_true, fea, score in zip(items, img_feat, faceness_score):
+                ind_true = ind_true.item()
+                db[f'img_feats/{ind_true}'] = fea
+                db[f'faceness_score/{ind_true}'] = score
         db.close()
-        # from IPython import embed
-        # embed()
     else:
-        db = Database(work_path + 'ijbc.fea.4.h5', 'r')
-        img_feats = []
+        db = Database(work_path + db_name, 'r')
         faceness_scores = []
-        for ind in db['img_feats']:
-            iind = int(ind)
+        t = [ind for ind in db['img_feats']]
+        t = np.asarray(t, int)
+        t = max(t) + 1
+        img_feats = np.empty((t, 512))
+        for ind in range(0, t):
             fea = db[f'img_feats/{ind}'].reshape(-1, 512)
             score = db[f'faceness_score/{ind}'].reshape(-1)
-            img_feats.append(fea)
+            img_feats[ind,:] = fea.flatten()
             faceness_scores.append(score)
         img_feats = np.concatenate(img_feats, axis=0).astype(np.float32)
         faceness_scores = np.concatenate(faceness_scores).astype(np.float32)
@@ -236,8 +242,9 @@ start = timeit.default_timer()
 # img_feats = read_image_feature('./MS1MV2/IJBB_MS1MV2_r100_arcface.pkl')
 img_path = IJBC_path + './IJBC/loose_crop'
 img_list_path = IJBC_path + './IJBC/meta/ijbc_name_5pts_score.txt'
-get_image_feature(img_path, img_list_path, 'save')
-img_feats, faceness_scores = get_image_feature(img_path, img_list_path, 'load')
+get_image_feature(img_path, img_list_path, 'save', 'ijbc2.5.h5')
+img_feats, faceness_scores = get_image_feature(img_path, img_list_path, 'load', 'ijbc2.5.h5')
+# img_feats, faceness_scores = get_image_feature(img_path, img_list_path, 'load', 'ijbc.fea.3.h5')
 stop = timeit.default_timer()
 print('Time: %.2f s. ' % (stop - start))
 print('Feature Shape: ({} , {}) .'.format(img_feats.shape[0], img_feats.shape[1]))
@@ -255,9 +262,9 @@ start = timeit.default_timer()
 # 1. FaceScore （Feature Norm）
 # 2. FaceScore （Detector）
 
-use_norm_score = True  # if Ture, TestMode(N1)   # todo has he use norm?
+use_norm_score = True  # if Ture, TestMode(N1)   # todo
 use_detector_score = True  # if Ture, TestMode(D1)
-use_flip_test = False  # if Ture, TestMode(F1) # todo has he flip?
+use_flip_test = False  # if Ture, TestMode(F1) # todo
 
 if use_flip_test:
     # concat --- F1
@@ -308,8 +315,8 @@ x_labels = [10 ** -6, 10 ** -5, 10 ** -4, 10 ** -3, 10 ** -2, 10 ** -1]
 for fpr_iter in np.arange(len(x_labels)):
     _, min_index = min(list(zip(abs(fpr - x_labels[fpr_iter]), range(len(fpr)))))
     print(x_labels[fpr_iter], tpr[min_index])
-plt.plot(fpr, tpr, lw=1,
-         label=(f'[  (AUC = {roc_auc*1000:.4f} %%)]'), )
+plt.plot(fpr, tpr, '.-')
 plt.show()
-plt.semilogx(fpr, tpr)
+plt.semilogx(fpr, tpr, '.-')
 plt.show()
+print(roc_auc)

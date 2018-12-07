@@ -743,10 +743,15 @@ def timeit(fn, info=''):
 class Database(object):
     def __init__(self, file, mode='a'):
         import h5py
-        # try:
-        self.fid = h5py.File(file, mode)
-        # except OSError as inst:
-        #     logging.error(f'{inst}')
+        if mode == 'r':
+            try:
+                self.fid = h5py.File(file, mode)
+            except OSError as inst:
+                logging.error(f'{inst}')
+                cp(file, file + f'.{randomword()}')
+                self.fid = h5py.File(file, mode)
+        else:
+            self.fid = h5py.File(file, mode)
         #     rm(file)
         #     self.fid = h5py.File(file, 'w')
         #     logging.error(f'{file} is delete and write !!')
