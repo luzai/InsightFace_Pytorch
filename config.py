@@ -4,11 +4,9 @@ from lz import *
 from torch.nn import CrossEntropyLoss
 from torchvision import transforms as trans
 
-# lz.init_dev(lz.get_dev(n=2))
-# lz.init_dev(range(2, 4) if lz.dbg else range(2))
-num_devs = 1
-lz.init_dev(lz.get_dev(num_devs))
-
+num_devs =3
+# lz.init_dev(lz.get_dev(num_devs))
+lz.init_dev((1,0,2))
 
 def get_config(training=True, work_path=None):
     conf = edict()
@@ -59,12 +57,11 @@ def get_config(training=True, work_path=None):
     # else:
     conf.ms1m_folder = conf.data_path / 'faces_ms1m_112x112'
     conf.emore_folder = conf.data_path / 'faces_emore'
-    conf.batch_size = 96 * num_devs if not dbg else 8 * num_devs  # xent: 96 92 tri: 112 108
+    conf.batch_size = 92 * num_devs if not dbg else 8 * num_devs  # xent: 96 92 tri: 112 108
     #   conf.batch_size = 200 # mobilefacenet
     conf.num_recs = 2 if not dbg else 1  # todo too much worse speed ?
     # --------------------Training Config ------------------------
     if training:
-
         conf.log_path = conf.work_path / 'log'
         conf.save_path = conf.work_path / 'save'
         #     conf.weight_decay = 5e-4

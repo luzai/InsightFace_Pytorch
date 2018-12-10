@@ -35,6 +35,9 @@ except:
     df_pair = pd.read_csv(fn, sep=' ', header=None)
     fn = os.path.join(IJBC_path + 'IJBC/meta', 'ijbc_name_5pts_score.txt')
     df_name = pd.read_csv(fn, sep=' ', header=None)
+    df_dump(df_tm, ijbcp, 'tm')
+    df_dump(df_pair, ijbcp, 'pair')
+    df_dump(df_name, ijbcp, 'name')
 
 # chkpnt_path = Path('work_space/arcsft.triadap.s64.0.1')
 chkpnt_path = Path('work_space/arcsft.triadap.0.1.dop')
@@ -136,3 +139,19 @@ plt.show()
 
 from IPython import embed
 embed()
+
+fpr = np.flipud(fpr)
+tpr = np.flipud(tpr)  # select largest tpr at same fpr
+
+x_labels = [10 ** -6, 10 ** -5, 10 ** -4, 10 ** -3, 10 ** -2, 10 ** -1]
+for fpr_iter in np.arange(len(x_labels)):
+    _, min_index = min(list(zip(abs(fpr - x_labels[fpr_iter]), range(len(fpr)))))
+    print(x_labels[fpr_iter], tpr[min_index])
+plt.plot(fpr, tpr, '.-')
+plt.show()
+plt.semilogx(fpr, tpr, '.-')
+plt.show()
+from sklearn.metrics import auc
+roc_auc = auc(fpr, tpr)
+
+print(roc_auc)

@@ -2,8 +2,7 @@ from lz import *
 from config import get_config, gl_conf
 from Learner import face_learner
 import argparse
-
-# python train.py -net mobilefacenet -b 200 -w 4
+from pathlib import Path
 
 if __name__ == '__main__':
     # todo move args to config
@@ -33,15 +32,16 @@ if __name__ == '__main__':
     conf.data_mode = args.data_mode
     learner = face_learner(conf, )
     ## for resume or evaluate
-    # learner.load_state(conf,
-    #                    '2018-11-26-09-37_accuracy:0.8048571428571428_step:30730_None.pth',
-    #                    from_save_folder=False,
-    #                    model_only=False)
-    # todo make it load from model of any folder
+    learner.load_state(conf,
+                       resume_path= Path('work_space/arcsft.triadap.s64.0.1/save'),
+                       from_save_folder=False,
+                       model_only=False,
+                       )
     # log_lrs, losses = learner.find_lr(conf,
     #                                   # final_value=100,
     #                                   num=200)
     # best_lr = 10 ** (log_lrs[np.argmin(losses)])
     # print(best_lr)
     # conf.lr = best_lr
+    learner.init_lr()
     learner.train(conf, conf.epochs)

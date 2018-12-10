@@ -8,7 +8,6 @@ import pickle as cPickle
 from sklearn.metrics import roc_curve, auc
 import timeit
 import sklearn
-
 sys.path.append('./recognition')
 from pathlib import Path
 import warnings
@@ -72,6 +71,7 @@ class Embedding():
         with torch.no_grad():
             fea = self.learner.model(rimgs)
         return fea.cpu().numpy()
+
 
 
 def get_image_feature(img_path, img_list_path, how='save', db_name='ijbc.fea.4.h5', **kwargs):
@@ -147,6 +147,7 @@ def get_image_feature(img_path, img_list_path, how='save', db_name='ijbc.fea.4.h
         img_feats = np.concatenate(img_feats, axis=0).astype(np.float32)
         faceness_scores = np.concatenate(faceness_scores).astype(np.float32)
         return img_feats, faceness_scores
+
 
 
 def image2template_feature(img_feats=None, templates=None, medias=None):
@@ -271,7 +272,6 @@ if use_flip_test:
     # img_input_feats = img_feats
     # add --- F2
     img_input_feats = img_feats[:, 0:img_feats.shape[1] / 2] + img_feats[:, img_feats.shape[1] / 2:]
-
 else:
     # img_input_feats = img_feats[:, 0:img_feats.shape[1] / 2]
     img_input_feats = img_feats[:, 0:img_feats.shape[1]]

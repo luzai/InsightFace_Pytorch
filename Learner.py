@@ -78,13 +78,13 @@ class MxnetImgIter(io.DataIter):
                 print(len(self.seq))
             else:
                 self.seq = None
-
+        
         self.mean = mean
         self.nd_mean = None
         if self.mean:
             self.mean = np.array(self.mean, dtype=np.float32).reshape(1, 1, 3)
             self.nd_mean = mx.nd.array(self.mean).reshape((1, 1, 3))
-
+        
         self.check_data_shape(data_shape)
         self.provide_data = [(data_name, (batch_size,) + data_shape)]
         self.batch_size = batch_size
@@ -99,7 +99,7 @@ class MxnetImgIter(io.DataIter):
         self.cur = 0
         self.nbatch = 0
         self.is_init = False
-
+    
     def reset(self):
         """Resets the iterator to the beginning of the data."""
         # print('!! call reset()')
@@ -108,10 +108,10 @@ class MxnetImgIter(io.DataIter):
             random.shuffle(self.seq)
         if self.seq is None and self.imgrec is not None:
             self.imgrec.reset()
-
+    
     def num_samples(self):
         return len(self.seq)
-
+    
     def next_sample(self):
         """Helper function for reading in next sample."""
         # set total batch size, for example, 1800, and maximum size for each people, for example 45
@@ -137,12 +137,12 @@ class MxnetImgIter(io.DataIter):
                 raise StopIteration
             header, img = recordio.unpack(s)
             return header.label, img, None, None
-
+    
     def brightness_aug(self, src, x):
         alpha = 1.0 + random.uniform(-x, x)
         src *= alpha
         return src
-
+    
     def contrast_aug(self, src, x):
         alpha = 1.0 + random.uniform(-x, x)
         coef = np.array([[[0.299, 0.587, 0.114]]])
@@ -151,7 +151,7 @@ class MxnetImgIter(io.DataIter):
         src *= alpha
         src += gray
         return src
-
+    
     def saturation_aug(self, src, x):
         alpha = 1.0 + random.uniform(-x, x)
         coef = np.array([[[0.299, 0.587, 0.114]]])
@@ -161,7 +161,7 @@ class MxnetImgIter(io.DataIter):
         src *= alpha
         src += gray
         return src
-
+    
     def color_aug(self, img, x):
         augs = [self.brightness_aug, self.contrast_aug, self.saturation_aug]
         random.shuffle(augs)
@@ -170,16 +170,16 @@ class MxnetImgIter(io.DataIter):
             img = aug(img, x)
             # print(img.shape)
         return img
-
+    
     def mirror_aug(self, img):
         _rd = random.randint(0, 1)
         if _rd == 1:
             for c in range(img.shape[2]):
                 img[:, :, c] = np.fliplr(img[:, :, c])
         return img
-
+    
     __next__ = next
-
+    
     def next(self):
         if not self.is_init:
             self.reset()
@@ -234,27 +234,27 @@ class MxnetImgIter(io.DataIter):
         except StopIteration:
             if i < batch_size:
                 raise StopIteration
-
+        
         return io.DataBatch([batch_data], [batch_label], batch_size - i)
-
+    
     def check_data_shape(self, data_shape):
         """Checks if the input data shape is valid"""
         if not len(data_shape) == 3:
             raise ValueError('data_shape should have length 3, with dimensions CxHxW')
         if not data_shape[0] == 3:
             raise ValueError('This iterator expects inputs to have 3 channels.')
-
+    
     def check_valid_image(self, data):
         """Checks if the input data is valid"""
         if len(data[0].shape) == 0:
             raise RuntimeError('Data shape is wrong')
-
+    
     def imdecode(self, s):
         """Decodes a string or byte string to an NDArray.
         See mx.img.imdecode for more details."""
         img = mx.image.imdecode(s)  # mx.ndarray
         return img
-
+    
     def read_image(self, fname):
         """Reads an input image `fname` and returns the decoded raw bytes.
 
@@ -265,13 +265,13 @@ class MxnetImgIter(io.DataIter):
         with open(os.path.join(self.path_root, fname), 'rb') as fin:
             img = fin.read()
         return img
-
+    
     def augmentation_transform(self, data):
         """Transforms input data with specified augmentation."""
         for aug in self.auglist:
             data = [ret for src in data for ret in aug(src)]
         return data
-
+    
     def postprocess_data(self, datum):
         """Final postprocessing step before image is loaded into the batch."""
         return nd.transpose(datum, axes=(2, 0, 1))
@@ -288,10 +288,10 @@ class MxnetImgDataset(object):
         self.num_classes = 85164
         self.ind = 0
         self.root_path = Path(root_path).parent
-
+    
     def __len__(self):
         return gl_conf.num_steps_per_epoch
-
+    
     def __getitem__(self, indices, ):
         if isinstance(indices, (tuple, list)):
             return [self._get_single_item(index) for index in indices]
@@ -305,7 +305,7 @@ class MxnetImgDataset(object):
                     torch.is_tensor(v)
             ), type(v)
         return res
-
+    
     def _get_single_item(self, index):
         try:
             next_data_batch = next(self.train_iter)
@@ -317,19 +317,19 @@ class MxnetImgDataset(object):
             next_data_batch = next(self.train_iter)
         self.ind += 1
         imgs = next_data_batch.data[0].asnumpy()
-
+        
         imgs = imgs / imgs.max()
         # simply use 0.5 as mean
         imgs -= 0.5
         imgs /= 0.5
-
+        
         # use per sample mean
-
+        
         # imgs -= imgs.mean(axis=(0, 2, 3), keepdims=True)
         # imgs /= imgs.std(axis=(0, 2, 3), keepdims=True)
-
+        
         # use img mean of pytorch
-
+        
         # T.Normalize(mean=[0.485, 0.456, 0.406],
         #             std=[0.229, 0.224, 0.225])
         labels = next_data_batch.label[0].asnumpy()
@@ -357,10 +357,10 @@ class MxnetLoader():
         )
         self.train_loader = train_loader
         self.ind = 0
-
+    
     def __iter__(self):
         return self
-
+    
     def __next__(self):
         # if self.ind < len(self):
         for val in self.train_loader:
@@ -374,7 +374,7 @@ class MxnetLoader():
         if self.int >= len(self):
             self.int = 0
         # raise StopIteration()
-
+    
     def __len__(self):
         return len(self.train_loader)
 
@@ -405,15 +405,15 @@ class TorchDataset(object):
             )
             self.locks.append(mp.Lock())
         lz.timer.since_last_check(f'{gl_conf.num_recs} imgrec readers init')  # 27 s / 5 reader
-
+        
         self.imgidx, self.ids, self.id2range = lz.msgpack_load(path_ms1m + '/info.pk')
-
+        
         self.num_classes = len(self.ids)
         self.cur = 0
-
+    
     def __len__(self):
         return len(self.imgidx)
-
+    
     def __getitem__(self, indices, ):
         if isinstance(indices, (tuple, list)):
             return [self._get_single_item(index) for index in indices]
@@ -427,35 +427,35 @@ class TorchDataset(object):
                     torch.is_tensor(v)
             ), type(v)
         return res
-
+    
     def imdecode(self, s):
         """Decodes a string or byte string to an NDArray.
         See mx.img.imdecode for more details."""
         img = mx.image.imdecode(s)  # mx.ndarray
         return img
-
+    
     def postprocess_data(self, datum):
         """Final postprocessing step before image is loaded into the batch."""
         return nd.transpose(datum, axes=(2, 0, 1))
-
+    
     def _get_single_item(self, index):
         # self.cur += 1
         # index = self.imgidx[index]
         index += 1  # pytorch index (imgidx) start from 0, but .rec start from 1
         assert index != 0 and index < len(self) + 1
         succ = False
-
+        
         ## rand until lock
         while True:
             for ind in range(len(self.locks)):
                 succ = self.locks[ind].acquire(timeout=0)
                 if succ: break
             if succ: break
-
+        
         ##  locality based todo which is better?
         # ind = index // ((gl_conf.num_imgs + 1) // len(self.locks))
         # succ = self.locks[ind].acquire()
-
+        
         # for ind in range(len(self.locks)):
         #     succ = self.locks[ind].acquire(timeout=0)
         #     if succ: break
@@ -467,15 +467,15 @@ class TorchDataset(object):
         #     print(f'add a imgrec, ttl num {len(self.locks)}')
         #     ind = len(self.locks) - 1
         #     succ = self.locks[ind].acquire()
-
+        
         # succ = self.lock.acquire(timeout=0)
-
+        
         s = self.imgrecs[ind].read_idx(index)  # from [ 1 to 3804846 ]
         rls_succ = self.locks[ind].release()
         header, img = recordio.unpack(s)  # this is BGR format !
         imgs = self.imdecode(img)
         label = header.label
-
+        
         _rd = random.randint(0, 1)
         if _rd == 1:
             imgs = mx.ndarray.flip(data=imgs, axis=1)
@@ -492,14 +492,14 @@ class Dataset_val(torch.utils.data.Dataset):
     def __init__(self, path, name, transform=None):
         self.carray, self.issame = get_val_pair(path, name)
         self.transform = transform
-
+    
     def __getitem__(self, index):
         if (self.transform):
             fliped_carray = self.transform(torch.tensor(self.carray[index]))
             return {'carray': self.carray[index], 'issame': 1.0 * self.issame[index], 'fliped_carray': fliped_carray}
         else:
             return {'carray': self.carray[index], 'issame': 1.0 * self.issame[index]}
-
+    
     def __len__(self):
         return len(self.issame)
 
@@ -523,7 +523,7 @@ class RandomIdSampler(Sampler):
         self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1]))) - 1).tolist()
                           for id, idxs in self.id2range.items()}
         self.ids = list(self.ids)
-
+        
         # estimate number of examples in an epoch
         self.length = 0
         for pid in self.ids:
@@ -532,10 +532,10 @@ class RandomIdSampler(Sampler):
             if num < self.num_instances:
                 num = self.num_instances
             self.length += num - num % self.num_instances
-
+    
     def __len__(self):
         return self.length
-
+    
     def get_batch_ids(self):
         pids = []
         dop = gl_conf.dop
@@ -559,7 +559,7 @@ class RandomIdSampler(Sampler):
             pids_now = pids_next
         assert len(pids) == np.unique(pids).shape[0]
         return pids
-
+    
     def get_batch_idxs(self):
         inds = []
         pids = self.get_batch_ids()
@@ -574,7 +574,7 @@ class RandomIdSampler(Sampler):
         inds = inds[:self.batch_size]
         # todo whether shuffle, how affects performance? how affects speed?
         return inds
-
+    
     def __iter__(self):
         cnt = 0
         while cnt < len(self):
@@ -582,7 +582,7 @@ class RandomIdSampler(Sampler):
             for ind in inds:
                 cnt += 1
                 yield ind
-
+        
         # batch_idxs_dict = defaultdict(list)
         #
         # for pid in self.ids:
@@ -607,9 +607,9 @@ class RandomIdSampler(Sampler):
         #         final_idxs.extend(batch_idxs)
         #         if len(batch_idxs_dict[pid]) == 0:
         #             avai_pids.remove(pid)
-
+        
         #  wherther shuffle seems no need
-
+        
         # final_idxs2 = []
         # for start in range(0, len(final_idxs), self.batch_size):
         #     end = start + self.batch_size
@@ -618,6 +618,7 @@ class RandomIdSampler(Sampler):
         #     final_idxs2.extend(tmp_idxs)
         # final_idxs = final_idxs2
         # return iter(final_idxs)
+
 
 # todo return unorm feature
 class face_learner(object):
@@ -629,11 +630,11 @@ class face_learner(object):
         else:
             self.model = torch.nn.DataParallel(Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)).cuda()
             print('{}_{} model generated'.format(conf.net_mode, conf.net_depth))
-
+        
         if not inference:
             self.milestones = conf.milestones
             # if need_loader:
-
+            
             ## image folder
             # self.loader, self.class_num = get_train_loader(conf)
             ## torch reader
@@ -645,13 +646,13 @@ class face_learner(object):
             )
             # todo randomid sample, will it affects xent?
             self.class_num = 85164
-
+            
             ## mxnet load serialized data
             # self.loader = MxnetLoader(conf)
             # self.class_num = 85164
-
+            
             print(self.class_num, 'classes, load ok ')
-
+            
             # else:
             #     import copy
             #     conf_t = copy.deepcopy(conf)
@@ -659,8 +660,8 @@ class face_learner(object):
             #     self.loader, self.class_num = get_train_loader(conf_t)
             #     print(self.class_num)
             #     self.class_num = 85164
-
-            lz.mkdir_p(conf.log_path, delete=False)
+            
+            lz.mkdir_p(conf.log_path, delete=True)
             self.writer = SummaryWriter(conf.log_path)
             self.step = 0
             if conf.loss == 'arcface':
@@ -670,13 +671,13 @@ class face_learner(object):
             else:
                 raise ValueError(f'{conf.loss}')
             self.head_triplet = TripletLoss().to(conf.device)  # todo maybe device 1, since features loc at device1?
-
+            
             print('two model heads generated')
-
+            
             paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
             if conf.use_opt == 'adam':
                 self.optimizer = optim.Adam([{'params': paras_wo_bn + [self.head.kernel], 'weight_decay': 5e-4},
-                                            {'params': paras_only_bn}, ] ,
+                                             {'params': paras_only_bn}, ],
                                             lr=conf.lr
                                             )
             elif conf.use_mobilfacenet:
@@ -691,7 +692,7 @@ class face_learner(object):
                     {'params': paras_only_bn}
                 ], lr=conf.lr, momentum=conf.momentum)
             print(self.optimizer)
-
+            
             print('optimizers generated')
             self.board_loss_every = 100  # len(self.loader) // 100
             self.evaluate_every = len(self.loader) // 10
@@ -700,11 +701,11 @@ class face_learner(object):
                 self.loader.dataset.root_path)  # todo postpone load eval
         else:
             self.threshold = conf.threshold
-
+    
     def train(self, conf, epochs):
         self.model.train()
         loader = self.loader
-
+        
         if conf.start_eval:
             accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.agedb_30,
                                                                        self.agedb_30_issame)
@@ -719,7 +720,7 @@ class face_learner(object):
         loss_time = lz.AverageMeter()
         loss_meter = lz.AverageMeter()
         loss_tri_meter = lz.AverageMeter()
-
+        
         tau = 0
         B_multi = 4  # todo monitor time
         Batch_size = gl_conf.batch_size * B_multi
@@ -737,7 +738,7 @@ class face_learner(object):
             if e == self.milestones[2]:
                 self.schedule_lr()
             loader_enum = enumerate(loader)
-
+            
             while True:
                 try:
                     ind_data, data = loader_enum.__next__()
@@ -754,14 +755,14 @@ class face_learner(object):
                 imgs = imgs.to(conf.device)
                 labels = labels.to(conf.device)
                 self.optimizer.zero_grad()
-
+                
                 def update_dop_cls(thetas, labels, dop):
                     # dop = gl_conf.dop
                     with torch.no_grad():
                         bs = thetas.shape[0]
                         thetas[torch.arange(0, bs, dtype=torch.long), labels] = thetas.min()
                         dop[labels] = torch.argmax(thetas, dim=1)
-
+                
                 if not conf.fgg:
                     # if tau > tau_thresh and ind_data < len(loader) - B_multi:  # todo enable it
                     #     logging.info('using sampling')
@@ -820,7 +821,7 @@ class face_learner(object):
                     #         (1 / (gi ** 2).sum()).item() *
                     #         (torch.norm(gi - 1 / len(gi), dim=0) ** 2).item()
                     # ) ** (-1 / 2)
-
+                
                 elif conf.fgg == 'g':
                     embeddings_o = self.model(imgs)
                     thetas_o = self.head(embeddings_o, labels)
@@ -848,7 +849,7 @@ class face_learner(object):
                 else:
                     raise ValueError(f'{conf.fgg}')
                 self.optimizer.step()
-
+                
                 if self.step % 100 == 0:
                     logging.info(f'epoch {e} step {self.step}: ' +
                                  # f'img {imgs.mean()} {imgs.max()} {imgs.min()} ' +
@@ -887,21 +888,26 @@ class face_learner(object):
                     logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-
+                
                 self.step += 1
                 if self.step % conf.num_steps_per_epoch == 0 and self.step != 0:
                     break
                 loss_time.update(
                     lz.timer.since_last_check('loss ok', verbose=False)
                 )
-
+        
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-
+    
     def schedule_lr(self):
         for params in self.optimizer.param_groups:
             params['lr'] /= 10
-        print(self.optimizer)
-
+        print(self.optimizer, 'lr', params['lr'])
+        
+    def init_lr(self):
+        for params in self.optimizer.param_groups:
+            params['lr'] = gl_conf.lr
+        print(self.optimizer, 'lr', params['lr'] )
+        
     def infer(self, conf, faces, target_embs, tta=False):
         '''
         faces : list of PIL Image
@@ -919,21 +925,21 @@ class face_learner(object):
             else:
                 embs.append(self.model(conf.test_transform(img).to(conf.device).unsqueeze(0)))
         source_embs = torch.cat(embs)
-
+        
         diff = source_embs.unsqueeze(-1) - target_embs.transpose(1, 0).unsqueeze(0)
         dist = torch.sum(torch.pow(diff, 2), dim=1)
         minimum, min_idx = torch.min(dist, dim=1)
         min_idx[minimum > self.threshold] = -1  # if no match, set idx to -1
         return min_idx, minimum
-
+    
     def save_state(self, conf, accuracy, to_save_folder=False, extra=None, model_only=False):
         if to_save_folder:
             save_path = conf.save_path
         else:
             save_path = conf.model_path
-
+        
         lz.mkdir_p(save_path, delete=False)
-
+        
         torch.save(
             self.model.state_dict(), save_path /
                                      ('model_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy, self.step,
@@ -947,9 +953,12 @@ class face_learner(object):
                 self.optimizer.state_dict(), save_path /
                                              ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy,
                                                                                                self.step, extra)))
-
-    def load_state(self, conf, fixed_str=None, from_save_folder=False, model_only=False):
-        if from_save_folder:
+    
+    def load_state(self, conf, fixed_str=None, from_save_folder=False, model_only=False, resume_path=None):
+        from pathlib import Path
+        if resume_path is not None:
+            save_path = Path(resume_path)
+        elif from_save_folder:
             save_path = conf.save_path
         else:
             save_path = conf.model_path
@@ -963,22 +972,25 @@ class face_learner(object):
             modelp = save_path / 'model_{}'.format(fixed_str)
         try:
             # todo fx it
+            logging.info(f'load model from {modelp}')
             self.model.module.load_state_dict(torch.load(modelp))
         except:
+            logging.info(f'you are using gpu ')
             self.model.load_state_dict(torch.load(modelp))
         if not model_only:
+            logging.info(f'load head and optimizer from {modelp}')
             self.head.load_state_dict(torch.load(save_path / 'head_{}'.format(fixed_str)))
             self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
-
+    
     def board_val(self, db_name, accuracy, best_threshold, roc_curve_tensor):
         self.writer.add_scalar('{}_accuracy'.format(db_name), accuracy, self.step)
         self.writer.add_scalar('{}_best_threshold'.format(db_name), best_threshold, self.step)
         self.writer.add_image('{}_roc_curve'.format(db_name), roc_curve_tensor, self.step)
-
+        
         #         self.writer.add_scalar('{}_val:true accept ratio'.format(db_name), val, self.step)
         #         self.writer.add_scalar('{}_val_std'.format(db_name), val_std, self.step)
         #         self.writer.add_scalar('{}_far:False Acceptance Ratio'.format(db_name), far, self.step)
-
+    
     def evaluate_accelerate(self, conf, path, name, nrof_folds=5, tta=False):
         logging.info('start eval')
         self.model.eval()  # set the module in evaluation mode
@@ -992,7 +1004,7 @@ class face_learner(object):
         length = len(dataset)
         embeddings = np.zeros([length, conf.embedding_size])
         issame = np.zeros(length)
-
+        
         with torch.no_grad():
             for data in loader:
                 carray_batch = data['carray']
@@ -1008,7 +1020,7 @@ class face_learner(object):
                 issame[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
                         idx + conf.batch_size)] = issame_batch
                 idx += conf.batch_size
-
+        
         # tpr/fpr is averaged over various fold division
         tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
         buf = gen_plot(fpr, tpr)
@@ -1017,7 +1029,7 @@ class face_learner(object):
         self.model.train()
         logging.info('eval end')
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
-
+    
     def evaluate(self, conf, carray, issame, nrof_folds=5, tta=False):
         # accelerate eval
         logging.info('start eval')
@@ -1049,22 +1061,22 @@ class face_learner(object):
         self.model.train()
         logging.info('eval end')
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
-
+    
     def validate(self, conf, fixed_str, from_save_folder=False, model_only=False):
         self.load_state(conf, fixed_str, from_save_folder=from_save_folder, model_only=model_only)
-
+        
         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
                                                                               'agedb_30')
         logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-
+        
         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
                                                                               'lfw')
         logging.info(f'validation accuracy on lfw is {accuracy} ')
-
+        
         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
                                                                               'cfp_fp')
         logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
-
+    
     def find_lr(self,
                 conf,
                 init_value=1e-5,
@@ -1092,9 +1104,9 @@ class face_learner(object):
             imgs = imgs.to(conf.device)
             labels = labels.to(conf.device)
             batch_num += 1
-
+            
             self.optimizer.zero_grad()
-
+            
             embeddings = self.model(imgs)
             thetas = self.head(embeddings, labels)
             loss = conf.ce_loss(thetas, labels)
@@ -1120,10 +1132,10 @@ class face_learner(object):
             self.writer.add_scalar('log_lr', math.log10(lr), batch_num)
             # Do the SGD step
             # Update the lr for the next step
-
+            
             loss.backward()
             self.optimizer.step()
-
+            
             lr *= mult
             for params in self.optimizer.param_groups:
                 params['lr'] = lr
@@ -1162,7 +1174,7 @@ if __name__ == '__main__':
     #
     # for p in ps:
     #     p.join()
-
+    
     # test random id smpler
     lz.timer.since_last_check('start')
     smpler = RandomIdSampler()
