@@ -165,15 +165,22 @@ class Backbone(Module):
                                 bottleneck.stride))
         self.body = Sequential(*modules)
 
-    def forward(self, x, need_norm=False):
+    def forward(self, x, normalize=True, return_norm=False):
         x = self.input_layer(x)
         x = self.body(x)
         x = self.output_layer(x)
-        if not need_norm:
-            return l2_norm(x)
+        x_norm, norm = l2_norm(x, axis=1, need_norm=True)
+        if normalize:
+            if return_norm:
+                return x_norm, norm
+            else:
+                return x_norm
         else:
-            x, norm = l2_norm(x, axis=1, need_norm=need_norm)
-            return x, norm
+            if return_norm:
+                return x, norm
+            else:
+                return x
+        
 
 ##################################  MobileFaceNet #############################################################
 

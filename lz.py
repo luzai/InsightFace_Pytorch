@@ -841,13 +841,13 @@ def pickle_load(file, **kwargs):
     return data
 
 
-def dataframe_dump(df, path):
-    df.to_hdf(path, 'df', mode='w')
+def df_dump(df, path, name = 'df'):
+    df.to_hdf(path, name, mode='w')
 
 
-def dataframe_load(path):
+def df_load(path,name='df'):
     import pandas as pd
-    return pd.read_hdf(path, 'df')
+    return pd.read_hdf(path, name )
 
 
 def yaml_load(file, **kwargs):

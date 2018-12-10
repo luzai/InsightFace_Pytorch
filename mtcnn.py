@@ -45,7 +45,7 @@ class MTCNN():
             faces.append(Image.fromarray(warped_face))
         return boxes, faces
 
-    def align_best(self, img, limit=None, min_face_size=20.0):
+    def align_best(self, img, limit=None, min_face_size=20.0, ori_img=None):
         try:
             boxes, landmarks = self.detect_faces(img, min_face_size)
             img = to_numpy(img)
