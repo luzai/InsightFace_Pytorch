@@ -394,27 +394,27 @@ class TorchDataset(object):
             )
             self.locks.append(mp.Lock())
         lz.timer.since_last_check(f'{gl_conf.num_recs} imgrec readers init')  # 27 s / 5 reader
-        try:
-            self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + '/info.pk')
-        except:
-            s = self.imgrecs[0].read_idx(0)
+        # try:
+        #     self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + '/info.pk')
+        # except:
+        s = self.imgrecs[0].read_idx(0)
+        header, _ = recordio.unpack(s)
+        assert header.flag > 0, 'ms1m or glint ...'
+        print('header0 label', header.label)
+        self.header0 = (int(header.label[0]), int(header.label[1]))
+        self.imgidx = []
+        self.id2range = {}
+        self.ids = list(range(int(header.label[0]), int(header.label[1])))
+        self.num_classes = len(self.ids)
+        need_diff = min(self.ids)
+        for identity in self.ids:
+            s = self.imgrecs[0].read_idx(identity)
             header, _ = recordio.unpack(s)
-            assert header.flag > 0, 'ms1m or glint ...'
-            print('header0 label', header.label)
-            self.header0 = (int(header.label[0]), int(header.label[1]))
-            # assert(header.flag==1)
-            # self.imgidx = range(1, int(header.label[0]))
-            self.imgidx = []
-            self.id2range = {}
-            self.ids = list(range(int(header.label[0]), int(header.label[1])))
-            for identity in self.ids:
-                s = self.imgrecs[0].read_idx(identity)
-                header, _ = recordio.unpack(s)
-                a, b = int(header.label[0]), int(header.label[1])
-                count = b - a
-                self.id2range[identity] = (a, b)
-                self.imgidx += list(range(a, b))
-            lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + '/info.pk')
+            a, b = int(header.label[0]), int(header.label[1])
+            self.id2range[identity - need_diff] = (a, b)
+            self.imgidx += list(range(a, b))
+        self.ids = [int(t) - need_diff for t in self.ids]
+        lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + '/info.pk')
         
         self.num_classes = len(self.ids)
         self.cur = 0
@@ -449,7 +449,7 @@ class TorchDataset(object):
     def _get_single_item(self, index):
         # self.cur += 1
         # index = self.imgidx[index]
-        index += 1  # pytorch index (imgidx) start from 0, but .rec start from 1
+        index += 1  # I force it index (imgidx) start from 0, but .rec start from 1
         assert index != 0 and index < len(self) + 1
         succ = False
         
@@ -482,7 +482,12 @@ class TorchDataset(object):
         rls_succ = self.locks[ind].release()
         header, img = recordio.unpack(s)  # this is BGR format !
         imgs = self.imdecode(img)
+        assert imgs is not None
         label = header.label
+        import numbers
+        if not isinstance(label, numbers.Number):
+            assert label[-1] == 0, f'{label} {index} {imgs.shape}'
+            label = label[0]
         
         _rd = random.randint(0, 1)
         if _rd == 1:
@@ -516,12 +521,11 @@ from torch.utils.data.sampler import Sampler
 from collections import defaultdict
 
 
-# todo dop mining
 # improve locality and improve load speed!
 class RandomIdSampler(Sampler):
     def __init__(self):
         path_ms1m = gl_conf.use_data_folder
-        self.imgidx, self.ids, self.id2range = lz.msgpack_load(path_ms1m  / 'info.pk')
+        self.imgidx, self.ids, self.id2range = lz.msgpack_load(path_ms1m / 'info.pk')
         # above is the imgidx of .rec file
         # remember -1 to convert to pytorch imgidx
         self.num_instances = gl_conf.instances
@@ -529,7 +533,7 @@ class RandomIdSampler(Sampler):
         assert self.batch_size % self.num_instances == 0
         self.num_pids_per_batch = self.batch_size // self.num_instances
         self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1]))) - 1).tolist()
-                          for id, idxs in self.id2range.items()}
+                          for id, idxs in self.id2range.items()}  # make it index based on 0
         self.ids = list(self.ids)
         
         # estimate number of examples in an epoch
@@ -548,24 +552,42 @@ class RandomIdSampler(Sampler):
         pids = []
         dop = gl_conf.dop
         # lz.logging.info(f'dop smapler {np.count_nonzero( dop == -1 )} {dop}')
+        # pids = np.random.choice(self.ids,
+        #                         size=int(self.num_pids_per_batch),
+        #                         replace=False)
+        
         pids_now = np.random.choice(self.ids,
                                     size=int(self.num_pids_per_batch * gl_conf.rand_ratio),
                                     replace=False)
-        pids.extend(pids_now.tolist())
+        for pid_now in pids_now:
+            a, b = self.id2range[pid_now]
+            nimgs = b - a
+            if nimgs >= gl_conf.cutoff:
+                pids.append(pid_now)
+                # pids.extend(pids_now.tolist())
         while len(pids) < self.num_pids_per_batch:
             pids_next = []
             for pid in pids_now:
-                if dop[pid] == -1 or dop[pid] in pids_next or dop[pid] in pids:
+                pid_t = dop[pid]
+                if pid_t != -1:
+                    a, b = self.id2range[pid_t]
+                    nimgs = b - a
+                if pid_t == -1 or dop[pid] in pids_next or pid_t in pids or nimgs < gl_conf.cutoff:
                     pid_t = np.random.choice(self.ids, )
+                    a, b = self.id2range[pid_t]
+                    nimgs = b - a
                     # make sure id is unique
-                    while pid_t in pids_next or pid_t in pids:
+                    while pid_t in pids_next or pid_t in pids or nimgs < gl_conf.cutoff:
                         pid_t = np.random.choice(self.ids, )
+                        a, b = self.id2range[pid_t]
+                        nimgs = b - a
                     pids_next.append(pid_t)
                 else:
-                    pids_next.append(dop[pid])
+                    pids_next.append(pid_t)
             pids.extend(pids_next)
             pids_now = pids_next
         assert len(pids) == np.unique(pids).shape[0]
+        
         return pids
     
     def get_batch_idxs(self):
@@ -647,7 +669,7 @@ class face_learner(object):
                 shuffle=False, sampler=RandomIdSampler(), drop_last=True,
                 pin_memory=True,
             )
-            self.class_num = 85164
+            self.class_num = self.dataset.num_classes
             
             ## mxnet load serialized data
             # self.loader = MxnetLoader(conf)
@@ -755,8 +777,10 @@ class face_learner(object):
                 )
                 imgs = data['imgs']
                 labels = data['labels']
+                # logging.info(f'this batch labes {labels} ')
                 imgs = imgs.to(conf.device)
                 labels = labels.to(conf.device)
+                
                 self.optimizer.zero_grad()
                 
                 def update_dop_cls(thetas, labels, dop):

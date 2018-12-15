@@ -1742,27 +1742,4 @@ class AverageMeter(object):
 
 
 if __name__ == '__main__':
-    ncol = 6
-    nrow = 27 // ncol + 1
-    # fs = glob.glob('/home/xinglu/work/yy.ld.30.body/*.png')
-    fs = glob.glob(work_path + 'youeryuan/20180930 新中二班-缪蕾老师班-29、30/中二班9月30日-正侧背/front/*.JPG')
-    len(fs)
-    fig, axes = plt.subplots(nrows=nrow, ncols=ncol,
-                             figsize=(6 * 10,
-                                      int(5 * 2 / (4032 / 3024)) * 10)
-                             )
-    axes = np.ravel(axes)
-
-    for f, ax in zip(fs, axes):
-        img = cvb.read_img(f)
-        # img = cvb.resize_keep_ar(img, 500,500)
-        _ = plt_imshow(img[..., ::-1], ax=ax)
-
-    plt_imshow(np.ones_like(img[..., ::-1], )
-               , ax=axes[-1])
-    plt_imshow(np.ones_like(img[..., ::-1], )
-               , ax=axes[-2])
-    plt_imshow(np.ones_like(img[..., ::-1], )
-               , ax=axes[-3])
-    plt.tight_layout()
-    plt.savefig(work_path + 't.png')
+    pass

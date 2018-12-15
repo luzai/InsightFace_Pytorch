@@ -29,24 +29,24 @@ def main1():
         data_mode="ms1m",
     )
     args = parser.parse_args()
-
+    
     conf = get_config(training=True)
-
+    
     if args.net_mode == 'mobilefacenet':
         conf.use_mobilfacenet = True
     else:
         conf.net_mode = args.net_mode
         conf.net_depth = args.net_depth
-
+    
     conf.lr = args.lr
     conf.batch_size = args.batch_size
     conf.num_workers = args.num_workers
     conf.data_mode = args.data_mode
-
+    
     learner = face_learner(conf, inference=False, need_loader=False)
     # print(learner.find_lr(conf, ))
     # learner.train(conf, args.epochs)
-
+    
     for i in range(1):
         for imgs, labels in learner.loader:
             imgs = imgs.cuda()
@@ -79,14 +79,14 @@ def main2():
     record = mx.recordio.MXIndexedRecordIO(fname_idx,
                                            fname_rec, 'w')
     img_files = glob.glob('/home/xinglu/work/faces_small/*/*')
-
+    
     header = mx.recordio.IRHeader(0, [len(img_files), len(img_files)], 0, 0)
     s = mx.recordio.pack_img(header, 0)
     record.write_idx(0, s)
-
+    
     for ind, img_file in enumerate(img_files):
         ind = ind + 1
-        img = cv2.imread(img_file) # rec is BGR format!
+        img = cv2.imread(img_file)  # rec is BGR format!
         label = img_file.split('/')[-2]
         header = mx.recordio.IRHeader(0, label, ind, 0)
         s = mx.recordio.pack_img(header, img)
@@ -116,11 +116,15 @@ def extract_ms1m_info():
     s = self.imgrec.read_idx(0)
     header, _ = recordio.unpack(s)
     self.header0 = (int(header.label[0]), int(header.label[1]))
-    # assert(header.flag==1)
     self.imgidx = list(range(1, int(header.label[0])))
     id2range = dict()
     self.seq_identity = list(range(int(header.label[0]), int(header.label[1])))
+    self.ids = self.seq_identity
+    print(f'{min(self.ids)}')
     for identity in self.seq_identity:
+        s = self.imgrec.read_idx(identity-1)
+        header, _ = recordio.unpack(s)
+        header.label
         s = self.imgrec.read_idx(identity)
         header, _ = recordio.unpack(s)
         a, b = int(header.label[0]), int(header.label[1])
@@ -128,6 +132,7 @@ def extract_ms1m_info():
         count = b - a
     self.seq = self.imgidx
     self.seq_identity = [int(t) - 3804847 for t in self.seq_identity]
+    
     lz.msgpack_dump([self.imgidx, self.seq_identity, id2range], path_ms1m + '/info.pk')
 
 
@@ -139,7 +144,7 @@ def load_ms1m_info():
     self.imgrec = recordio.MXIndexedRecordIO(
         path_imgidx, path_imgrec,
         'r')
-
+    
     imgidx, ids, id2range = lz.msgpack_load(path_ms1m + '/info.pk')
     print(len(imgidx), len(ids), len(id2range))
     # while True:
@@ -150,7 +155,7 @@ def load_ms1m_info():
         img_info = self.imgrec.read_idx(imgid)
         header, img = recordio.unpack_img(img_info)
         print(header.label, id1)
-
+        
         plt_imshow(img)  # on rec  is BGR format !
         plt.show()
     imgidx, ids = np.array(imgidx), np.array(ids)
@@ -161,6 +166,4 @@ def load_ms1m_info():
 
 
 if __name__ == '__main__':
-    # main3()
-    # extract_ms1m_info()
-    load_ms1m_info()
+    extract_ms1m_info()
