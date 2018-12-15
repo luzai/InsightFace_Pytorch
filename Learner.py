@@ -676,8 +676,9 @@ class face_learner(object):
             
             paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
             if conf.use_opt == 'adam':
-                self.optimizer = optim.Adam([{'params': paras_wo_bn + [self.head.kernel], 'weight_decay': 5e-4},
+                self.optimizer = optim.Adam([{'params': paras_wo_bn + [self.head.kernel], 'weight_decay': 0},
                                              {'params': paras_only_bn}, ],
+                                            betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
                                             lr=conf.lr
                                             )
             elif conf.use_mobilfacenet:
@@ -688,7 +689,7 @@ class face_learner(object):
                 ], lr=conf.lr, momentum=conf.momentum)
             else:
                 self.optimizer = optim.SGD([
-                    {'params': paras_wo_bn + [self.head.kernel], 'weight_decay': 5e-4},
+                    {'params': paras_wo_bn + [self.head.kernel], 'weight_decay': gl_conf.weight_decay},
                     {'params': paras_only_bn}
                 ], lr=conf.lr, momentum=conf.momentum)
             print(self.optimizer)
@@ -720,6 +721,7 @@ class face_learner(object):
         loss_time = lz.AverageMeter()
         loss_meter = lz.AverageMeter()
         loss_tri_meter = lz.AverageMeter()
+        acc_meter = lz.AverageMeter()
         
         tau = 0
         B_multi = 4  # todo monitor time
@@ -761,7 +763,7 @@ class face_learner(object):
                     with torch.no_grad():
                         bs = thetas.shape[0]
                         thetas[torch.arange(0, bs, dtype=torch.long), labels] = thetas.min()
-                        dop[labels] = torch.argmax(thetas, dim=1)
+                        dop[labels.cpu().numpy()] = torch.argmax(thetas, dim=1).cpu().numpy()
                 
                 if not conf.fgg:
                     # if tau > tau_thresh and ind_data < len(loader) - B_multi:  # todo enable it
@@ -803,16 +805,22 @@ class face_learner(object):
                     embeddings = self.model(imgs)
                     thetas = self.head(embeddings, labels)
                     loss = conf.ce_loss(thetas, labels)
+                    acc_t = (thetas.argmax(dim=1) == labels)
+                    acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
+                    acc_meter.update(acc)
                     # todo triplet s and best_init_lr relation?
                     loss_meter.update(loss.item())
                     if gl_conf.tri_wei != 0:
                         loss_triplet = self.head_triplet(embeddings, labels)
                         loss_tri_meter.update(loss_triplet.item())
-                        loss = (1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet
+                        loss = ((1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet) / (2 - gl_conf.tri_wei)
                     # grad = torch.autograd.grad(loss, embeddings,
                     #                            retain_graph=True, create_graph=False,
                     #                            only_inputs=True)[0].detach()
                     loss.backward()
+                    for group in self.optimizer.param_groups:
+                        for param in group['params']:
+                            param.data = param.data.add(-gl_conf.weight_decay * group['lr'], param.data)
                     update_dop_cls(thetas, labels, gl_conf.dop)
                     #     gi = torch.norm(grad, dim=1)
                     #     gi = gi / gi.sum()
@@ -821,7 +829,6 @@ class face_learner(object):
                     #         (1 / (gi ** 2).sum()).item() *
                     #         (torch.norm(gi - 1 / len(gi), dim=0) ** 2).item()
                     # ) ** (-1 / 2)
-                
                 elif conf.fgg == 'g':
                     embeddings_o = self.model(imgs)
                     thetas_o = self.head(embeddings_o, labels)
@@ -855,15 +862,18 @@ class face_learner(object):
                                  # f'img {imgs.mean()} {imgs.max()} {imgs.min()} ' +
                                  f'loss: {loss.item()} ' +
                                  f'data time: {data_time.avg} ' +
-                                 f'loss time: {loss_time.avg} ')
+                                 f'loss time: {loss_time.avg} acc: {acc_meter.avg} ' +
+                                 f'speed: { gl_conf.batch_size/(data_time.avg+loss_time.avg) } imgs/s')
                 if self.step % self.board_loss_every == 0 and self.step != 0:
                     # record lr
                     self.writer.add_scalar('lr', self.optimizer.param_groups[0]['lr'], self.step)
-                    self.writer.add_scalar('train_loss', (
-                            1 - gl_conf.tri_wei) * loss_meter.avg + gl_conf.tri_wei * loss_tri_meter.avg,
+                    self.writer.add_scalar('train_loss', ((
+                                                                  1 - gl_conf.tri_wei) * loss_meter.avg + gl_conf.tri_wei * loss_tri_meter.avg) / (
+                                                   1 - gl_conf.tri_wei),
                                            self.step)
                     self.writer.add_scalar('loss/xent', loss_meter.avg, self.step)
                     self.writer.add_scalar('loss/triplet', loss_tri_meter.avg, self.step)
+                    self.writer.add_scalar('acc', acc_meter.avg, self.step)
                     # self.scheduler.step(loss_board)
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
@@ -902,12 +912,12 @@ class face_learner(object):
         for params in self.optimizer.param_groups:
             params['lr'] /= 10
         print(self.optimizer, 'lr', params['lr'])
-        
+    
     def init_lr(self):
         for params in self.optimizer.param_groups:
             params['lr'] = gl_conf.lr
-        print(self.optimizer, 'lr', params['lr'] )
-        
+        print(self.optimizer, 'lr', params['lr'])
+    
     def infer(self, conf, faces, target_embs, tta=False):
         '''
         faces : list of PIL Image
@@ -954,11 +964,13 @@ class face_learner(object):
                                              ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy,
                                                                                                self.step, extra)))
     
-    def load_state(self, conf, fixed_str=None, from_save_folder=False, model_only=False, resume_path=None):
+    def load_state(self, conf, fixed_str=None, from_save_folder=False,
+                   model_only=False, resume_path=None, load_optimizer=True,
+                   ):
         from pathlib import Path
         if resume_path is not None:
             save_path = Path(resume_path)
-        elif from_save_folder:
+        elif from_save_folder and osp.exists(conf.save_path):
             save_path = conf.save_path
         else:
             save_path = conf.model_path
@@ -980,7 +992,8 @@ class face_learner(object):
         if not model_only:
             logging.info(f'load head and optimizer from {modelp}')
             self.head.load_state_dict(torch.load(save_path / 'head_{}'.format(fixed_str)))
-            self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
+            if load_optimizer:
+                self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
     
     def board_val(self, db_name, accuracy, best_threshold, roc_curve_tensor):
         self.writer.add_scalar('{}_accuracy'.format(db_name), accuracy, self.step)

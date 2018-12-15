@@ -20,26 +20,29 @@ if __name__ == '__main__':
     # todo shoter epoch performance
     # todo find best lr and test it in several epoch
     args = parser.parse_args()
-
+    
     conf = get_config()
-
+    
     if args.net_mode == 'mobilefacenet':
         conf.use_mobilfacenet = True
     else:
         conf.net_mode = args.net_mode
         conf.net_depth = args.net_depth
-
+    
     conf.data_mode = args.data_mode
     learner = face_learner(conf, )
     ## for resume or evaluate
     learner.load_state(conf,
-                       resume_path= Path('work_space/arcsft.triadap.s64.0.1/save'),
+                       # resume_path=Path('work_space/arcsft.triadap.dop/save'),
+                       resume_path=Path('work_space/arcsft.triadap.dop.long/save'),
                        from_save_folder=False,
                        model_only=False,
+                       load_optimizer=False,
                        )
     # log_lrs, losses = learner.find_lr(conf,
     #                                   # final_value=100,
-    #                                   num=200)
+    #                                   num=200,
+    #                                   bloding_scale=1000)
     # best_lr = 10 ** (log_lrs[np.argmin(losses)])
     # print(best_lr)
     # conf.lr = best_lr

@@ -8,7 +8,6 @@ from mtcnn import MTCNN
 from Learner import face_learner
 from utils import load_facebank, draw_box_name, prepare_facebank
 from lz import *
-from lz import *
 
 # ijb_path = '/data2/share/ijbc/'
 # test1_path = ijb_path + '/IJB-C/protocols/test1/'
@@ -40,11 +39,13 @@ except:
     df_dump(df_name, ijbcp, 'name')
 
 # chkpnt_path = Path('work_space/arcsft.triadap.s64.0.1')
-chkpnt_path = Path('work_space/arcsft.triadap.0.1.dop')
+# chkpnt_path = Path('work_space/arcsft.triadap.0.1.dop')
+chkpnt_path = Path('work_space/arcsft.triadap.dop.long')
 model_path = chkpnt_path / 'save'
 conf = get_config(training=False, work_path=chkpnt_path)
 
 learner = face_learner(conf, inference=True)
+# learner.load_state(conf, None, True, True)
 learner.load_state(conf, None, True, True)
 learner.model.eval()
 logging.info('learner loaded')
@@ -53,12 +54,13 @@ logging.info('learner loaded')
 # df_pair = df_pair.iloc[:use_topk, :]
 unique_tid = np.unique(df_pair.iloc[:, :2].values.flatten())
 from mtcnn import get_reference_facial_points, warp_and_crop_face
-import sklearn
 
 refrence = get_reference_facial_points(default_square=True)
 # img_feats = np.empty((df_tm.shape[0),512  ) )
 img_feats = np.ones((df_tm.shape[0], 512)) * np.nan
 for ind, row in df_name.iterrows():
+    if ind % 1000 == 0:
+        logging.info(f'extract {ind}/{df_name.shape[0]}')
     tid = df_tm.iloc[ind, 1]
     if not tid in unique_tid: continue
     imgfn = row.iloc[0]
@@ -137,9 +139,6 @@ plt.figure()
 plt.semilogx(fpr, tpr, '.-')
 plt.show()
 
-from IPython import embed
-embed()
-
 fpr = np.flipud(fpr)
 tpr = np.flipud(tpr)  # select largest tpr at same fpr
 
@@ -152,6 +151,11 @@ plt.show()
 plt.semilogx(fpr, tpr, '.-')
 plt.show()
 from sklearn.metrics import auc
-roc_auc = auc(fpr, tpr)
 
+roc_auc = auc(fpr, tpr)
 print(roc_auc)
+logging.info('finish ')
+
+from IPython import embed
+
+embed()
