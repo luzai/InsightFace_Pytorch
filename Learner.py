@@ -2,19 +2,13 @@ import lz
 from data.data_pipe import de_preprocess, get_train_loader, get_val_data, get_val_pair
 from model import *
 from verifacation import evaluate
-import torch
 from torch import optim
 import numpy as np
-from tqdm import tqdm
 from tensorboardX import SummaryWriter
 from matplotlib import pyplot as plt
 from utils import get_time, gen_plot, hflip_batch, separate_bn_paras, hflip
 from PIL import Image
 from torchvision import transforms as trans
-
-# os.environ['MXNET_CPU_WORKER_NTHREADS'] = "12"
-# os.environ['MXNET_ENGINE_TYPE'] = "ThreadedEnginePerDevice"
-
 import os
 import random
 import logging
@@ -24,9 +18,6 @@ import mxnet as mx
 from mxnet import ndarray as nd
 from mxnet import io
 from mxnet import recordio
-
-import itertools
-
 import torch
 from pathlib import Path
 from torch.utils.data import DataLoader
@@ -34,11 +25,9 @@ from config import gl_conf
 import torch.autograd
 import torch.multiprocessing as mp
 
-import time
-
 logger = logging.getLogger()
 
-
+'''
 class MxnetImgIter(io.DataIter):
     def __init__(self, batch_size, data_shape,
                  path_imgrec=None,
@@ -377,19 +366,19 @@ class MxnetLoader():
     
     def __len__(self):
         return len(self.train_loader)
+'''
 
 
 # todo data aug: face iter --> dataset2
-# todo clean up path
 # todo more dataset (ms1m, vgg, imdb ... )
 class TorchDataset(object):
     def __init__(self,
-                 path_ms1m=lz.share_path2 + 'faces_ms1m_112x112/'
-                 ,  # todo seems ssd hhd no difference on pseed
+                 path_ms1m
+                 ,  # todo seems ssd hhd no difference on speed (ssd slower)
                  ):
         self.path_ms1m = path_ms1m
         self.root_path = Path(path_ms1m)
-        path_imgrec = path_ms1m + '/train.rec'
+        path_imgrec = str(path_ms1m) + '/train.rec'
         path_imgidx = path_imgrec[0:-4] + ".idx"
         assert os.path.exists(path_imgidx)
         self.path_imgidx = path_imgidx
@@ -405,8 +394,27 @@ class TorchDataset(object):
             )
             self.locks.append(mp.Lock())
         lz.timer.since_last_check(f'{gl_conf.num_recs} imgrec readers init')  # 27 s / 5 reader
-        
-        self.imgidx, self.ids, self.id2range = lz.msgpack_load(path_ms1m + '/info.pk')
+        try:
+            self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + '/info.pk')
+        except:
+            s = self.imgrecs[0].read_idx(0)
+            header, _ = recordio.unpack(s)
+            assert header.flag > 0, 'ms1m or glint ...'
+            print('header0 label', header.label)
+            self.header0 = (int(header.label[0]), int(header.label[1]))
+            # assert(header.flag==1)
+            # self.imgidx = range(1, int(header.label[0]))
+            self.imgidx = []
+            self.id2range = {}
+            self.ids = list(range(int(header.label[0]), int(header.label[1])))
+            for identity in self.ids:
+                s = self.imgrecs[0].read_idx(identity)
+                header, _ = recordio.unpack(s)
+                a, b = int(header.label[0]), int(header.label[1])
+                count = b - a
+                self.id2range[identity] = (a, b)
+                self.imgidx += list(range(a, b))
+            lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + '/info.pk')
         
         self.num_classes = len(self.ids)
         self.cur = 0
@@ -512,11 +520,11 @@ from collections import defaultdict
 # improve locality and improve load speed!
 class RandomIdSampler(Sampler):
     def __init__(self):
-        path_ms1m = lz.share_path2 + 'faces_ms1m_112x112/'
-        self.imgidx, self.ids, self.id2range = lz.msgpack_load(path_ms1m + '/info.pk')
+        path_ms1m = gl_conf.use_data_folder
+        self.imgidx, self.ids, self.id2range = lz.msgpack_load(path_ms1m  / 'info.pk')
         # above is the imgidx of .rec file
         # remember -1 to convert to pytorch imgidx
-        self.num_instances = 4  # todo move to config
+        self.num_instances = gl_conf.instances
         self.batch_size = gl_conf.batch_size
         assert self.batch_size % self.num_instances == 0
         self.num_pids_per_batch = self.batch_size // self.num_instances
@@ -620,10 +628,9 @@ class RandomIdSampler(Sampler):
         # return iter(final_idxs)
 
 
-# todo return unorm feature
 class face_learner(object):
-    def __init__(self, conf, inference=False, need_loader=True):
-        print(conf)
+    def __init__(self, conf, inference=False, ):
+        logging.info(f'face learner use {conf}')
         if conf.use_mobilfacenet:
             self.model = torch.nn.DataParallel(MobileFaceNet(conf.embedding_size)).cuda()
             print('MobileFaceNet model generated')
@@ -633,18 +640,13 @@ class face_learner(object):
         
         if not inference:
             self.milestones = conf.milestones
-            # if need_loader:
-            
-            ## image folder
-            # self.loader, self.class_num = get_train_loader(conf)
             ## torch reader
-            self.dataset = TorchDataset()
+            self.dataset = TorchDataset(gl_conf.use_data_folder)
             self.loader = DataLoader(
                 self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
                 shuffle=False, sampler=RandomIdSampler(), drop_last=True,
                 pin_memory=True,
             )
-            # todo randomid sample, will it affects xent?
             self.class_num = 85164
             
             ## mxnet load serialized data
@@ -652,7 +654,6 @@ class face_learner(object):
             # self.class_num = 85164
             
             print(self.class_num, 'classes, load ok ')
-            
             # else:
             #     import copy
             #     conf_t = copy.deepcopy(conf)
@@ -813,7 +814,7 @@ class face_learner(object):
                     if gl_conf.tri_wei != 0:
                         loss_triplet = self.head_triplet(embeddings, labels)
                         loss_tri_meter.update(loss_triplet.item())
-                        loss = ((1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet) / (2 - gl_conf.tri_wei)
+                        loss = ((1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet) / (1 - gl_conf.tri_wei)
                     # grad = torch.autograd.grad(loss, embeddings,
                     #                            retain_graph=True, create_graph=False,
                     #                            only_inputs=True)[0].detach()
@@ -867,9 +868,9 @@ class face_learner(object):
                 if self.step % self.board_loss_every == 0 and self.step != 0:
                     # record lr
                     self.writer.add_scalar('lr', self.optimizer.param_groups[0]['lr'], self.step)
-                    self.writer.add_scalar('train_loss', ((
-                                                                  1 - gl_conf.tri_wei) * loss_meter.avg + gl_conf.tri_wei * loss_tri_meter.avg) / (
-                                                   1 - gl_conf.tri_wei),
+                    self.writer.add_scalar('train_loss',
+                                           ((1 - gl_conf.tri_wei) * loss_meter.avg +
+                                            gl_conf.tri_wei * loss_tri_meter.avg) / (1 - gl_conf.tri_wei),
                                            self.step)
                     self.writer.add_scalar('loss/xent', loss_meter.avg, self.step)
                     self.writer.add_scalar('loss/triplet', loss_tri_meter.avg, self.step)
@@ -900,8 +901,8 @@ class face_learner(object):
                     self.save_state(conf, accuracy)
                 
                 self.step += 1
-                if self.step % conf.num_steps_per_epoch == 0 and self.step != 0:
-                    break
+                # if self.step % conf.num_steps_per_epoch == 0 and self.step != 0:
+                #     break
                 loss_time.update(
                     lz.timer.since_last_check('loss ok', verbose=False)
                 )
