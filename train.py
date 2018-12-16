@@ -6,13 +6,6 @@ from pathlib import Path
 
 if __name__ == '__main__':
     conf = get_config()
-    # todo to config.py
-    # if args.net_mode == 'mobilefacenet':
-    #     conf.use_mobilfacenet = True
-    # else:
-    #     conf.net_mode = args.net_mode
-    #     conf.net_depth = args.net_depth
-    
     learner = face_learner(conf, )
     ## for resume or evaluate
     learner.load_state(conf,
@@ -22,6 +15,7 @@ if __name__ == '__main__':
                        model_only=True,
                        load_optimizer=False,
                        )
+    # learner.save()
     # log_lrs, losses = learner.find_lr(conf,
     #                                   # final_value=100,
     #                                   num=200,
@@ -30,4 +24,4 @@ if __name__ == '__main__':
     # print(best_lr)
     # conf.lr = best_lr
     learner.init_lr()
-    learner.train(conf, conf.epochs)
+    # learner.train(conf, conf.epochs)

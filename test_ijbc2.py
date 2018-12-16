@@ -107,6 +107,10 @@ def get_image_feature(img_path, img_list_path, how='save', db_name='ijbc.fea.4.h
                 lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
                 lmk = lmk.reshape((5, 2))
                 warp_img = preprocess(img, landmark=lmk)
+                # plt_imshow(img)
+                # plt.show()
+                # plt_imshow(warp_img)
+                # plt.show()
                 # dbimg[name_lmk_score[0]] = warp_img
 
                 warp_img = to_image(warp_img)
@@ -121,7 +125,7 @@ def get_image_feature(img_path, img_list_path, how='save', db_name='ijbc.fea.4.h
         ds = DatasetIJBC2()
         bs = 512
         loader = torch.utils.data.DataLoader(ds, batch_size=bs,
-                                             num_workers=12, shuffle=False, pin_memory=True)
+                                             num_workers=0, shuffle=False, pin_memory=True)
         for ind, (img, faceness_score, items, names) in enumerate(loader):
             if ind % 9 == 0:
                 logging.info(f'ok {ind} {len(loader)}')

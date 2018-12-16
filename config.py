@@ -4,7 +4,7 @@ from lz import *
 from torch.nn import CrossEntropyLoss
 from torchvision import transforms as trans
 
-num_devs = 4
+num_devs = 1
 lz.init_dev(lz.get_dev(num_devs))
 
 
@@ -24,7 +24,7 @@ def get_config(training=True, work_path=None):
     # conf.num_clss = 85164  #  for ms1m
     conf.num_clss = 180855  # for  glint
     conf.data_path = Path('/data2/share/')
-    conf.work_path = work_path or Path('work_space/glint')
+    conf.work_path = work_path or Path('work_space/glint.bak')
     conf.model_path = conf.work_path / 'models'
     conf.log_path = conf.work_path / 'log'
     conf.save_path = conf.work_path / 'save'
@@ -32,7 +32,7 @@ def get_config(training=True, work_path=None):
     conf.ms1m_folder = conf.data_path / 'faces_ms1m_112x112'
     conf.glint_folder = conf.data_path / 'glint'
     conf.emore_folder = conf.data_path / 'faces_emore'
-
+    
     conf.use_data_folder = conf.glint_folder
     # conf.use_data_folder = conf.ms1m_folder
     
@@ -44,13 +44,15 @@ def get_config(training=True, work_path=None):
     conf.dop = np.ones(conf.num_clss, dtype=int) * -1
     conf.start_eval = False
     conf.instances = 4
-  
+    
     conf.input_size = [112, 112]
     conf.embedding_size = 512
-    conf.use_mobilfacenet = False
+    
     conf.drop_ratio = 0.4
-    conf.net_mode = 'ir_se'  # or 'ir'
+    conf.net_mode = 'mobilefacenet'  # 'ir_se'  # or 'ir'
     conf.net_depth = 50
+    
+    conf.use_mobilfacenet = conf.net_mode == 'mobilefacenet'
     
     conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     conf.device2 = torch.device("cuda:1")  # todo for at least two gpu, seems no need
@@ -105,4 +107,3 @@ def get_config(training=True, work_path=None):
 
 
 gl_conf = get_config()
-

@@ -8,6 +8,7 @@ from mtcnn import MTCNN
 from Learner import face_learner
 from utils import load_facebank, draw_box_name, prepare_facebank
 from lz import *
+from pathlib import  Path
 
 # ijb_path = '/data2/share/ijbc/'
 # test1_path = ijb_path + '/IJB-C/protocols/test1/'

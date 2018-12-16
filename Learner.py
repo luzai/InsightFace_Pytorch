@@ -976,19 +976,24 @@ class face_learner(object):
         lz.mkdir_p(save_path, delete=False)
         
         torch.save(
-            self.model.state_dict(), save_path /
-                                     ('model_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy, self.step,
-                                                                                   extra)))
+            self.model.state_dict(),
+            save_path /
+            ('model_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy, self.step,
+                                                          extra)))
         if not model_only:
             torch.save(
-                self.head.state_dict(), save_path /
-                                        ('head_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy, self.step,
-                                                                                     extra)))
+                self.head.state_dict(),
+                save_path /
+                ('head_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy, self.step,
+                                                             extra)))
             torch.save(
-                self.optimizer.state_dict(), save_path /
-                                             ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy,
-                                                                                               self.step, extra)))
-    
+                self.optimizer.state_dict(),
+                save_path /
+                ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy,
+                                                                  self.step, extra)))
+    def save(self, path =  work_path+'twoloss.pth'):
+        torch.save(self.model,path )
+        
     def load_state(self, conf, fixed_str=None, from_save_folder=False,
                    model_only=False, resume_path=None, load_optimizer=True,
                    ):

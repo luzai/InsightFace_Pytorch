@@ -78,6 +78,10 @@ def img2db():
             lmk = np.asarray(data[1:])
             img = cvb.read_img(f'{ms1m_path}/{imgfn}')
             warp_img = preprocess(img, landmark=lmk)
+            # plt_imshow(img)
+            # plt.show()
+            # plt_imshow(warp_img)
+            # plt.show()
             warp_img = Image.fromarray(warp_img)
             flip_img = torchvision.transforms.functional.hflip(warp_img)
             warp_img = conf.test_transform(warp_img)
@@ -91,7 +95,7 @@ def img2db():
 
     ds = DatasetMS1M3()
     bs = 128 * 4 * 2
-    loader = torch.utils.data.DataLoader(ds, batch_size=bs, num_workers=12, shuffle=False, pin_memory=True)
+    loader = torch.utils.data.DataLoader(ds, batch_size=bs, num_workers=0, shuffle=False, pin_memory=True)
     db = Database(work_path + 'sfttri.h5', )
     for ind, data in enumerate(loader):
         if ind % 9 == 0:
@@ -140,3 +144,6 @@ def rand2np():
     res = np.random.rand(1862120, 2).astype(np.float32)
     res = l2_normalize_np(res)
     save_mat(work_path + 'test3.bin', res)
+if __name__ == '__main__':
+    img2db()
+    db2np()
