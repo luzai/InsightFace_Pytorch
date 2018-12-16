@@ -205,6 +205,9 @@ class SEResNeXtBottleneck(Bottleneck):
         self.stride = stride
 
 
+from model import Linear_block, Flatten
+
+
 class SENet(nn.Module):
     
     def __init__(self, block, layers, groups, reduction, dropout_p=0.2,
@@ -272,8 +275,10 @@ class SENet(nn.Module):
             ]
         else:
             layer0_modules = [
-                ('conv1', nn.Conv2d(3, inplanes, kernel_size=7, stride=2,
-                                    padding=3, bias=False)),
+                ('conv1', nn.Conv2d(3, inplanes, kernel_size=7,
+                                    # stride=2, padding=3,
+                                    stride=1, padding=3,
+                                    bias=False)),
                 ('bn1', nn.BatchNorm2d(inplanes)),
                 ('relu1', nn.ReLU(inplace=True)),
             ]
@@ -321,9 +326,16 @@ class SENet(nn.Module):
             downsample_kernel_size=downsample_kernel_size,
             downsample_padding=downsample_padding
         )
-        self.avg_pool = nn.AvgPool2d(7, stride=1)
-        self.dropout = nn.Dropout(dropout_p) if dropout_p is not None else None
-        self.last_linear = nn.Linear(512 * block.expansion, num_classes)
+        # self.avg_pool = nn.AvgPool2d(7, stride=1)
+        # self.dropout = nn.Dropout(dropout_p) if dropout_p is not None else None
+        # self.last_linear = nn.Linear(512 * block.expansion, num_classes)
+        self.output_layer = nn.Sequential(
+            Linear_block(512 * block.expansion, 512 * block.expansion, groups=512 * block.expansion, kernel=(7, 7),
+                         stride=(1, 1), padding=(0, 0)),
+            Flatten(),
+            nn.Linear(512 * block.expansion, 512),
+            nn.BatchNorm1d(512),
+        )
     
     def _make_layer(self, block, planes, blocks, groups, reduction, stride=1,
                     downsample_kernel_size=1, downsample_padding=0):
@@ -353,25 +365,30 @@ class SENet(nn.Module):
         x = self.layer4(x)
         return x
     
-    def logits(self, x):
-        x = self.avg_pool(x)
-        if self.dropout is not None:
-            x = self.dropout(x)
-        x = x.view(x.size(0), -1)
-        x = self.last_linear(x)
-        return x
+    # def logits(self, x):
+    #     x = self.avg_pool(x)
+    #     if self.dropout is not None:
+    #         x = self.dropout(x)
+    #     x = x.view(x.size(0), -1)
+    #     x = self.last_linear(x)
+    #     return x
     
     def forward(self, x):
         x = self.features(x)
-        x = self.logits(x)
+        # x = self.logits(x)
+        x = self.output_layer(x)
         return x
+
+import lz
 
 
 def initialize_pretrained_model(model, num_classes, settings):
-    assert num_classes == settings['num_classes'], \
-        'num_classes should be {}, but is {}'.format(
-            settings['num_classes'], num_classes)
-    model.load_state_dict(model_zoo.load_url(settings['url']))
+    # assert num_classes == settings['num_classes'], \
+    #     'num_classes should be {}, but is {}'.format(
+    #         settings['num_classes'], num_classes)
+    # model.load_state_dict(model_zoo.load_url(settings['url']))
+    lz.load_state_dict(model, model_zoo.load_url(settings['url']))
+    # model.load_state_dict(model_zoo.load_url(settings['url']))
     model.input_space = settings['input_space']
     model.input_size = settings['input_size']
     model.input_range = settings['input_range']
@@ -442,3 +459,14 @@ def se_resnext101_32x4d(num_classes=1000, pretrained='imagenet'):
         initialize_pretrained_model(model, num_classes, settings)
     return model
 
+
+if __name__ == '__main__':
+    lz.init_dev((3,))
+    # model = se_resnext101_32x4d(512)
+    model = se_resnet101(512)
+    model = model.cuda()
+    print('next ')
+    import torch
+    
+    input = torch.autograd.Variable(torch.randn(8, 3, 112, 112)).cuda()
+    output = model(input)

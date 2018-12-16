@@ -16,7 +16,7 @@ def get_config(training=True, work_path=None):
     conf.no_eval = False
     conf.loss = 'arcface'  # softmax arcface
     
-    conf.cutoff = 10
+    conf.cutoff = 15
     # conf.num_clss = 85164  #  for ms1m
     # conf.num_clss = 180855  # for  glint # actually 109443
     # np.ones(conf.num_clss, dtype=int) * -1
@@ -47,7 +47,7 @@ def get_config(training=True, work_path=None):
     conf.embedding_size = 512
     
     conf.drop_ratio = 0.4
-    conf.net_mode = 'ir_se'  # 'mobilefacenet'  # 'ir_se'  # or 'ir'
+    conf.net_mode = 'nasnetmobile'  #  'seresnext101' 'mobilefacenet'  # 'ir_se'  # or 'ir'
     conf.net_depth = 50
     
     conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -63,7 +63,7 @@ def get_config(training=True, work_path=None):
     conf.batch_size = 80 * num_devs if not dbg else 8 * num_devs  # xent: 96 92 tri: 112 108
     conf.batch_size = conf.batch_size // conf.instances * conf.instances
     # conf.batch_size = 200 # mobilefacenet
-    conf.num_recs = 3 if not dbg else 1  # todo too much worse speed ?
+    conf.num_recs = 2 if not dbg else 1  # todo too much worse speed ?
     # --------------------Training Config ------------------------
     if training:
         conf.log_path = conf.work_path / 'log'

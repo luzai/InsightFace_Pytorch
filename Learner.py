@@ -665,8 +665,11 @@ class face_learner(object):
             self.model = torch.nn.DataParallel(MobileFaceNet(conf.embedding_size)).cuda()
             print('MobileFaceNet model generated')
         elif conf.net_mode == 'nasnetmobile':
-            self.model = nasnetamobile(512).cuda()
-            self.model = torch.nn.DataParallel(self.model)
+            self.model = nasnetamobile(512)
+            self.model = torch.nn.DataParallel(self.model).cuda()
+        elif conf.net_mode  == 'seresnext101':
+            self.head = se_resnext101_32x4d(512)
+            self.model = torch.nn.DataParallel(self.model).cuda()
         else:
             self.model = torch.nn.DataParallel(Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)).cuda()
             print('{}_{} model generated'.format(conf.net_mode, conf.net_depth))
@@ -702,6 +705,7 @@ class face_learner(object):
                 self.head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num).to(conf.device)
             elif conf.loss == 'softmax':
                 self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num).to(conf.device)
+           
             else:
                 raise ValueError(f'{conf.loss}')
             self.head_triplet = TripletLoss().to(conf.device)  # todo maybe device 1, since features loc at device1?

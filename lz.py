@@ -989,6 +989,10 @@ class AsyncDumper(mp.Process):
         self.queue.put((obj, filename))
 
 
+def aria(url, dir_, fn):
+    return shell(f'aria2c -c -s16 -k1M -x16 "{url}" -o "{fn}" -d "{dir_}"', )
+
+
 def shell(cmd, block=True, return_msg=True, verbose=True, timeout=None):
     import os
     my_env = os.environ.copy()
