@@ -49,10 +49,8 @@ def get_config(training=True, work_path=None):
     conf.embedding_size = 512
     
     conf.drop_ratio = 0.4
-    conf.net_mode = 'mobilefacenet'  # 'ir_se'  # or 'ir'
+    conf.net_mode = 'nasnetmobile'  # 'mobilefacenet'  # 'ir_se'  # or 'ir'
     conf.net_depth = 50
-    
-    conf.use_mobilfacenet = conf.net_mode == 'mobilefacenet'
     
     conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     conf.device2 = torch.device("cuda:1")  # todo for at least two gpu, seems no need

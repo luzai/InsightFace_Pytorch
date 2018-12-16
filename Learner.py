@@ -649,13 +649,17 @@ class RandomIdSampler(Sampler):
         # final_idxs = final_idxs2
         # return iter(final_idxs)
 
+from models import *
 
 class face_learner(object):
     def __init__(self, conf, inference=False, ):
         logging.info(f'face learner use {conf}')
-        if conf.use_mobilfacenet:
+        if conf.net_mode =='mobilefacenet':
             self.model = torch.nn.DataParallel(MobileFaceNet(conf.embedding_size)).cuda()
             print('MobileFaceNet model generated')
+        elif conf.net_mode =='nasnetmobile':
+            self.model = nasnetamobile(512 ).cuda()
+            self.model = torch.nn.DataParallel(self.model )
         else:
             self.model = torch.nn.DataParallel(Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)).cuda()
             print('{}_{} model generated'.format(conf.net_mode, conf.net_depth))
@@ -703,7 +707,7 @@ class face_learner(object):
                                              {'params': paras_only_bn}, ],
                                             betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
                                             lr=conf.lr
-                                            )
+                                            )  # todo
             elif conf.use_mobilfacenet:
                 self.optimizer = optim.SGD([
                     {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
@@ -843,9 +847,10 @@ class face_learner(object):
                     #                            retain_graph=True, create_graph=False,
                     #                            only_inputs=True)[0].detach()
                     loss.backward()
-                    for group in self.optimizer.param_groups:
-                        for param in group['params']:
-                            param.data = param.data.add(-gl_conf.weight_decay * group['lr'], param.data)
+                    if gl_conf.optimizer =='adam':
+                        for group in self.optimizer.param_groups:
+                            for param in group['params']:
+                                param.data = param.data.add(-gl_conf.weight_decay * group['lr'], param.data)
                     update_dop_cls(thetas, labels, gl_conf.dop)
                     #     gi = torch.norm(grad, dim=1)
                     #     gi = gi / gi.sum()
@@ -1155,7 +1160,7 @@ class face_learner(object):
             loss = conf.ce_loss(thetas, labels)
             if gl_conf.tri_wei != 0:
                 loss_triplet = self.head_triplet(embeddings, labels)
-                loss = (1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet
+                loss = (1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet # todo
             # Compute the smoothed loss
             avg_loss = beta * avg_loss + (1 - beta) * loss.item()
             self.writer.add_scalar('avg_loss', avg_loss, batch_num)
