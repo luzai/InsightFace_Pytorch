@@ -608,6 +608,16 @@ class NASNetAMobile(nn.Module):
             nn.Linear(24 * filters, 512),
             nn.BatchNorm1d(512),
         )
+        # way 4
+        # self.output_layer = nn.Sequential(
+        #     nn.Dropout2d(gl_conf.drop_ratio),
+        #     nn.BatchNorm2d(24 * filters),
+        #     nn.AvgPool2d(kernel_size=(7, 7)),
+        #     Flatten(),
+        #     # nn.BatchNorm1d(24 * filters),
+        #     nn.Linear(24 * filters, 512),
+        #     nn.BatchNorm1d(512),
+        # )
     
     def features(self, input):
         x_conv0 = self.conv0(input)
@@ -701,7 +711,10 @@ def nasnetamobile(num_classes=1001, pretrained='imagenet'):
 if __name__ == "__main__":
     # model = NASNetAMobile(num_classes=512)
     model = nasnetamobile(512, )
+    param_mb = sum(p.numel() for p in model.parameters()) / 1000000.0
+    
     input = Variable(torch.randn(2, 3, 112, 112))
     # input = Variable(torch.randn(2, 3, 224, 224))
     output = model(input)
     print(output.size())
+    print(param_mb)

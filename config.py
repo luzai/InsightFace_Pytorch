@@ -6,8 +6,6 @@ from torchvision import transforms as trans
 
 num_devs = 1
 lz.init_dev(lz.get_dev(num_devs))
-
-
 # lz.init_dev((1, 0, 2))
 # lz.init_dev((3,))
 
@@ -15,14 +13,15 @@ def get_config(training=True, work_path=None):
     conf = edict()
     conf.num_devs = num_devs
     dbg = lz.dbg
-    # conf.num_steps_per_epoch = 38049
     conf.no_eval = False
     conf.loss = 'arcface'  # softmax arcface
     
     conf.cutoff = 10
-    
     # conf.num_clss = 85164  #  for ms1m
-    conf.num_clss = 180855  # for  glint
+    # conf.num_clss = 180855  # for  glint # actually 109443
+    # np.ones(conf.num_clss, dtype=int) * -1
+    conf.num_clss = None
+    conf.dop = None
     conf.data_path = Path('/data2/share/')
     conf.work_path = work_path or Path('work_space/glint.bak')
     conf.model_path = conf.work_path / 'models'
@@ -41,7 +40,6 @@ def get_config(training=True, work_path=None):
     conf.fgg_wei = 0  # 1
     conf.tri_wei = .0
     conf.scale = 64.  # 30.
-    conf.dop = np.ones(conf.num_clss, dtype=int) * -1
     conf.start_eval = False
     conf.instances = 4
     
@@ -49,11 +47,11 @@ def get_config(training=True, work_path=None):
     conf.embedding_size = 512
     
     conf.drop_ratio = 0.4
-    conf.net_mode = 'nasnetmobile'  # 'mobilefacenet'  # 'ir_se'  # or 'ir'
+    conf.net_mode = 'ir_se'  # 'mobilefacenet'  # 'ir_se'  # or 'ir'
     conf.net_depth = 50
     
     conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    conf.device2 = torch.device("cuda:1")  # todo for at least two gpu, seems no need
+    # conf.device2 = torch.device("cuda:1")  # todo for at least two gpu, seems no need
     conf.start_epoch = 0  # 0
     conf.use_opt = 'adam'
     
@@ -62,9 +60,10 @@ def get_config(training=True, work_path=None):
         trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
     
-    conf.batch_size = 88 * num_devs if not dbg else 8 * num_devs  # xent: 96 92 tri: 112 108
+    conf.batch_size = 80 * num_devs if not dbg else 8 * num_devs  # xent: 96 92 tri: 112 108
+    conf.batch_size = conf.batch_size // conf.instances * conf.instances
     # conf.batch_size = 200 # mobilefacenet
-    conf.num_recs = 2 if not dbg else 1  # todo too much worse speed ?
+    conf.num_recs = 3 if not dbg else 1  # todo too much worse speed ?
     # --------------------Training Config ------------------------
     if training:
         conf.log_path = conf.work_path / 'log'

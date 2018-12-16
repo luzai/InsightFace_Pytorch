@@ -25,6 +25,8 @@ from config import gl_conf
 import torch.autograd
 import torch.multiprocessing as mp
 
+from models import *
+
 logger = logging.getLogger()
 
 '''
@@ -402,21 +404,26 @@ class TorchDataset(object):
         assert header.flag > 0, 'ms1m or glint ...'
         print('header0 label', header.label)
         self.header0 = (int(header.label[0]), int(header.label[1]))
-        self.imgidx = []
         self.id2range = {}
-        self.ids = list(range(int(header.label[0]), int(header.label[1])))
-        self.num_classes = len(self.ids)
-        need_diff = min(self.ids)
-        for identity in self.ids:
+        self.imgidx = []
+        self.ids = []
+        ids_shif = int(header.label[0])
+        for identity in list(range(int(header.label[0]), int(header.label[1]))):
             s = self.imgrecs[0].read_idx(identity)
             header, _ = recordio.unpack(s)
             a, b = int(header.label[0]), int(header.label[1])
-            self.id2range[identity - need_diff] = (a, b)
-            self.imgidx += list(range(a, b))
-        self.ids = [int(t) - need_diff for t in self.ids]
-        lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + '/info.pk')
-        
+            if b - a > gl_conf.cutoff:
+                self.id2range[identity] = (a, b)
+                self.ids.append(identity)
+                self.imgidx += list(range(a, b))
         self.num_classes = len(self.ids)
+        self.ids = np.asarray(self.ids)
+        lz.msgpack_dump([self.ids, self.id2range], str(path_ms1m) + '/info.pk')
+        self.num_classes = len(self.ids)
+        gl_conf.num_clss = self.num_classes
+        gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * -1
+        logging.info(f'update num_clss {gl_conf.num_clss} ')
+        self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
         self.cur = 0
     
     def __len__(self):
@@ -448,21 +455,20 @@ class TorchDataset(object):
     
     def _get_single_item(self, index):
         # self.cur += 1
-        # index = self.imgidx[index]
-        index += 1  # I force it index (imgidx) start from 0, but .rec start from 1
-        assert index != 0 and index < len(self) + 1
+        # index += 1  # noneed,  here it index (imgidx) start from 1,.rec start from 1
+        # assert index != 0 and index < len(self) + 1 # index can > len(self)
         succ = False
         
         ## rand until lock
-        while True:
-            for ind in range(len(self.locks)):
-                succ = self.locks[ind].acquire(timeout=0)
-                if succ: break
-            if succ: break
+        # while True:
+        #     for ind in range(len(self.locks)):
+        #         succ = self.locks[ind].acquire(timeout=0)
+        #         if succ: break
+        #     if succ: break
         
         ##  locality based todo which is better?
-        # ind = index // ((gl_conf.num_imgs + 1) // len(self.locks))
-        # succ = self.locks[ind].acquire()
+        ind = index // (( self.ids.max() + 1) // len(self.locks))
+        succ = self.locks[ind].acquire()
         
         # for ind in range(len(self.locks)):
         #     succ = self.locks[ind].acquire(timeout=0)
@@ -488,7 +494,9 @@ class TorchDataset(object):
         if not isinstance(label, numbers.Number):
             assert label[-1] == 0, f'{label} {index} {imgs.shape}'
             label = label[0]
-        
+        label = int(label)
+        assert label in self.ids_map
+        label = self.ids_map[label]
         _rd = random.randint(0, 1)
         if _rd == 1:
             imgs = mx.ndarray.flip(data=imgs, axis=1)
@@ -498,7 +506,7 @@ class TorchDataset(object):
         imgs -= 0.5
         imgs /= 0.5
         imgs = imgs.transpose((2, 0, 1))
-        return {'imgs': np.array(imgs, dtype=np.float32), 'labels': int(label)}
+        return {'imgs': np.array(imgs, dtype=np.float32), 'labels': label}
 
 
 class Dataset_val(torch.utils.data.Dataset):
@@ -525,15 +533,15 @@ from collections import defaultdict
 class RandomIdSampler(Sampler):
     def __init__(self):
         path_ms1m = gl_conf.use_data_folder
-        self.imgidx, self.ids, self.id2range = lz.msgpack_load(path_ms1m / 'info.pk')
+        self.ids, self.id2range = lz.msgpack_load(path_ms1m / 'info.pk')
         # above is the imgidx of .rec file
         # remember -1 to convert to pytorch imgidx
         self.num_instances = gl_conf.instances
         self.batch_size = gl_conf.batch_size
         assert self.batch_size % self.num_instances == 0
         self.num_pids_per_batch = self.batch_size // self.num_instances
-        self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1]))) - 1).tolist()
-                          for id, idxs in self.id2range.items()}  # make it index based on 0
+        self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1])))).tolist()
+                          for id, idxs in self.id2range.items()}  # it index based on 1
         self.ids = list(self.ids)
         
         # estimate number of examples in an epoch
@@ -650,9 +658,6 @@ class RandomIdSampler(Sampler):
         # return iter(final_idxs)
 
 
-from models import *
-
-
 class face_learner(object):
     def __init__(self, conf, inference=False, ):
         logging.info(f'face learner use {conf}')
@@ -710,7 +715,7 @@ class face_learner(object):
                                             betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
                                             lr=conf.lr
                                             )  # todo
-            elif conf.use_mobilfacenet:
+            elif conf.net_mode == 'mobilefacenet':
                 self.optimizer = optim.SGD([
                     {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
                     {'params': [paras_wo_bn[-1]] + [self.head.kernel], 'weight_decay': 4e-4},

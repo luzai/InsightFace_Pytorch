@@ -83,7 +83,7 @@ pretrained_settings = {
 
 
 class SEModule(nn.Module):
-
+    
     def __init__(self, channels, reduction):
         super(SEModule, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
@@ -93,7 +93,7 @@ class SEModule(nn.Module):
         self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1,
                              padding=0)
         self.sigmoid = nn.Sigmoid()
-
+    
     def forward(self, x):
         module_input = x
         x = self.avg_pool(x)
@@ -108,26 +108,27 @@ class Bottleneck(nn.Module):
     """
     Base class for bottlenecks that implements `forward()` method.
     """
+    
     def forward(self, x):
         residual = x
-
+        
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
-
+        
         out = self.conv2(out)
         out = self.bn2(out)
         out = self.relu(out)
-
+        
         out = self.conv3(out)
         out = self.bn3(out)
-
+        
         if self.downsample is not None:
             residual = self.downsample(x)
-
+        
         out = self.se_module(out) + residual
         out = self.relu(out)
-
+        
         return out
 
 
@@ -136,7 +137,7 @@ class SEBottleneck(Bottleneck):
     Bottleneck for SENet154.
     """
     expansion = 4
-
+    
     def __init__(self, inplanes, planes, groups, reduction, stride=1,
                  downsample=None):
         super(SEBottleneck, self).__init__()
@@ -162,7 +163,7 @@ class SEResNetBottleneck(Bottleneck):
     (the latter is used in the torchvision implementation of ResNet).
     """
     expansion = 4
-
+    
     def __init__(self, inplanes, planes, groups, reduction, stride=1,
                  downsample=None):
         super(SEResNetBottleneck, self).__init__()
@@ -185,7 +186,7 @@ class SEResNeXtBottleneck(Bottleneck):
     ResNeXt bottleneck type C with a Squeeze-and-Excitation module.
     """
     expansion = 4
-
+    
     def __init__(self, inplanes, planes, groups, reduction, stride=1,
                  downsample=None, base_width=4):
         super(SEResNeXtBottleneck, self).__init__()
@@ -205,7 +206,7 @@ class SEResNeXtBottleneck(Bottleneck):
 
 
 class SENet(nn.Module):
-
+    
     def __init__(self, block, layers, groups, reduction, dropout_p=0.2,
                  inplanes=128, input_3x3=True, downsample_kernel_size=3,
                  downsample_padding=1, num_classes=1000):
@@ -323,7 +324,7 @@ class SENet(nn.Module):
         self.avg_pool = nn.AvgPool2d(7, stride=1)
         self.dropout = nn.Dropout(dropout_p) if dropout_p is not None else None
         self.last_linear = nn.Linear(512 * block.expansion, num_classes)
-
+    
     def _make_layer(self, block, planes, blocks, groups, reduction, stride=1,
                     downsample_kernel_size=1, downsample_padding=0):
         downsample = None
@@ -334,16 +335,16 @@ class SENet(nn.Module):
                           padding=downsample_padding, bias=False),
                 nn.BatchNorm2d(planes * block.expansion),
             )
-
+        
         layers = []
         layers.append(block(self.inplanes, planes, groups, reduction, stride,
                             downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, groups, reduction))
-
+        
         return nn.Sequential(*layers)
-
+    
     def features(self, x):
         x = self.layer0(x)
         x = self.layer1(x)
@@ -351,7 +352,7 @@ class SENet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
         return x
-
+    
     def logits(self, x):
         x = self.avg_pool(x)
         if self.dropout is not None:
@@ -359,7 +360,7 @@ class SENet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.last_linear(x)
         return x
-
+    
     def forward(self, x):
         x = self.features(x)
         x = self.logits(x)
@@ -440,3 +441,4 @@ def se_resnext101_32x4d(num_classes=1000, pretrained='imagenet'):
         settings = pretrained_settings['se_resnext101_32x4d'][pretrained]
         initialize_pretrained_model(model, num_classes, settings)
     return model
+
