@@ -39,7 +39,7 @@ def get_config(training=True, work_path=None):
     conf.rand_ratio = 9 / 27
     conf.fgg = ''  # g gg ''
     conf.fgg_wei = 0  # 1
-    conf.tri_wei = .5
+    conf.tri_wei = .0
     conf.scale = 64.  # 30.
     conf.dop = np.ones(conf.num_clss, dtype=int) * -1
     conf.start_eval = False
@@ -69,16 +69,15 @@ def get_config(training=True, work_path=None):
     if training:
         conf.log_path = conf.work_path / 'log'
         conf.save_path = conf.work_path / 'save'
-        conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
+        conf.weight_decay = 1e-6  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
         conf.adam_betas1 = .9  # .85 to .95
         conf.adam_betas2 = .99
-        conf.lr = 3e-3  # 3e-3  0.1   0.04,  # 0.028,  # 0.028 , 1e-2 # tri  0.00063,
-        conf.epochs = 14
-        conf.milestones = [2, 8, 11]
+        conf.lr = 1e-3  # 3e-3  0.1   0.04,  # 0.028,  # 0.028 , 1e-2 # tri  0.00063,
+        conf.lr_gamma = 0.5
+        conf.epochs = 22
+        conf.milestones = range(4, 40, 4)
         # conf.epochs = 25
         # conf.milestones = [13, 19, 22]
-        # conf.epochs = 48
-        # conf.milestones = [12, 24, 36]
         # conf.epochs = 8
         # conf.milestones = [4, 6, 8]
         conf.momentum = 0.9

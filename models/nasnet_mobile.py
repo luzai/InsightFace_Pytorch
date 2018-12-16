@@ -665,14 +665,13 @@ def nasnetamobile(num_classes=1001, pretrained='imagenet'):
     """
     if pretrained:
         settings = pretrained_settings['nasnetamobile'][pretrained]
-        assert num_classes == settings['num_classes'], \
-            "num_classes should be {}, but is {}".format(settings['num_classes'], num_classes)
+        # assert num_classes == settings['num_classes'], \
+        #     "num_classes should be {}, but is {}".format(settings['num_classes'], num_classes)
         
         # both 'imagenet'&'imagenet+background' are loaded from same parameters
         model = NASNetAMobile(num_classes=num_classes)
         # model.load_state_dict(model_zoo.load_url(settings['url'], map_location=None, ),
         #                       strict=False)
-        
         lz.load_state_dict(model, model_zoo.load_url(settings['url']))
         
         # if pretrained == 'imagenet':

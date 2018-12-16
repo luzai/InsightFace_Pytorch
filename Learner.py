@@ -649,17 +649,19 @@ class RandomIdSampler(Sampler):
         # final_idxs = final_idxs2
         # return iter(final_idxs)
 
+
 from models import *
+
 
 class face_learner(object):
     def __init__(self, conf, inference=False, ):
         logging.info(f'face learner use {conf}')
-        if conf.net_mode =='mobilefacenet':
+        if conf.net_mode == 'mobilefacenet':
             self.model = torch.nn.DataParallel(MobileFaceNet(conf.embedding_size)).cuda()
             print('MobileFaceNet model generated')
-        elif conf.net_mode =='nasnetmobile':
-            self.model = nasnetamobile(512 ).cuda()
-            self.model = torch.nn.DataParallel(self.model )
+        elif conf.net_mode == 'nasnetmobile':
+            self.model = nasnetamobile(512).cuda()
+            self.model = torch.nn.DataParallel(self.model)
         else:
             self.model = torch.nn.DataParallel(Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)).cuda()
             print('{}_{} model generated'.format(conf.net_mode, conf.net_depth))
@@ -847,7 +849,7 @@ class face_learner(object):
                     #                            retain_graph=True, create_graph=False,
                     #                            only_inputs=True)[0].detach()
                     loss.backward()
-                    if gl_conf.optimizer =='adam':
+                    if gl_conf.use_opt == 'adam':
                         for group in self.optimizer.param_groups:
                             for param in group['params']:
                                 param.data = param.data.add(-gl_conf.weight_decay * group['lr'], param.data)
@@ -904,6 +906,7 @@ class face_learner(object):
                     self.writer.add_scalar('loss/xent', loss_meter.avg, self.step)
                     self.writer.add_scalar('loss/triplet', loss_tri_meter.avg, self.step)
                     self.writer.add_scalar('acc', acc_meter.avg, self.step)
+                    self.writer.add_scalar('speed', gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
                     # self.scheduler.step(loss_board)
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
@@ -940,7 +943,7 @@ class face_learner(object):
     
     def schedule_lr(self):
         for params in self.optimizer.param_groups:
-            params['lr'] /= 10
+            params['lr'] = params['lr'] * gl_conf.lr_gamma
         print(self.optimizer, 'lr', params['lr'])
     
     def init_lr(self):
@@ -996,9 +999,10 @@ class face_learner(object):
                 save_path /
                 ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy,
                                                                   self.step, extra)))
-    def save(self, path =  work_path+'twoloss.pth'):
-        torch.save(self.model,path )
-        
+    
+    def save(self, path=work_path + 'twoloss.pth'):
+        torch.save(self.model, path)
+    
     def load_state(self, conf, fixed_str=None, from_save_folder=False,
                    model_only=False, resume_path=None, load_optimizer=True,
                    ):
@@ -1160,7 +1164,7 @@ class face_learner(object):
             loss = conf.ce_loss(thetas, labels)
             if gl_conf.tri_wei != 0:
                 loss_triplet = self.head_triplet(embeddings, labels)
-                loss = (1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet # todo
+                loss = (1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet  # todo
             # Compute the smoothed loss
             avg_loss = beta * avg_loss + (1 - beta) * loss.item()
             self.writer.add_scalar('avg_loss', avg_loss, batch_num)
