@@ -9,13 +9,13 @@ if __name__ == '__main__':
     learner = face_learner(conf, )
     ## for resume or evaluate
     
-    # learner.load_state(conf,
-    #                    # resume_path=Path('work_space/arcsft.triadap.dop/save'),
-    #                    resume_path=Path('work_space/arcsft.triadap.dop.long/save'),
-    #                    from_save_folder=False,
-    #                    model_only=True,
-    #                    load_optimizer=False,
-    #                    )
+    learner.load_state(conf,
+                       # resume_path=Path('work_space/arcsft.triadap.dop.long/save'),
+                       resume_path=Path('work_space/glint.nasmobile/models'),
+                       from_save_folder=False,
+                       model_only=False,
+                       load_optimizer=True,
+                       )
     
     # learner.save()
     # log_lrs, losses = learner.find_lr(conf,
@@ -25,5 +25,5 @@ if __name__ == '__main__':
     # best_lr = 10 ** (log_lrs[np.argmin(losses)])
     # print(best_lr)
     # conf.lr = best_lr
-    learner.init_lr()
+    learner.init_lr() # todo what if ...
     learner.train(conf, conf.epochs)

@@ -370,6 +370,7 @@ class MxnetLoader():
         return len(self.train_loader)
 '''
 
+
 # todo data aug: face iter --> dataset2
 # todo more dataset (ms1m, vgg, imdb ... )
 class TorchDataset(object):
@@ -387,7 +388,10 @@ class TorchDataset(object):
         self.imgrecs = []
         self.locks = []
         lz.timer.since_last_check('start timer for imgrec')
-        for _ in range(gl_conf.num_recs):
+        for num_rec in range(gl_conf.num_recs):
+            if num_rec >= 1:
+                pass
+            # todo
             self.imgrecs.append(
                 recordio.MXIndexedRecordIO(
                     path_imgidx, path_imgrec,
@@ -395,35 +399,35 @@ class TorchDataset(object):
             )
             self.locks.append(mp.Lock())
         lz.timer.since_last_check(f'{gl_conf.num_recs} imgrec readers init')  # 27 s / 5 reader
-        # try:
-        #     self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + '/info.pk')
-        # except:
-        s = self.imgrecs[0].read_idx(0)
-        header, _ = recordio.unpack(s)
-        assert header.flag > 0, 'ms1m or glint ...'
-        print('header0 label', header.label)
-        self.header0 = (int(header.label[0]), int(header.label[1]))
-        self.id2range = {}
-        self.imgidx = []
-        self.ids = []
-        ids_shif = int(header.label[0])
-        for identity in list(range(int(header.label[0]), int(header.label[1]))):
-            s = self.imgrecs[0].read_idx(identity)
+        try:
+            self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
+        except:
+            s = self.imgrecs[0].read_idx(0)
             header, _ = recordio.unpack(s)
-            a, b = int(header.label[0]), int(header.label[1])
-            if b - a > gl_conf.cutoff:
-                self.id2range[identity] = (a, b)
-                self.ids.append(identity)
-                self.imgidx += list(range(a, b))
-        self.num_classes = len(self.ids)
-        self.ids = np.asarray(self.ids)
-        lz.msgpack_dump([self.ids, self.id2range], str(path_ms1m) + '/info.pk')
-        self.num_classes = len(self.ids)
-        gl_conf.num_clss = self.num_classes
-        gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * -1
-        logging.info(f'update num_clss {gl_conf.num_clss} ')
-        self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
-        self.cur = 0
+            assert header.flag > 0, 'ms1m or glint ...'
+            print('header0 label', header.label)
+            self.header0 = (int(header.label[0]), int(header.label[1]))
+            self.id2range = {}
+            self.imgidx = []
+            self.ids = []
+            ids_shif = int(header.label[0])
+            for identity in list(range(int(header.label[0]), int(header.label[1]))):
+                s = self.imgrecs[0].read_idx(identity)
+                header, _ = recordio.unpack(s)
+                a, b = int(header.label[0]), int(header.label[1])
+                if b - a > gl_conf.cutoff:
+                    self.id2range[identity] = (a, b)
+                    self.ids.append(identity)
+                    self.imgidx += list(range(a, b))
+            self.num_classes = len(self.ids)
+            self.ids = np.asarray(self.ids)
+            lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + '/info.pk')
+            self.num_classes = len(self.ids)
+            gl_conf.num_clss = self.num_classes
+            gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * -1
+            logging.info(f'update num_clss {gl_conf.num_clss} ')
+            self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
+            self.cur = 0
     
     def __len__(self):
         return len(self.imgidx)
@@ -466,7 +470,7 @@ class TorchDataset(object):
         #     if succ: break
         
         ##  locality based todo which is better?
-        ind = index // (( self.ids.max() + 1) // len(self.locks))
+        ind = index // ((self.ids.max() + 1) // len(self.locks))
         succ = self.locks[ind].acquire()
         
         # for ind in range(len(self.locks)):
@@ -491,7 +495,7 @@ class TorchDataset(object):
         label = header.label
         import numbers
         if not isinstance(label, numbers.Number):
-            assert label[-1] == 0, f'{label} {index} {imgs.shape}'
+            assert label[-1] == 0., f'{label} {index} {imgs.shape}'
             label = label[0]
         label = int(label)
         assert label in self.ids_map
@@ -533,7 +537,7 @@ from collections import defaultdict
 class RandomIdSampler(Sampler):
     def __init__(self):
         path_ms1m = gl_conf.use_data_folder
-        self.ids, self.id2range = lz.msgpack_load(path_ms1m / 'info.pk')
+        _, self.ids, self.id2range = lz.msgpack_load(path_ms1m / 'info.pk')
         # above is the imgidx of .rec file
         # remember -1 to convert to pytorch imgidx
         self.num_instances = gl_conf.instances
@@ -559,65 +563,102 @@ class RandomIdSampler(Sampler):
     def get_batch_ids(self):
         pids = []
         dop = gl_conf.dop
+        
         # lz.logging.info(f'dop smapler {np.count_nonzero( dop == -1 )} {dop}')
+        
         # pids = np.random.choice(self.ids,
         #                         size=int(self.num_pids_per_batch),
         #                         replace=False)
-
+        # return pids
+        
+        nrand_ids = int(self.num_pids_per_batch * gl_conf.rand_ratio)
         pids_now = np.random.choice(self.ids,
-                                    size=int(self.num_pids_per_batch * gl_conf.rand_ratio),
+                                    size=nrand_ids,
                                     replace=False)
-        for pid_now in pids_now:
-            a, b = self.id2range[pid_now]
-            nimgs = b - a
-            if nimgs >= gl_conf.cutoff:
-                pids.append(pid_now)
-                # pids.extend(pids_now.tolist())
-        while len(pids) < self.num_pids_per_batch:
-            pids_next = []
-            for pid in pids_now:
-                pid_t = dop[pid]
-                if pid_t != -1:
-                    a, b = self.id2range[pid_t]
-                    nimgs = b - a
-                if pid_t == -1 or dop[pid] in pids_next or pid_t in pids or nimgs < gl_conf.cutoff:
-                    pid_t = np.random.choice(self.ids, )
-                    a, b = self.id2range[pid_t]
-                    nimgs = b - a
-                    # make sure id is unique
-                    while pid_t in pids_next or pid_t in pids or nimgs < gl_conf.cutoff:
-                        pid_t = np.random.choice(self.ids, )
-                        a, b = self.id2range[pid_t]
-                        nimgs = b - a
-                    pids_next.append(pid_t)
-                else:
-                    pids_next.append(pid_t)
-            pids.extend(pids_next)
+        pids.append(pids_now)
+        for _ in range(int(1 / gl_conf.rand_ratio) + 1):
+            pids_next = dop[pids_now]
+            pids_next[pids_next == -1] = np.random.choice(self.ids,
+                                                          size=len(pids_next[pids_next == -1]),
+                                                          replace=False)
+            pids.append(pids_next)
             pids_now = pids_next
-        assert len(pids) == np.unique(pids).shape[0]
-
+        pids = np.concatenate(pids)
+        pids = np.unique(pids)
+        if len(pids) < self.num_pids_per_batch:
+            pids_now = np.random.choice(np.setdiff1d(self.ids, pids),
+                                        size=self.num_pids_per_batch - len(pids),
+                                        replace=False)
+            pids = np.concatenate((pids, pids_now))
+        else:
+            pids = pids[: self.num_pids_per_batch]
+        # for pid_now in pids_now:
+        #     a, b = self.id2range[pid_now]
+        #     nimgs = b - a
+        #     if nimgs >= gl_conf.cutoff:
+        #         pids.append(pid_now)
+        #         # pids.extend(pids_now.tolist())
+        # while len(pids) < self.num_pids_per_batch:
+        #     pids_next = []
+        #     for pid in pids_now:
+        #         pid_t = dop[pid]
+        #         if pid_t != -1:
+        #             a, b = self.id2range[pid_t]
+        #             nimgs = b - a
+        #         if pid_t == -1 or dop[pid] in pids_next or pid_t in pids or nimgs < gl_conf.cutoff:
+        #             pid_t = np.random.choice(self.ids, )
+        #             a, b = self.id2range[pid_t]
+        #             nimgs = b - a
+        #             # make sure id is unique
+        #             while pid_t in pids_next or pid_t in pids or nimgs < gl_conf.cutoff:
+        #                 pid_t = np.random.choice(self.ids, )
+        #                 a, b = self.id2range[pid_t]
+        #                 nimgs = b - a
+        #             pids_next.append(pid_t)
+        #         else:
+        #             pids_next.append(pid_t)
+        #     pids.extend(pids_next)
+        #     pids_now = pids_next
+        # assert len(pids) == np.unique(pids).shape[0]
+        
         return pids
     
     def get_batch_idxs(self):
-        inds = []
+    
         pids = self.get_batch_ids()
+        inds = []
+
+        # for pid in pids:
+        #     inds.append(
+        #         np.random.choice(
+        #             self.index_dic[pid],
+        #             size=(self.num_instances,),
+        #             replace=True,
+        #         )
+        #     )
+        # inds = np.concatenate(inds)
+        # inds = inds[:self.batch_size]
+        # # todo whether shuffle, how affects performance? how affects speed?
+        # return inds
+        cnt = 0
         for pid in pids:
-            inds.extend(
-                np.random.choice(
+            for ind in np.random.choice(
                     self.index_dic[pid],
                     size=(self.num_instances,),
                     replace=True,
-                ).tolist()
-            )
-        inds = inds[:self.batch_size]
-        # todo whether shuffle, how affects performance? how affects speed?
-        return inds
+            ):
+                yield ind
+                cnt += 1
+                if cnt == self.batch_size:
+                    break
+            if cnt == self.batch_size:
+                break
     
     def __iter__(self):
         cnt = 0
         while cnt < len(self):
-            inds = self.get_batch_idxs()
-            for ind in inds:
+            # logging.info(f'cnt {cnt}')
+            for ind in self.get_batch_idxs():
                 cnt += 1
                 yield ind
         
@@ -668,7 +709,7 @@ class face_learner(object):
         elif conf.net_mode == 'nasnetmobile':
             self.model = nasnetamobile(512)
             self.model = torch.nn.DataParallel(self.model).cuda()
-        elif conf.net_mode  == 'seresnext101':
+        elif conf.net_mode == 'seresnext101':
             self.head = se_resnext101_32x4d(512)
             self.model = torch.nn.DataParallel(self.model).cuda()
         else:
@@ -706,7 +747,7 @@ class face_learner(object):
                 self.head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num).to(conf.device)
             elif conf.loss == 'softmax':
                 self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num).to(conf.device)
-
+            
             else:
                 raise ValueError(f'{conf.loss}')
             self.head_triplet = TripletLoss().to(conf.device)  # todo maybe device 1, since features loc at device1?
@@ -719,7 +760,7 @@ class face_learner(object):
                                              {'params': paras_only_bn}, ],
                                             betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
                                             lr=conf.lr
-                                            )  # todo
+                                            )
             elif conf.net_mode == 'mobilefacenet':
                 self.optimizer = optim.SGD([
                     {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
@@ -735,8 +776,8 @@ class face_learner(object):
             
             print('optimizers generated')
             self.board_loss_every = 100  # len(self.loader) // 100
-            self.evaluate_every = len(self.loader) // 10
-            self.save_every = len(self.loader) // 5
+            self.evaluate_every = len(self.loader) // 3
+            self.save_every = len(self.loader) // 3
             self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
                 self.loader.dataset.root_path)  # todo postpone load eval
         else:
@@ -861,7 +902,7 @@ class face_learner(object):
                     if gl_conf.use_opt == 'adam':
                         for group in self.optimizer.param_groups:
                             for param in group['params']:
-                                param.data = param.data.add(-gl_conf.weight_decay * group['lr']*param.data)
+                                param.data = param.data.add(-gl_conf.weight_decay, group['lr'] * param.data)
                     update_dop_cls(thetas, labels, gl_conf.dop)
                     #     gi = torch.norm(grad, dim=1)
                     #     gi = gi / gi.sum()
@@ -1007,7 +1048,7 @@ class face_learner(object):
                 save_path /
                 ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy,
                                                                   self.step, extra)))
-
+    
     def save(self, path=work_path + 'twoloss.pth'):
         torch.save(self.model, path)
     
@@ -1029,13 +1070,13 @@ class face_learner(object):
             step_ind = step.argmax()
             fixed_str = fixed_strs[step_ind].replace('model_', '')
             modelp = save_path / 'model_{}'.format(fixed_str)
-        try:
-            # todo fx it
-            logging.info(f'load model from {modelp}')
-            self.model.module.load_state_dict(torch.load(modelp))
-        except:
-            logging.info(f'you are using gpu ')
-            self.model.load_state_dict(torch.load(modelp))
+        # try:
+        #     # todo fx it
+        #     logging.info(f'load model from {modelp}')
+        #     self.model.module.load_state_dict(torch.load(modelp))
+        # except:
+        logging.info(f'you are using gpu ')
+        self.model.load_state_dict(torch.load(modelp), strict=False)
         if not model_only:
             logging.info(f'load head and optimizer from {modelp}')
             self.head.load_state_dict(torch.load(save_path / 'head_{}'.format(fixed_str)))
