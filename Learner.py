@@ -370,7 +370,6 @@ class MxnetLoader():
         return len(self.train_loader)
 '''
 
-
 # todo data aug: face iter --> dataset2
 # todo more dataset (ms1m, vgg, imdb ... )
 class TorchDataset(object):
@@ -382,7 +381,7 @@ class TorchDataset(object):
         self.root_path = Path(path_ms1m)
         path_imgrec = str(path_ms1m) + '/train.rec'
         path_imgidx = path_imgrec[0:-4] + ".idx"
-        assert os.path.exists(path_imgidx)
+        assert os.path.exists(path_imgidx), path_imgidx
         self.path_imgidx = path_imgidx
         self.path_imgrec = path_imgrec
         self.imgrecs = []
@@ -529,6 +528,7 @@ from torch.utils.data.sampler import Sampler
 from collections import defaultdict
 
 
+# todo dop mining
 # improve locality and improve load speed!
 class RandomIdSampler(Sampler):
     def __init__(self):
@@ -563,7 +563,7 @@ class RandomIdSampler(Sampler):
         # pids = np.random.choice(self.ids,
         #                         size=int(self.num_pids_per_batch),
         #                         replace=False)
-        
+
         pids_now = np.random.choice(self.ids,
                                     size=int(self.num_pids_per_batch * gl_conf.rand_ratio),
                                     replace=False)
@@ -595,7 +595,7 @@ class RandomIdSampler(Sampler):
             pids.extend(pids_next)
             pids_now = pids_next
         assert len(pids) == np.unique(pids).shape[0]
-        
+
         return pids
     
     def get_batch_idxs(self):
@@ -658,6 +658,7 @@ class RandomIdSampler(Sampler):
         # return iter(final_idxs)
 
 
+# todo return unorm feature
 class face_learner(object):
     def __init__(self, conf, inference=False, ):
         logging.info(f'face learner use {conf}')
@@ -705,7 +706,7 @@ class face_learner(object):
                 self.head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num).to(conf.device)
             elif conf.loss == 'softmax':
                 self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num).to(conf.device)
-           
+
             else:
                 raise ValueError(f'{conf.loss}')
             self.head_triplet = TripletLoss().to(conf.device)  # todo maybe device 1, since features loc at device1?
@@ -795,7 +796,6 @@ class face_learner(object):
                 # logging.info(f'this batch labes {labels} ')
                 imgs = imgs.to(conf.device)
                 labels = labels.to(conf.device)
-                
                 self.optimizer.zero_grad()
                 
                 def update_dop_cls(thetas, labels, dop):
@@ -861,7 +861,7 @@ class face_learner(object):
                     if gl_conf.use_opt == 'adam':
                         for group in self.optimizer.param_groups:
                             for param in group['params']:
-                                param.data = param.data.add(-gl_conf.weight_decay * group['lr'], param.data)
+                                param.data = param.data.add(-gl_conf.weight_decay * group['lr']*param.data)
                     update_dop_cls(thetas, labels, gl_conf.dop)
                     #     gi = torch.norm(grad, dim=1)
                     #     gi = gi / gi.sum()
@@ -915,7 +915,6 @@ class face_learner(object):
                     self.writer.add_scalar('loss/xent', loss_meter.avg, self.step)
                     self.writer.add_scalar('loss/triplet', loss_tri_meter.avg, self.step)
                     self.writer.add_scalar('acc', acc_meter.avg, self.step)
-                    self.writer.add_scalar('speed', gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
                     # self.scheduler.step(loss_board)
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
@@ -1008,7 +1007,7 @@ class face_learner(object):
                 save_path /
                 ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy,
                                                                   self.step, extra)))
-    
+
     def save(self, path=work_path + 'twoloss.pth'):
         torch.save(self.model, path)
     
