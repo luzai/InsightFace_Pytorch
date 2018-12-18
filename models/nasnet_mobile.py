@@ -590,9 +590,9 @@ class NASNetAMobile(nn.Module):
                                   in_channels_right=24 * filters, out_channels_right=4 * filters)  # 24, 4
         
         self.relu = nn.ReLU()
-        # self.avg_pool = nn.AvgPool2d(7, stride=1, padding=0)
-        # self.dropout = nn.Dropout(p=gl_conf.drop_ratio)
-        # self.last_linear = nn.Linear(24 * filters, self.num_classes)
+        self.avg_pool = nn.AvgPool2d(7, stride=1, padding=0)
+        self.dropout = nn.Dropout(p=gl_conf.drop_ratio)
+        self.last_linear = nn.Linear(24 * filters, self.num_classes)
         # way 1
         # self.output_layer = nn.Sequential(
         #     nn.BatchNorm2d(24 * filters),
@@ -709,12 +709,13 @@ def nasnetamobile(num_classes=1001, pretrained='imagenet'):
 
 
 if __name__ == "__main__":
+    
     # model = NASNetAMobile(num_classes=512)
     model = nasnetamobile(512, )
     param_mb = sum(p.numel() for p in model.parameters()) / 1000000.0
-    
+    print(param_mb)
+
     input = Variable(torch.randn(2, 3, 112, 112))
     # input = Variable(torch.randn(2, 3, 224, 224))
     output = model(input)
     print(output.size())
-    print(param_mb)

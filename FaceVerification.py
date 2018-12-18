@@ -2,9 +2,7 @@
 An example to show the interface.
 '''
 from skimage import io
-from lz import *
-import lz
-import cv2
+import cv2, logging, torchvision, numpy as np
 from PIL import Image
 import argparse
 from pathlib import Path
@@ -27,8 +25,7 @@ model_path = chkpnt_path / 'save'
 conf = get_config(training=False, work_path=chkpnt_path)
 learner = face_learner(conf, inference=True)
 assert conf.device.type != 'cpu'
-prefix = list(model_path.glob('model*_*.pth'))[0].name.replace('model_', '')
-learner.load_state(conf, prefix, True, True)
+learner.load_state(conf, None, True, True)
 learner.model.eval()
 logging.info('learner loaded')
 

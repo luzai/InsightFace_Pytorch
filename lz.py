@@ -34,7 +34,7 @@ timer = cvb.Timer()
 if os.environ.get('chainer', "1") == "1":
     import chainer
     from chainer import cuda
-
+    
     # xp = cuda.get_array_module( )
     old_repr = chainer.Variable.__repr__
     chainer.Variable.__str__ = lambda obj: (f'ch {tuple(obj.shape)} {obj.dtype} '
@@ -50,7 +50,7 @@ if os.environ.get('pytorch', "1") == "1":
     import torch.utils.data
     from torch import nn
     import torch.nn.functional as F
-
+    
     old_repr = torch.Tensor.__repr__
     torch.Tensor.__repr__ = lambda obj: (f'th {tuple(obj.shape)} {obj.type()} '
                                          f'{old_repr(obj)} '
@@ -64,13 +64,13 @@ if os.environ.get('pytorch', "1") == "1":
 def allow_growth():
     import tensorflow as tf
     oldinit = tf.Session.__init__
-
+    
     def myinit(session_object, target='', graph=None, config=None):
         if config is None:
             config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
         oldinit(session_object, target, graph, config)
-
+    
     tf.Session.__init__ = myinit
     return oldinit
 
@@ -78,10 +78,10 @@ def allow_growth():
 if os.environ.get('tensorflow', '0') == '1':
     tic = time.time()
     import tensorflow as tf
-
+    
     # import tensorflow.contrib
     # import tensorflow.contrib.keras
-
+    
     oldinit = allow_growth()
     print('import tf', time.time() - tic)
 
@@ -278,25 +278,25 @@ def show_dev(devs=range(4)):
 def get_dev(n=1, ok=range(4), mem_thresh=(0.1, 0.15), sleep=23.3):  # 0.3: now occupy smaller than 0.3
     if not isinstance(mem_thresh, collections.Sequence):
         mem_thresh = (mem_thresh,)
-
+    
     def get_poss_dev():
         mems = [get_mem(ind) for ind in ok]
         inds, mems = cosort(ok, mems, return_val=True)
         devs = [ind for ind, mem in zip(inds, mems) if mem < mem_thresh[0] * 100]
-
+        
         return devs
-
+    
     devs = get_poss_dev()
     logging.info('Auto select gpu')
     # gpustat.print_gpustat()
     show_dev()
     while len(devs) < n:
         devs = get_poss_dev()
-
+        
         print('no enough device available')
         # gpustat.print_gpustat()
         show_dev()
-
+        
         sleep = int(sleep)
         time.sleep(random.randint(max(0, sleep - 20), sleep + 20))
     return devs[:n]
@@ -332,27 +332,27 @@ class Logger(object):
             mkdir_p(os.path.dirname(fpath), delete=False)
             # rm(fpath)
             self.file = open(fpath, 'a')
-
+    
     def __del__(self):
         self.close()
-
+    
     def __enter__(self):
         pass
-
+    
     def __exit__(self, *args):
         self.close()
-
+    
     def write(self, msg):
         self.console.write(msg)
         if self.file is not None:
             self.file.write(msg)
-
+    
     def flush(self):
         self.console.flush()
         if self.file is not None:
             self.file.flush()
             os.fsync(self.file.fileno())
-
+    
     def close(self):
         self.console.close()
         if self.file is not None:
@@ -390,33 +390,33 @@ class Timer(object):
     1.000
 
     """
-
+    
     def __init__(self, start=True, print_tmpl=None):
         self._is_running = False
         self.print_tmpl = print_tmpl if print_tmpl else '{:.3f}'
         if start:
             self.start()
-
+    
     @property
     def is_running(self):
         """bool: indicate whether the timer is running"""
         return self._is_running
-
+    
     def __enter__(self):
         self.start()
         return self
-
+    
     def __exit__(self, type, value, traceback):
         print(self.print_tmpl.format(self.since_last_check()))
         self._is_running = False
-
+    
     def start(self):
         """Start the timer."""
         if not self._is_running:
             self._t_start = time.time()
             self._is_running = True
         self._t_last = time.time()
-
+    
     def since_start(self, aux=''):
         """Total time since the timer is started.
 
@@ -427,7 +427,7 @@ class Timer(object):
         self._t_last = time.time()
         logging.info(f'{aux} time {self.print_tmpl.format(self._t_last - self._t_start)}')
         return self._t_last - self._t_start
-
+    
     def since_last_check(self, aux='', verbose=True):
         """Time since the last checking.
 
@@ -472,34 +472,34 @@ class Uninterrupt(object):
         while not u.interrupted:
             # train
     """
-
+    
     def __init__(self, sigs=(signal.SIGINT,), verbose=False):
         self.sigs = sigs
         self.verbose = verbose
         self.interrupted = False
         self.orig_handlers = None
-
+    
     def __enter__(self):
         if self.orig_handlers is not None:
             raise ValueError("Can only enter `Uninterrupt` once!")
-
+        
         self.interrupted = False
         self.orig_handlers = [signal.getsignal(sig) for sig in self.sigs]
-
+        
         def handler(signum, frame):
             self.release()
             self.interrupted = True
             if self.verbose:
                 print("Interruption scheduled...", flush=True)
-
+        
         for sig in self.sigs:
             signal.signal(sig, handler)
-
+        
         return self
-
+    
     def __exit__(self, type_, value, tb):
         self.release()
-
+    
     def release(self):
         if self.orig_handlers is not None:
             for sig, orig in zip(self.sigs, self.orig_handlers):
@@ -509,20 +509,20 @@ class Uninterrupt(object):
 
 def mail(content, to_mail=('907682447@qq.com',)):
     import datetime, collections
-
+    
     user_passes = json_load(home_path + 'Dropbox/mail.json')
     user_pass = user_passes[0]
-
+    
     time_str = datetime.datetime.now().strftime('%m-%d %H:%M')
-
+    
     import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
-
+    
     s = smtplib.SMTP(host=user_pass['host'], port=user_pass['port'], timeout=10)
     s.starttls()
     s.login(user_pass['username'], user_pass['password'])
-
+    
     title = 'ps: ' + content.split('\r\n')[0]
     title = title[:20]
     content = time_str + '\r\n' + content
@@ -636,14 +636,14 @@ def load_state_dict(model, state_dict, own_prefix='', own_de_prefix=''):
             name = own_prefix + name
         if name.replace(own_de_prefix, '') in own_state:
             name = name.replace(own_de_prefix, '')
-
+        
         if name not in own_state:
             print('ignore key "{}" in his state_dict'.format(name))
             continue
-
+        
         if isinstance(param, nn.Parameter):
             param = param.clone()
-
+        
         if own_state[name].size() == param.size():
             own_state[name].copy_(param)
             # print('{} {} is ok '.format(name, param.size()))
@@ -652,7 +652,7 @@ def load_state_dict(model, state_dict, own_prefix='', own_de_prefix=''):
             logging.error('dimension mismatch for param "{}", in the model are {}'
                           ' and in the checkpoint are {}, ...'.format(
                 name, own_state[name].size(), param.size()))
-
+    
     missing = set(own_state.keys()) - set(success)
     if len(missing) > 0:
         print('missing keys in my state_dict: "{}"'.format(missing))
@@ -695,9 +695,9 @@ def optional_arg_decorator(fn):
         else:
             def real_decorator(decoratee):
                 return fn(decoratee, *args)
-
+            
             return real_decorator
-
+    
     return wrapped_decorator
 
 
@@ -712,7 +712,7 @@ def static_vars(**kwargs):
         for k in kwargs:
             setattr(func, k, kwargs[k])
         return func
-
+    
     return decorate
 
 
@@ -736,7 +736,7 @@ def timeit(fn, info=''):
         diff = time.time() - start
         logging.info((info + 'takes time {}').format(diff))
         return res
-
+    
     return wrapped_fn
 
 
@@ -755,21 +755,21 @@ class Database(object):
         #     rm(file)
         #     self.fid = h5py.File(file, 'w')
         #     logging.error(f'{file} is delete and write !!')
-
+    
     def __enter__(self):
         return self
-
+    
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.fid.close()
-
+    
     def __getitem__(self, keys):
         if isinstance(keys, (tuple, list)):
             return [self._get_single_item(k) for k in keys]
         return self._get_single_item(keys)
-
+    
     def _get_single_item(self, key):
         return np.asarray(self.fid[key])
-
+    
     def __setitem__(self, key, value):
         value = np.asarray(value)
         if key in self.fid:
@@ -785,23 +785,23 @@ class Database(object):
                 self.fid.create_dataset(key, data=value)
         else:
             self.fid.create_dataset(key, data=value)
-
+    
     def __delitem__(self, key):
         del self.fid[key]
-
+    
     def __len__(self):
         return len(self.fid)
-
+    
     def __iter__(self):
         return iter(self.fid)
-
+    
     def flush(self):
         self.fid.flush()
-
+    
     def close(self):
         self.flush()
         self.fid.close()
-
+    
     def keys(self):
         return self.fid.keys()
 
@@ -841,13 +841,13 @@ def pickle_load(file, **kwargs):
     return data
 
 
-def df_dump(df, path, name = 'df'):
+def df_dump(df, path, name='df'):
     df.to_hdf(path, name, mode='w')
 
 
-def df_load(path,name='df'):
+def df_load(path, name='df'):
     import pandas as pd
-    return pd.read_hdf(path, name )
+    return pd.read_hdf(path, name)
 
 
 def yaml_load(file, **kwargs):
@@ -977,14 +977,14 @@ class AsyncDumper(mp.Process):
     def __init__(self):
         self.queue = mp.Queue()
         super(AsyncDumper, self).__init__()
-
+    
     def run(self):
         while True:
             data, out_file = self.queue.get()
             if data is None:
                 break
             pickle_dump(data, out_file)
-
+    
     def dump(self, obj, filename):
         self.queue.put((obj, filename))
 
@@ -1089,15 +1089,18 @@ def rm(path, block=True):
 
 def show_img(path):
     from IPython.display import Image
-
+    
     fig = Image(filename=path)
     return fig
 
 
 def plt_imshow(img, ax=None):
     img = to_img(img)
+    h, w ,c,   = img.shape
+    inchh = h / 96
+    inchw = w / 96
     if ax is None:
-        plt.figure()
+        plt.figure(figsize = ( inchw,inchh,))
         plt.imshow(img)
         plt.axis('off')
     else:
@@ -1153,7 +1156,7 @@ def plt_matshow(mat):
     fig, ax = plt.subplots()
     ax.matshow(mat)
     ax.axis('off')
-
+    
     # plt.figure()
     # plt.matshow(mat, fignum=1)
     # plt.axis('off')
@@ -1186,7 +1189,7 @@ def chdir_to_root(fn):
         res = fn(*args, **kwargs)
         os.chdir(restore_path)
         return res
-
+    
     return wrapped_fn
 
 
@@ -1276,7 +1279,7 @@ def clean_name(name):
 class Struct(object):
     def __init__(self, entries):
         self.__dict__.update(entries)
-
+    
     def __getitem__(self, item):
         return self.__dict__[item]
 
@@ -1303,7 +1306,7 @@ def list2str(li, delimier=''):
     name = ''
     for name_ in li:
         name += (str(name_) + delimier)
-
+    
     return name
 
 
@@ -1318,11 +1321,11 @@ def i_vis_graph(graph_def, max_const_size=32):
     import tensorflow as tf
     from IPython.display import display, HTML, SVG
     import os
-
+    
     def strip_consts(graph_def, max_const_size=32):
         """Strip large constant values from graph_def."""
         import tensorflow as tf
-
+        
         strip_def = tf.GraphDef()
         for n0 in graph_def.node:
             n = strip_def.node.add()
@@ -1334,7 +1337,7 @@ def i_vis_graph(graph_def, max_const_size=32):
                     tensor.tensor_content = tf.compat.as_bytes(
                         "<stripped %d bytes>" % size)
         return strip_def
-
+    
     if hasattr(graph_def, 'as_graph_def'):
         graph_def = graph_def.as_graph_def()
     strip_def = strip_consts(graph_def, max_const_size=max_const_size)
@@ -1349,7 +1352,7 @@ def i_vis_graph(graph_def, max_const_size=32):
           <tf-graph-basic id="{id}"></tf-graph-basic>
         </div>
     """.format(data=repr(str(strip_def)), id='graph' + str(np.random.rand()))
-
+    
     iframe = """
         <iframe seamless style="width:800px;height:620px;border:0" srcdoc="{}"></iframe>
     """.format(code.replace('"', '&quot;'))
@@ -1448,7 +1451,7 @@ def to_json_format(obj, allow_np=True):
 
 def preprocess(img, bbox=None, landmark=None, **kwargs):
     from skimage import transform as trans
-
+    
     if isinstance(img, str):
         img = cvb.read_img(img, **kwargs)
     img = img.copy()
@@ -1479,7 +1482,7 @@ def preprocess(img, bbox=None, landmark=None, **kwargs):
         tform.estimate(dst, src)
         M = tform.params[0:2, :]
         # M = cv2.estimateRigidTransform( dst.reshape(1,5,2), src.reshape(1,5,2), False)
-
+    
     if M is None:
         if bbox is None:  # use center crop
             det = np.zeros(4, dtype=np.int32)
@@ -1501,16 +1504,16 @@ def preprocess(img, bbox=None, landmark=None, **kwargs):
         return ret
     else:  # do align using landmark
         assert len(image_size) == 2
-
+        
         # src = src[0:3,:]
         # dst = dst[0:3,:]
-
+        
         # print(src.shape, dst.shape)
         # print(src)
         # print(dst)
         # print(M)
         warped = cv2.warpAffine(img, M, (image_size[1], image_size[0]), borderValue=0.0)
-
+        
         # tform3 = trans.ProjectiveTransform()
         # tform3.estimate(src, dst)
         # warped = trans.warp(img, tform3, output_shape=_shape)
@@ -1519,7 +1522,7 @@ def preprocess(img, bbox=None, landmark=None, **kwargs):
 
 def face_orientation(frame, landmarks):
     size = frame.shape  # (height, width, color_channel)
-
+    
     image_points = np.array([
         (landmarks[4], landmarks[5]),  # Nose tip
         # (landmarks[10], landmarks[11]),  # Chin
@@ -1528,7 +1531,7 @@ def face_orientation(frame, landmarks):
         (landmarks[6], landmarks[7]),  # Left Mouth corner
         (landmarks[8], landmarks[9])  # Right mouth corner
     ], dtype="double")
-
+    
     model_points = np.array([
         (0.0, 0.0, 0.0),  # Nose tip
         # (0.0, -330.0, -65.0),  # Chin
@@ -1537,9 +1540,9 @@ def face_orientation(frame, landmarks):
         (-150.0, -150.0, -125.0),  # Left Mouth corner
         (150.0, -150.0, -125.0)  # Right mouth corner
     ])
-
+    
     # Camera internals
-
+    
     center = (size[1] / 2, size[0] / 2)
     focal_length = center[0] / np.tan(60 / 2 * np.pi / 180)
     camera_matrix = np.array(
@@ -1547,31 +1550,31 @@ def face_orientation(frame, landmarks):
          [0, focal_length, center[1]],
          [0, 0, 1]], dtype="double"
     )
-
+    
     dist_coeffs = np.zeros((4, 1))  # Assuming no lens distortion
     (success, rotation_vector, translation_vector) = cv2.solvePnP(
         model_points, image_points, camera_matrix,
         dist_coeffs,
         # flags=cv2.SOLVEPNP_ITERATIVE
     )
-
+    
     axis = np.float32([[500, 0, 0],
                        [0, 500, 0],
                        [0, 0, 500]])
-
+    
     imgpts, jac = cv2.projectPoints(axis, rotation_vector, translation_vector, camera_matrix, dist_coeffs)
     modelpts, jac2 = cv2.projectPoints(model_points, rotation_vector, translation_vector, camera_matrix, dist_coeffs)
     rvec_matrix = cv2.Rodrigues(rotation_vector)[0]
-
+    
     proj_matrix = np.hstack((rvec_matrix, translation_vector))
     eulerAngles = cv2.decomposeProjectionMatrix(proj_matrix)[6]
-
+    
     pitch, yaw, roll = [math.radians(_) for _ in eulerAngles]
-
+    
     pitch = math.degrees(math.asin(math.sin(pitch)))
     roll = -math.degrees(math.asin(math.sin(roll)))
     yaw = math.degrees(math.asin(math.sin(yaw)))
-
+    
     return imgpts, modelpts, (str(int(roll)), str(int(pitch)), str(int(yaw))), (landmarks[4], landmarks[5])
 
 
@@ -1624,7 +1627,7 @@ def df_unique(df):
             return np.asarray(res).all()
         except Exception as e:
             print(e)
-
+    
     res = []
     for j in range(df.shape[1]):
         if not is_all_same(df.iloc[:, j].tolist()):
@@ -1639,7 +1642,7 @@ class UniformDistribution(object):
         assert low <= high
         self.low = low
         self.high = high
-
+    
     def rvs(self, size=None, random_state=None):
         uniform = random_state.uniform if random_state else np.random.uniform
         return uniform(self.low, self.high, size)
@@ -1651,7 +1654,7 @@ class LogUniformDistribution(object):
         self.low = low
         self.high = high
         self.precision = precision
-
+    
     def rvs(self, size=None, random_state=None):
         uniform = random_state.uniform if random_state else np.random.uniform
         res = np.exp(uniform(np.log(self.low), np.log(self.high), size))
@@ -1714,9 +1717,19 @@ def get_adv(loss, inp, norm='l2', eps=.1, ):
     return xa_advtrue
 
 
+def img2tensor():
+    import io, Image
+    buf = io.BytesIO()
+    plt.savefig(buf, format='jpeg')
+    buf.seek(0)
+    roc_curve = Image.open(buf)
+    roc_curve_tensor = torchvision.transforms.ToTensor()(roc_curve)
+    return roc_curve_tensor
+
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
-
+    
     def __init__(self):
         import collections
         self.val = 0
@@ -1724,13 +1737,13 @@ class AverageMeter(object):
         self.sum = 0
         self.count = 0
         self.mem = collections.deque(maxlen=100)
-
+    
     def reset(self):
         self.val = 0
         self.avg = 0
         self.sum = 0
         self.count = 0
-
+    
     def update(self, val, n=1):
         # try:
         val = float(val)

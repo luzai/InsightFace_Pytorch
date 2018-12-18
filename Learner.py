@@ -24,7 +24,6 @@ from torch.utils.data import DataLoader
 from config import gl_conf
 import torch.autograd
 import torch.multiprocessing as mp
-
 from models import *
 
 logger = logging.getLogger()
@@ -371,12 +370,9 @@ class MxnetLoader():
 '''
 
 
-# todo data aug: face iter --> dataset2
-# todo more dataset (ms1m, vgg, imdb ... )
 class TorchDataset(object):
     def __init__(self,
                  path_ms1m
-                 ,  # todo seems ssd hhd no difference on speed (ssd slower)
                  ):
         self.path_ms1m = path_ms1m
         self.root_path = Path(path_ms1m)
@@ -389,9 +385,8 @@ class TorchDataset(object):
         self.locks = []
         lz.timer.since_last_check('start timer for imgrec')
         for num_rec in range(gl_conf.num_recs):
-            if num_rec >= 1:
-                pass
-            # todo
+            if num_rec == 1:
+                path_imgrec = path_imgrec.replace('/data2/share/', '/home/share/')
             self.imgrecs.append(
                 recordio.MXIndexedRecordIO(
                     path_imgidx, path_imgrec,
@@ -624,10 +619,10 @@ class RandomIdSampler(Sampler):
         return pids
     
     def get_batch_idxs(self):
-    
+        
         pids = self.get_batch_ids()
         inds = []
-
+        
         # for pid in pids:
         #     inds.append(
         #         np.random.choice(
@@ -756,11 +751,18 @@ class face_learner(object):
             
             paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
             if conf.use_opt == 'adam':
-                self.optimizer = optim.Adam([{'params': paras_wo_bn + [self.head.kernel], 'weight_decay': 0},
-                                             {'params': paras_only_bn}, ],
-                                            betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
-                                            lr=conf.lr
-                                            )
+                if conf.finetune:
+                    self.optimizer = optim.Adam([{'params': [self.head.kernel], 'weight_decay': 0},
+                                                 ],
+                                                betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
+                                                lr=conf.lr
+                                                )
+                else:
+                    self.optimizer = optim.Adam([{'params': paras_wo_bn + [self.head.kernel], 'weight_decay': 0},
+                                                 {'params': paras_only_bn}, ],
+                                                betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
+                                                lr=conf.lr
+                                                )
             elif conf.net_mode == 'mobilefacenet':
                 self.optimizer = optim.SGD([
                     {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
@@ -768,13 +770,17 @@ class face_learner(object):
                     {'params': paras_only_bn}
                 ], lr=conf.lr, momentum=conf.momentum)
             else:
-                self.optimizer = optim.SGD([
-                    {'params': paras_wo_bn + [self.head.kernel], 'weight_decay': gl_conf.weight_decay},
-                    {'params': paras_only_bn}
-                ], lr=conf.lr, momentum=conf.momentum)
-            print(self.optimizer)
+                if conf.finetune:
+                    self.optimizer = optim.SGD([
+                        {'params': [self.head.kernel], 'weight_decay': gl_conf.weight_decay},
+                    ], lr=conf.lr, momentum=conf.momentum)
+                else:
+                    self.optimizer = optim.SGD([
+                        {'params': paras_wo_bn + [self.head.kernel], 'weight_decay': gl_conf.weight_decay},
+                        {'params': paras_only_bn}
+                    ], lr=conf.lr, momentum=conf.momentum)
             
-            print('optimizers generated')
+            print(self.optimizer, 'optimizers generated')
             self.board_loss_every = 100  # len(self.loader) // 100
             self.evaluate_every = len(self.loader) // 3
             self.save_every = len(self.loader) // 3
@@ -834,6 +840,16 @@ class face_learner(object):
                 )
                 imgs = data['imgs']
                 labels = data['labels']
+                # import torchvision
+                # imgs_thumb = torchvision.utils.make_grid(
+                #     to_torch(imgs), normalize=True,
+                #     nrow=int(np.sqrt(imgs.shape[0])) //4 * 4 ,
+                #     scale_each=True).numpy()
+                # imgs_thumb = to_img(imgs_thumb)
+                # # imgs_thumb = cvb.resize_keep_ar( imgs_thumb, 1024,1024, )
+                # plt_imshow(imgs_thumb)
+                # plt.savefig(work_path+'t.png')
+                # plt.close()
                 # logging.info(f'this batch labes {labels} ')
                 imgs = imgs.to(conf.device)
                 labels = labels.to(conf.device)
@@ -883,7 +899,11 @@ class face_learner(object):
                     #     loss_meter.update(loss.item())
                     #     loss.backward()
                     # else:
-                    embeddings = self.model(imgs)
+                    if conf.finetune:
+                        with torch.no_grad():
+                            embeddings = self.model(imgs)
+                    else:
+                        embeddings = self.model(imgs)
                     thetas = self.head(embeddings, labels)
                     loss = conf.ce_loss(thetas, labels)
                     acc_t = (thetas.argmax(dim=1) == labels)
@@ -942,10 +962,10 @@ class face_learner(object):
                 if self.step % 100 == 0:
                     logging.info(f'epoch {e} step {self.step}: ' +
                                  # f'img {imgs.mean()} {imgs.max()} {imgs.min()} ' +
-                                 f'loss: {loss.item()} ' +
-                                 f'data time: {data_time.avg} ' +
-                                 f'loss time: {loss_time.avg} acc: {acc_meter.avg} ' +
-                                 f'speed: { gl_conf.batch_size/(data_time.avg+loss_time.avg) } imgs/s')
+                                 f'loss: {loss.item():.3f} ' +
+                                 f'data time: {data_time.avg:.2f} ' +
+                                 f'loss time: {loss_time.avg:.2f} acc: {acc_meter.avg:.3e} ' +
+                                 f'speed: {gl_conf.batch_size/(data_time.avg+loss_time.avg):.2f} imgs/s')
                 if self.step % self.board_loss_every == 0 and self.step != 0:
                     # record lr
                     self.writer.add_scalar('lr', self.optimizer.param_groups[0]['lr'], self.step)
@@ -1252,8 +1272,13 @@ class face_learner(object):
 
 if __name__ == '__main__':
     pass
-    # test thread safe
-    # ds = TorchDataset()
+    # # test thread safe
+    # ds = TorchDataset(lz.share_path2 + '/glint')
+    # print(len(ds))
+    
+    ds = TorchDataset(lz.share_path2 + '/faces_ms1m_112x112')
+    print(len(ds))
+    
     # print(len(ds))
     #
     #
@@ -1276,14 +1301,14 @@ if __name__ == '__main__':
     # for p in ps:
     #     p.join()
     
-    # test random id smpler
-    lz.timer.since_last_check('start')
-    smpler = RandomIdSampler()
-    for idx in smpler:
-        print(idx)
-        break
-    print(len(smpler))
-    lz.timer.since_last_check('construct ')
+    # # test random id smpler
+    # lz.timer.since_last_check('start')
+    # smpler = RandomIdSampler()
+    # for idx in smpler:
+    #     print(idx)
+    #     break
+    # print(len(smpler))
+    # lz.timer.since_last_check('construct ')
     # flag = False
     # for ids in smpler:
     #     # print(ids)

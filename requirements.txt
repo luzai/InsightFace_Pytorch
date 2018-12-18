@@ -3,7 +3,6 @@ h5py
 numpy
 Pillow
 scipy
-torch
 torchvision
 gpustat
 easydict
@@ -23,7 +22,6 @@ tabulate
 tensorflow-gpu
 tensorboard
 tqdm
-mxnet_cu90mkl
-bcolz
-pandas
-sklearn
+fuel
+mxnet-cu90mkl
+torch

@@ -10,13 +10,15 @@ if __name__ == '__main__':
     ## for resume or evaluate
     
     learner.load_state(conf,
-                       # resume_path=Path('work_space/arcsft.triadap.dop.long/save'),
-                       resume_path=Path('work_space/glint.nasmobile/models'),
-                       from_save_folder=False,
-                       model_only=False,
+                       resume_path=Path('work_space/arcsft.triadap.dop.long/save'),
+                       model_only=True,
                        load_optimizer=True,
+
+                       # resume_path=Path('work_space/ft.ms1m/models'),
+                       # model_only=False,
+                       # load_optimizer=True,
+                       
                        )
-    
     # learner.save()
     # log_lrs, losses = learner.find_lr(conf,
     #                                   # final_value=100,

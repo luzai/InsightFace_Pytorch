@@ -3,8 +3,7 @@
 from __future__ import print_function
 import numpy as np
 import sys
-import os
-from lz import *
+import os, logging
 
 GPU_id = 0
 os.environ["CUDA_VISIBLE_DEVICES"] = str(GPU_id)
