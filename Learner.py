@@ -386,7 +386,7 @@ class TorchDataset(object):
         lz.timer.since_last_check('start timer for imgrec')
         for num_rec in range(gl_conf.num_recs):
             if num_rec == 1:
-                path_imgrec = path_imgrec.replace('/data2/share/', '/home/share/')
+                path_imgrec = path_imgrec.replace('/data2/share/', '/share/data/')
             self.imgrecs.append(
                 recordio.MXIndexedRecordIO(
                     path_imgidx, path_imgrec,
@@ -701,7 +701,7 @@ class face_learner(object):
         if conf.net_mode == 'mobilefacenet':
             self.model = torch.nn.DataParallel(MobileFaceNet(conf.embedding_size)).cuda()
             print('MobileFaceNet model generated')
-        elif conf.net_mode == 'nasnetmobile':
+        elif conf.net_mode == 'nasnetamobile':
             self.model = nasnetamobile(512)
             self.model = torch.nn.DataParallel(self.model).cuda()
         elif conf.net_mode == 'seresnext101':
@@ -1074,6 +1074,7 @@ class face_learner(object):
     
     def load_state(self, conf, fixed_str=None, from_save_folder=False,
                    model_only=False, resume_path=None, load_optimizer=True,
+                   latest=True,
                    ):
         from pathlib import Path
         if resume_path is not None:
@@ -1085,8 +1086,12 @@ class face_learner(object):
         modelp = save_path / 'model_{}'.format(fixed_str)
         if not os.path.exists(modelp):
             fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
-            step = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
-            step = np.asarray(step, dtype=int)
+            if latest:
+                step = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
+            else:
+                # best
+                step = [fixed_str.split('_')[-3].split(':')[-1] for fixed_str in fixed_strs]
+            step = np.asarray(step, dtype=float)
             step_ind = step.argmax()
             fixed_str = fixed_strs[step_ind].replace('model_', '')
             modelp = save_path / 'model_{}'.format(fixed_str)
@@ -1095,7 +1100,7 @@ class face_learner(object):
         #     logging.info(f'load model from {modelp}')
         #     self.model.module.load_state_dict(torch.load(modelp))
         # except:
-        logging.info(f'you are using gpu ')
+        logging.info(f'you are using gpu, load model, {modelp}')
         self.model.load_state_dict(torch.load(modelp), strict=False)
         if not model_only:
             logging.info(f'load head and optimizer from {modelp}')

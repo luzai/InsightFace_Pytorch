@@ -8,7 +8,7 @@ from mtcnn import MTCNN
 from Learner import face_learner
 from utils import load_facebank, draw_box_name, prepare_facebank
 from lz import *
-from pathlib import  Path
+from pathlib import Path
 
 # ijb_path = '/data2/share/ijbc/'
 # test1_path = ijb_path + '/IJB-C/protocols/test1/'
@@ -39,15 +39,15 @@ except:
     df_dump(df_pair, ijbcp, 'pair')
     df_dump(df_name, ijbcp, 'name')
 
-# chkpnt_path = Path('work_space/arcsft.triadap.s64.0.1')
-# chkpnt_path = Path('work_space/arcsft.triadap.0.1.dop')
-chkpnt_path = Path('work_space/arcsft.triadap.dop.long')
-model_path = chkpnt_path / 'save'
-conf = get_config(training=False, work_path=chkpnt_path)
-
+conf = get_config(training=False)
 learner = face_learner(conf, inference=True)
-# learner.load_state(conf, None, True, True)
-learner.load_state(conf, None, True, True)
+learner.load_state(conf, None,
+                   # resume_path='work_space/arcsft.triadap.dop.long/save/',
+                   resume_path='work_space/ms1m.better/models/',
+                   latest=True,
+                   from_save_folder=True,
+                   model_only=True,
+                   )
 learner.model.eval()
 logging.info('learner loaded')
 
@@ -55,33 +55,91 @@ logging.info('learner loaded')
 # df_pair = df_pair.iloc[:use_topk, :]
 unique_tid = np.unique(df_pair.iloc[:, :2].values.flatten())
 from mtcnn import get_reference_facial_points, warp_and_crop_face
+import torch.utils.data, torchvision.transforms.functional
 
 refrence = get_reference_facial_points(default_square=True)
-# img_feats = np.empty((df_tm.shape[0),512  ) )
-img_feats = np.ones((df_tm.shape[0], 512)) * np.nan
-for ind, row in df_name.iterrows():
-    if ind % 1000 == 0:
-        logging.info(f'extract {ind}/{df_name.shape[0]}')
-    tid = df_tm.iloc[ind, 1]
-    if not tid in unique_tid: continue
-    imgfn = row.iloc[0]
-    lmks = row.iloc[1:11]
-    lmks = np.asarray(lmks, np.float32).reshape((5, 2))
-    score = row.iloc[-1]
-    score = float(score)
-    imgfn = '/data1/share/IJB_release/IJBC/loose_crop/' + imgfn
-    img = cvb.read_img(imgfn)
-    warp_img_ori = warp_and_crop_face(img, lmks, refrence, crop_size=(112, 112))
-    warp_img = conf.test_transform(warp_img_ori).cuda()
-    flip_img = conf.test_transform(warp_img_ori[:, ::-1, :].copy()).cuda()
-    inp_img = torch.stack([warp_img, flip_img])
+## way 1: speed up
+img_list_path = IJBC_path + './IJBC/meta/ijbc_name_5pts_score.txt'
+# img_path = IJBC_path + './IJBC/loose_crop'
+img_path = '/share/data/loose_crop'
+img_list = open(img_list_path)
+files = img_list.readlines()
+num_imgs = len(files)
+# img_feats = np.ones((df_tm.shape[0], 512)) * np.nan
+img_feats = np.empty((df_tm.shape[0], 512))
+
+
+class DatasetIJBC2(torch.utils.data.Dataset):
+    def __init__(self, flip=False):
+        self.flip = flip
+        self.lock = torch.multiprocessing.Lock()
+    
+    def __len__(self):
+        return len(files)
+    
+    def __getitem__(self, item):
+        img_index = item
+        each_line = files[img_index]
+        name_lmk_score = each_line.strip().split(' ')
+        img_name = os.path.join(img_path, name_lmk_score[0])
+        img = cv2.imread(img_name)
+        lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
+        lmk = lmk.reshape((5, 2))
+        warp_img = preprocess(img, landmark=lmk)
+        
+        warp_img = to_image(warp_img)
+        faceness_score = float(name_lmk_score[-1])
+        if self.flip:
+            import torchvision
+            warp_img = torchvision.transforms.functional.hflip(warp_img)
+        img = conf.test_transform(warp_img)
+        return img, faceness_score, item, name_lmk_score[0]
+
+
+ds = DatasetIJBC2(flip=False)
+
+bs = 511
+loader = torch.utils.data.DataLoader(ds, batch_size=bs,
+                                     num_workers=12,
+                                     shuffle=False,
+                                     pin_memory=True, )
+
+for ind, data in enumerate((loader)):
+    (img, faceness_score, items, names) = data
+    if ind % 9 == 0:
+        logging.info(f'ok {ind} {len(loader)}')
     with torch.no_grad():
-        fea = learner.model(inp_img, normalize=False, return_norm=False)
-        fea = (fea[0, :] + fea[1, :]) / 2.
-        fea = fea.cpu().numpy().flatten()
-        # fea = sklearn.preprocessing.normalize(fea )
-    fea *= score
-    img_feats[ind, :] = fea
+        img_feat = learner.model(img)
+        img_featf = learner.model(img.flip((3,)))
+        fea = (img_feat + img_featf) / 2.
+        fea = fea.cpu().numpy()
+        fea = fea * faceness_score.numpy().reshape(-1, 1)
+    img_feats[ind * bs: (ind + 1) * bs, :] = fea
+
+## way 2 original
+# for ind, row in df_name.iterrows():
+#     if ind % 1000 == 0:
+#         logging.info(f'extract {ind}/{df_name.shape[0]}')
+#     tid = df_tm.iloc[ind, 1]
+#     if not tid in unique_tid: continue
+#     imgfn = row.iloc[0]
+#     lmks = row.iloc[1:11]
+#     lmks = np.asarray(lmks, np.float32).reshape((5, 2))
+#     score = row.iloc[-1]
+#     score = float(score)
+#     imgfn = '/data1/share/IJB_release/IJBC/loose_crop/' + imgfn
+#     img = cvb.read_img(imgfn)
+#     warp_img_ori = warp_and_crop_face(img, lmks, refrence, crop_size=(112, 112))
+#     warp_img = conf.test_transform(warp_img_ori).cuda()
+#     flip_img = conf.test_transform(warp_img_ori[:, ::-1, :].copy()).cuda()
+#     inp_img = torch.stack([warp_img, flip_img])
+#     with torch.no_grad():
+#         fea = learner.model(inp_img, normalize=False, return_norm=False)
+#         fea = (fea[0, :] + fea[1, :]) / 2.
+#         fea = fea.cpu().numpy().flatten()
+#         # fea = sklearn.preprocessing.normalize(fea )
+#     fea *= score
+#     img_feats[ind, :] = fea
 
 templates, medias = df_tm.values[:, 1], df_tm.values[:, 2]
 p1, p2, label = df_pair.values[:, 0], df_pair.values[:, 1], df_pair.values[:, 2]

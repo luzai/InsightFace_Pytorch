@@ -4,7 +4,7 @@ from lz import *
 from torch.nn import CrossEntropyLoss
 from torchvision import transforms as trans
 
-num_devs = 2
+num_devs = 4
 lz.init_dev(lz.get_dev(num_devs))
 
 
@@ -22,7 +22,7 @@ def get_config(training=True, work_path=None):
     conf.num_clss = None
     conf.dop = None
     conf.data_path = Path('/data2/share/')
-    conf.work_path = work_path or Path('work_space/ft.glint')
+    conf.work_path = work_path or Path('work_space/ft.glint.bak')
     conf.model_path = conf.work_path / 'models'
     conf.log_path = conf.work_path / 'log'
     conf.save_path = conf.work_path / 'save'
@@ -41,13 +41,12 @@ def get_config(training=True, work_path=None):
     conf.scale = 64.  # 30.
     conf.start_eval = False
     conf.instances = 4
-    conf.finetune = True
     
     conf.input_size = [112, 112]
     conf.embedding_size = 512
     
     conf.drop_ratio = 0.4
-    conf.net_mode = 'ir_se'  # 'seresnext101' 'mobilefacenet'  # 'ir_se'  # or 'ir'
+    conf.net_mode = 'nasnetamobile'  # 'seresnext101' 'mobilefacenet'  # 'ir_se'  # or 'ir'
     conf.net_depth = 50
     
     conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -58,7 +57,8 @@ def get_config(training=True, work_path=None):
         trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
     
-    conf.batch_size = 68 * num_devs if not dbg else 8 * num_devs  # xent: 96 92 tri: 112 108
+    conf.batch_size = 70 * num_devs if not dbg else 8 * num_devs  # xent: 96 92 tri: 112 108
+    conf.finetune = False
     if conf.finetune:
         conf.batch_size *= 6
     conf.batch_size = conf.batch_size // conf.instances * conf.instances
