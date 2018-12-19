@@ -12,8 +12,7 @@ if __name__ == '__main__':
     # learner.load_state(conf,
     #                    resume_path=Path('work_space/arcsft.triadap.dop.long/save'),
     #                    model_only=True,
-    #                    load_optimizer=True,
-    #
+    #                    load_optimizer=False,
     #                    # resume_path=Path('work_space/ft.ms1m/models'),
     #                    # model_only=False,
     #                    # load_optimizer=True,

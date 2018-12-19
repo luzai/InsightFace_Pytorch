@@ -416,12 +416,17 @@ class TorchDataset(object):
                     self.imgidx += list(range(a, b))
             self.num_classes = len(self.ids)
             self.ids = np.asarray(self.ids)
-            lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + '/info.pk')
             self.num_classes = len(self.ids)
+            self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
+            ids_map_tmp = {identity: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
+            self.ids = [ids_map_tmp[id_] for id_ in self.ids]
+            self.ids = np.asanyarray(self.ids)
+            self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
+            
             gl_conf.num_clss = self.num_classes
             gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * -1
             logging.info(f'update num_clss {gl_conf.num_clss} ')
-            self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
+            lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + '/info.pk')
             self.cur = 0
     
     def __len__(self):
@@ -464,9 +469,16 @@ class TorchDataset(object):
         #         if succ: break
         #     if succ: break
         
-        ##  locality based todo which is better?
-        ind = index // ((self.ids.max() + 1) // len(self.locks))
+        ##  locality based
+        ## todo assumm nrec = 2
+        if index < self.imgidx[len(self.imgidx) // 2]:
+            ind = 0
+        else:
+            ind = 1
         succ = self.locks[ind].acquire()
+        # logging.info(f'use {ind}')
+        
+        # ind = index // ((max(self.imgidx) + 1) // len(self.locks))
         
         # for ind in range(len(self.locks)):
         #     succ = self.locks[ind].acquire(timeout=0)
@@ -527,7 +539,6 @@ from torch.utils.data.sampler import Sampler
 from collections import defaultdict
 
 
-# todo dop mining
 # improve locality and improve load speed!
 class RandomIdSampler(Sampler):
     def __init__(self):
@@ -707,10 +718,11 @@ class face_learner(object):
         elif conf.net_mode == 'seresnext101':
             self.head = se_resnext101_32x4d(512)
             self.model = torch.nn.DataParallel(self.model).cuda()
-        else:
+        elif conf.net_mode == 'ir_se' or conf.net_mode == 'ir':
             self.model = torch.nn.DataParallel(Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)).cuda()
             print('{}_{} model generated'.format(conf.net_mode, conf.net_depth))
-        
+        else:
+            raise ValueError( conf.net_mode )
         if not inference:
             self.milestones = conf.milestones
             ## torch reader
@@ -840,6 +852,7 @@ class face_learner(object):
                 )
                 imgs = data['imgs']
                 labels = data['labels']
+                # todo visualize it
                 # import torchvision
                 # imgs_thumb = torchvision.utils.make_grid(
                 #     to_torch(imgs), normalize=True,
@@ -909,7 +922,6 @@ class face_learner(object):
                     acc_t = (thetas.argmax(dim=1) == labels)
                     acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
                     acc_meter.update(acc)
-                    # todo triplet s and best_init_lr relation?
                     loss_meter.update(loss.item())
                     if gl_conf.tri_wei != 0:
                         loss_triplet = self.head_triplet(embeddings, labels)
@@ -924,7 +936,7 @@ class face_learner(object):
                             for param in group['params']:
                                 param.data = param.data.add(-gl_conf.weight_decay, group['lr'] * param.data)
                     update_dop_cls(thetas, labels, gl_conf.dop)
-                    #     gi = torch.norm(grad, dim=1)
+                    # gi = torch.norm(grad, dim=1)
                     #     gi = gi / gi.sum()
                     # tau = alpha_tau * tau + (1 - alpha_tau) * (
                     #         1 -
