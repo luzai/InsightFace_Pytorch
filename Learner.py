@@ -424,7 +424,12 @@ class TorchDataset(object):
             self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
             
             gl_conf.num_clss = self.num_classes
-            gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * -1
+            if gl_conf.mining == 'dop':
+                gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * -1
+            else:
+                gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * gl_conf.mining_init
+            gl_conf.id2range_dop = {str(id_): np.ones((range_[1] - range_[0],)) * gl_conf.mining_init for id_, range_ in
+                                    self.id2range.items()}
             logging.info(f'update num_clss {gl_conf.num_clss} ')
             lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + '/info.pk')
             self.cur = 0
@@ -433,8 +438,8 @@ class TorchDataset(object):
         return len(self.imgidx)
     
     def __getitem__(self, indices, ):
-        if isinstance(indices, (tuple, list)):
-            return [self._get_single_item(index) for index in indices]
+        # if isinstance(indices, (tuple, list)):
+        #     return [self._get_single_item(index) for index in indices]
         res = self._get_single_item(indices)
         for k, v in res.items():
             assert (
@@ -461,7 +466,7 @@ class TorchDataset(object):
         # index += 1  # noneed,  here it index (imgidx) start from 1,.rec start from 1
         # assert index != 0 and index < len(self) + 1 # index can > len(self)
         succ = False
-        
+        index, pid, ind_ind = index
         ## rand until lock
         # while True:
         #     for ind in range(len(self.locks)):
@@ -472,10 +477,10 @@ class TorchDataset(object):
         ##  locality based
         ## todo assumm nrec = 2
         if index < self.imgidx[len(self.imgidx) // 2]:
-            ind = 0
+            ind_rec = 0
         else:
-            ind = 1
-        succ = self.locks[ind].acquire()
+            ind_rec = 1
+        succ = self.locks[ind_rec].acquire()
         # logging.info(f'use {ind}')
         
         # ind = index // ((max(self.imgidx) + 1) // len(self.locks))
@@ -494,19 +499,19 @@ class TorchDataset(object):
         
         # succ = self.lock.acquire(timeout=0)
         
-        s = self.imgrecs[ind].read_idx(index)  # from [ 1 to 3804846 ]
-        rls_succ = self.locks[ind].release()
+        s = self.imgrecs[ind_rec].read_idx(index)  # from [ 1 to 3804846 ]
+        rls_succ = self.locks[ind_rec].release()
         header, img = recordio.unpack(s)  # this is BGR format !
         imgs = self.imdecode(img)
         assert imgs is not None
         label = header.label
-        import numbers
         if not isinstance(label, numbers.Number):
             assert label[-1] == 0., f'{label} {index} {imgs.shape}'
             label = label[0]
         label = int(label)
         assert label in self.ids_map
         label = self.ids_map[label]
+        assert label == pid
         _rd = random.randint(0, 1)
         if _rd == 1:
             imgs = mx.ndarray.flip(data=imgs, axis=1)
@@ -516,7 +521,8 @@ class TorchDataset(object):
         imgs -= 0.5
         imgs /= 0.5
         imgs = imgs.transpose((2, 0, 1))
-        return {'imgs': np.array(imgs, dtype=np.float32), 'labels': label}
+        return {'imgs': np.array(imgs, dtype=np.float32), 'labels': label,
+                'ind_inds': ind_ind}
 
 
 class Dataset_val(torch.utils.data.Dataset):
@@ -569,62 +575,34 @@ class RandomIdSampler(Sampler):
     def get_batch_ids(self):
         pids = []
         dop = gl_conf.dop
-        
-        # lz.logging.info(f'dop smapler {np.count_nonzero( dop == -1 )} {dop}')
-        
-        # pids = np.random.choice(self.ids,
-        #                         size=int(self.num_pids_per_batch),
-        #                         replace=False)
-        # return pids
-        
-        nrand_ids = int(self.num_pids_per_batch * gl_conf.rand_ratio)
-        pids_now = np.random.choice(self.ids,
-                                    size=nrand_ids,
+        if gl_conf.mining == 'imp':
+            # lz.logging.info(f'dop smapler {np.count_nonzero( dop == -1 )} {dop}')
+            pids = np.random.choice(self.ids,
+                                    size=int(self.num_pids_per_batch),
+                                    p=gl_conf.dop / gl_conf.dop.sum(),
                                     replace=False)
-        pids.append(pids_now)
-        for _ in range(int(1 / gl_conf.rand_ratio) + 1):
-            pids_next = dop[pids_now]
-            pids_next[pids_next == -1] = np.random.choice(self.ids,
-                                                          size=len(pids_next[pids_next == -1]),
-                                                          replace=False)
-            pids.append(pids_next)
-            pids_now = pids_next
-        pids = np.concatenate(pids)
-        pids = np.unique(pids)
-        if len(pids) < self.num_pids_per_batch:
-            pids_now = np.random.choice(np.setdiff1d(self.ids, pids),
-                                        size=self.num_pids_per_batch - len(pids),
+        elif gl_conf.mining == 'dop':
+            nrand_ids = int(self.num_pids_per_batch * gl_conf.rand_ratio)
+            pids_now = np.random.choice(self.ids,
+                                        size=nrand_ids,
                                         replace=False)
-            pids = np.concatenate((pids, pids_now))
-        else:
-            pids = pids[: self.num_pids_per_batch]
-        # for pid_now in pids_now:
-        #     a, b = self.id2range[pid_now]
-        #     nimgs = b - a
-        #     if nimgs >= gl_conf.cutoff:
-        #         pids.append(pid_now)
-        #         # pids.extend(pids_now.tolist())
-        # while len(pids) < self.num_pids_per_batch:
-        #     pids_next = []
-        #     for pid in pids_now:
-        #         pid_t = dop[pid]
-        #         if pid_t != -1:
-        #             a, b = self.id2range[pid_t]
-        #             nimgs = b - a
-        #         if pid_t == -1 or dop[pid] in pids_next or pid_t in pids or nimgs < gl_conf.cutoff:
-        #             pid_t = np.random.choice(self.ids, )
-        #             a, b = self.id2range[pid_t]
-        #             nimgs = b - a
-        #             # make sure id is unique
-        #             while pid_t in pids_next or pid_t in pids or nimgs < gl_conf.cutoff:
-        #                 pid_t = np.random.choice(self.ids, )
-        #                 a, b = self.id2range[pid_t]
-        #                 nimgs = b - a
-        #             pids_next.append(pid_t)
-        #         else:
-        #             pids_next.append(pid_t)
-        #     pids.extend(pids_next)
-        #     pids_now = pids_next
+            pids.append(pids_now)
+            for _ in range(int(1 / gl_conf.rand_ratio) + 1):
+                pids_next = dop[pids_now]
+                pids_next[pids_next == -1] = np.random.choice(self.ids,
+                                                              size=len(pids_next[pids_next == -1]),
+                                                              replace=False)
+                pids.append(pids_next)
+                pids_now = pids_next
+            pids = np.concatenate(pids)
+            pids = np.unique(pids)
+            if len(pids) < self.num_pids_per_batch:
+                pids_now = np.random.choice(np.setdiff1d(self.ids, pids),
+                                            size=self.num_pids_per_batch - len(pids),
+                                            replace=False)
+                pids = np.concatenate((pids, pids_now))
+            else:
+                pids = pids[: self.num_pids_per_batch]
         # assert len(pids) == np.unique(pids).shape[0]
         
         return pids
@@ -632,28 +610,23 @@ class RandomIdSampler(Sampler):
     def get_batch_idxs(self):
         
         pids = self.get_batch_ids()
-        inds = []
-        
-        # for pid in pids:
-        #     inds.append(
-        #         np.random.choice(
-        #             self.index_dic[pid],
-        #             size=(self.num_instances,),
-        #             replace=True,
-        #         )
-        #     )
-        # inds = np.concatenate(inds)
-        # inds = inds[:self.batch_size]
-        # # todo whether shuffle, how affects performance? how affects speed?
-        # return inds
         cnt = 0
         for pid in pids:
-            for ind in np.random.choice(
-                    self.index_dic[pid],
-                    size=(self.num_instances,),
-                    replace=True,
-            ):
-                yield ind
+            if gl_conf.mining == 'imp':
+                assert len(self.index_dic[pid]) == gl_conf.id2range_dop[str(pid)].shape[0]
+                ind_inds = np.random.choice(
+                    len(self.index_dic[pid]),
+                    size=(self.num_instances,), replace=True,
+                    p=gl_conf.id2range_dop[str(pid)] / gl_conf.id2range_dop[str(pid)].sum()
+                )
+            else:
+                ind_inds = np.random.choice(
+                    len(self.index_dic[pid]),
+                    size=(self.num_instances,), replace=True, )
+            
+            for ind_ind in ind_inds:
+                ind = self.index_dic[pid][ind_ind]
+                yield ind, pid, ind_ind
                 cnt += 1
                 if cnt == self.batch_size:
                     break
@@ -664,48 +637,11 @@ class RandomIdSampler(Sampler):
         cnt = 0
         while cnt < len(self):
             # logging.info(f'cnt {cnt}')
-            for ind in self.get_batch_idxs():
+            for ind, pid, ind_ind in self.get_batch_idxs():
                 cnt += 1
-                yield ind
-        
-        # batch_idxs_dict = defaultdict(list)
-        #
-        # for pid in self.ids:
-        #     idxs = copy.deepcopy(self.index_dic[pid])
-        #     if len(idxs) < self.num_instances:
-        #         idxs = np.random.choice(idxs, size=self.num_instances, replace=True)
-        #     random.shuffle(idxs)
-        #     batch_idxs = []
-        #     for idx in idxs:
-        #         batch_idxs.append(idx)
-        #         if len(batch_idxs) == self.num_instances:
-        #             batch_idxs_dict[pid].append(batch_idxs)
-        #             batch_idxs = []
-        #
-        # avai_pids = copy.deepcopy(self.ids)
-        # final_idxs = []
-        #
-        # while len(avai_pids) >= self.num_pids_per_batch:
-        #     selected_pids = random.sample(avai_pids, self.num_pids_per_batch)
-        #     for pid in selected_pids:
-        #         batch_idxs = batch_idxs_dict[pid].pop(0)
-        #         final_idxs.extend(batch_idxs)
-        #         if len(batch_idxs_dict[pid]) == 0:
-        #             avai_pids.remove(pid)
-        
-        #  wherther shuffle seems no need
-        
-        # final_idxs2 = []
-        # for start in range(0, len(final_idxs), self.batch_size):
-        #     end = start + self.batch_size
-        #     tmp_idxs = final_idxs[start:end]
-        #     random.shuffle(tmp_idxs)
-        #     final_idxs2.extend(tmp_idxs)
-        # final_idxs = final_idxs2
-        # return iter(final_idxs)
+                yield (ind, pid, ind_ind)
 
 
-# todo return unorm feature
 class face_learner(object):
     def __init__(self, conf, inference=False, ):
         logging.info(f'face learner use {conf}')
@@ -722,7 +658,7 @@ class face_learner(object):
             self.model = torch.nn.DataParallel(Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)).cuda()
             print('{}_{} model generated'.format(conf.net_mode, conf.net_depth))
         else:
-            raise ValueError( conf.net_mode )
+            raise ValueError(conf.net_mode)
         if not inference:
             self.milestones = conf.milestones
             ## torch reader
@@ -757,8 +693,7 @@ class face_learner(object):
             
             else:
                 raise ValueError(f'{conf.loss}')
-            self.head_triplet = TripletLoss().to(conf.device)  # todo maybe device 1, since features loc at device1?
-            
+            self.head_triplet = TripletLoss().to(conf.device)
             print('two model heads generated')
             
             paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
@@ -821,13 +756,13 @@ class face_learner(object):
         loss_tri_meter = lz.AverageMeter()
         acc_meter = lz.AverageMeter()
         
-        tau = 0
-        B_multi = 4  # todo monitor time
-        Batch_size = gl_conf.batch_size * B_multi
-        batch_size = gl_conf.batch_size
+        # tau = 0
+        # B_multi = 4  # todo monitor time
+        # Batch_size = gl_conf.batch_size * B_multi
+        # batch_size = gl_conf.batch_size
         # tau_thresh = 1.5
-        tau_thresh = (Batch_size + 3 * batch_size) / (3 * batch_size)
-        alpha_tau = .9
+        # tau_thresh = (Batch_size + 3 * batch_size) / (3 * batch_size)
+        # alpha_tau = .9
         for e in range(conf.start_epoch, epochs):
             accuracy = 0
             lz.timer.since_last_check('epoch {} started'.format(e))
@@ -851,7 +786,8 @@ class face_learner(object):
                                               )
                 )
                 imgs = data['imgs']
-                labels = data['labels']
+                labels_cpu = data['labels']
+                ind_inds = data['ind_inds']
                 # todo visualize it
                 # import torchvision
                 # imgs_thumb = torchvision.utils.make_grid(
@@ -865,7 +801,7 @@ class face_learner(object):
                 # plt.close()
                 # logging.info(f'this batch labes {labels} ')
                 imgs = imgs.to(conf.device)
-                labels = labels.to(conf.device)
+                labels = labels_cpu.to(conf.device)
                 self.optimizer.zero_grad()
                 
                 def update_dop_cls(thetas, labels, dop):
@@ -927,17 +863,23 @@ class face_learner(object):
                         loss_triplet = self.head_triplet(embeddings, labels)
                         loss_tri_meter.update(loss_triplet.item())
                         loss = ((1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet) / (1 - gl_conf.tri_wei)
-                    # grad = torch.autograd.grad(loss, embeddings,
-                    #                            retain_graph=True, create_graph=False,
-                    #                            only_inputs=True)[0].detach()
+                    if not gl_conf.mining == 'imp':
+                        grad = torch.autograd.grad(loss, embeddings,
+                                                   retain_graph=True, create_graph=False,
+                                                   only_inputs=True)[0].detach()
                     loss.backward()
                     if gl_conf.use_opt == 'adam':
                         for group in self.optimizer.param_groups:
                             for param in group['params']:
                                 param.data = param.data.add(-gl_conf.weight_decay, group['lr'] * param.data)
                     update_dop_cls(thetas, labels, gl_conf.dop)
-                    # gi = torch.norm(grad, dim=1)
-                    #     gi = gi / gi.sum()
+                    if not gl_conf.mining == 'imp':
+                        gi = torch.norm(grad, dim=1)
+                        for lable_, ind_ind_, gi_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy()):
+                            gl_conf.id2range_dop[str(lable_)][ind_ind_] = gl_conf.id2range_dop[str(lable_)][
+                                                                              ind_ind_] * 0.9 + 0.1 * gi_
+                            gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].mean()
+                            #     gi = gi / gi.sum()
                     # tau = alpha_tau * tau + (1 - alpha_tau) * (
                     #         1 -
                     #         (1 / (gi ** 2).sum()).item() *
@@ -1069,6 +1011,9 @@ class face_learner(object):
             save_path /
             ('model_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy, self.step,
                                                           extra)))
+        lz.msgpack_dump({'dop': gl_conf.dop,
+                         'id2range_dop': gl_conf.id2range_dop,
+                         }, f'extra_{get_time()}_accuracy:{accuracy}_step:{self.step}_{extra}.pk')
         if not model_only:
             torch.save(
                 self.head.state_dict(),

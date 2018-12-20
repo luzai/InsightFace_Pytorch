@@ -98,7 +98,7 @@ class DatasetIJBC2(torch.utils.data.Dataset):
 
 ds = DatasetIJBC2(flip=False)
 
-bs = 511
+bs = 513
 loader = torch.utils.data.DataLoader(ds, batch_size=bs,
                                      num_workers=12,
                                      shuffle=False,

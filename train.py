@@ -8,7 +8,7 @@ if __name__ == '__main__':
     conf = get_config()
     learner = face_learner(conf, )
     ## for resume or evaluate
-    
+    # todo finetune last layer as warmup
     # learner.load_state(conf,
     #                    resume_path=Path('work_space/arcsft.triadap.dop.long/save'),
     #                    model_only=True,

@@ -4,12 +4,11 @@ from lz import *
 from torch.nn import CrossEntropyLoss
 from torchvision import transforms as trans
 
-num_devs = 4
+num_devs = 1
 lz.init_dev(lz.get_dev(num_devs))
-
-
 # lz.init_dev((1, 0, 2))
 # lz.init_dev((3,))
+
 
 def get_config(training=True, work_path=None):
     conf = edict()
@@ -22,7 +21,7 @@ def get_config(training=True, work_path=None):
     conf.dop = None
     conf.id2range_dop = None
     conf.data_path = Path('/data2/share/')
-    conf.work_path = work_path or Path('work_space/glint.imp')
+    conf.work_path = work_path or Path('work_space/glint.nas.imp')
     conf.model_path = conf.work_path / 'models'
     conf.log_path = conf.work_path / 'log'
     conf.save_path = conf.work_path / 'save'
@@ -31,9 +30,11 @@ def get_config(training=True, work_path=None):
     conf.glint_folder = conf.data_path / 'glint'
     conf.emore_folder = conf.data_path / 'faces_emore'
     
-    # conf.use_data_folder = conf.glint_folder
-    conf.use_data_folder = conf.ms1m_folder
-    conf.cutoff = 10 if conf.use_data_folder ==  conf.ms1m_folder  else 15
+    conf.use_data_folder = conf.glint_folder
+    # conf.use_data_folder = conf.ms1m_folder
+    conf.cutoff = 10 if conf.use_data_folder == conf.ms1m_folder else 15
+    conf.mining = 'imp' # 'dop
+    conf.mining_init = .8
     
     conf.rand_ratio = 9 / 27
     conf.fgg = ''  # g gg ''
@@ -47,7 +48,7 @@ def get_config(training=True, work_path=None):
     conf.embedding_size = 512
     
     conf.drop_ratio = 0.4
-    conf.net_mode = 'nasnetamobile'  # 'nasnetamobile' 'seresnext101' 'mobilefacenet'  # 'ir_se'  # or 'ir'
+    conf.net_mode = 'nasnetamobile'  # 'nasnetamobile' 'seresnext101' 'mobilefacenet'  'ir_se'  'ir'
     conf.net_depth = 50
     
     conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -58,7 +59,7 @@ def get_config(training=True, work_path=None):
         trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
     
-    conf.batch_size = 68 * num_devs if not dbg else 8 * num_devs  # xent: 96 92 tri: 112 108
+    conf.batch_size = 72 * num_devs if not dbg else 8 * num_devs  # xent: 96 92 tri: 112 108
     conf.finetune = False
     if conf.finetune:
         conf.batch_size *= 6
@@ -68,7 +69,7 @@ def get_config(training=True, work_path=None):
     if training:
         conf.log_path = conf.work_path / 'log'
         conf.save_path = conf.work_path / 'save'
-        conf.weight_decay = 5e-4 # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
+        conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
         conf.start_epoch = 0  # 0
         conf.use_opt = 'sgd'
         conf.adam_betas1 = .9  # .85 to .95
@@ -85,7 +86,7 @@ def get_config(training=True, work_path=None):
         conf.pin_memory = True
         conf.num_workers = 12 if not dbg else 1
         conf.ce_loss = CrossEntropyLoss()
-        
+    
     # --------------------Inference Config ------------------------
     else:
         conf.facebank_path = conf.data_path / 'facebank'

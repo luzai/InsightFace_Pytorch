@@ -30,8 +30,7 @@ from sklearn.metrics import roc_curve, auc
 import sklearn
 from scipy import interpolate
 import datetime
-
-import lz
+from lz import *
 
 
 def calculate_roc_by_dist(dist, actual_issame=None):
@@ -77,7 +76,6 @@ def calculate_roc_by_dist2(thresholds, dist, actual_issame=None, nrof_folds=10):
     fpr = np.mean(fprs, 0)
     return tpr, fpr, accuracy, best_thresholds
 
-
 def calculate_roc(thresholds, embeddings1=None, embeddings2=None,
                   actual_issame=None, nrof_folds=10, pca=0):
     if embeddings1 is not None:
@@ -98,6 +96,7 @@ def calculate_roc(thresholds, embeddings1=None, embeddings2=None,
         # lz.msgpack_dump(lz.to_json_format([embeddings1, embeddings2]), lz.work_path + '/t.pk')
         diff = np.subtract(embeddings1, embeddings2)
         dist = np.sum(np.square(diff), 1)
+        # logging.info(f'--> {stat_np(dist)}')
         # from scipy.spatial.distance import cosine
         # dist2 = [cosine(e1, e2) for e1, e2 in zip(embeddings1, embeddings2)]
         # dist2 = np.asarray(dist2)

@@ -1096,11 +1096,11 @@ def show_img(path):
 
 def plt_imshow(img, ax=None):
     img = to_img(img)
-    h, w ,c,   = img.shape
+    h, w, c, = img.shape
     inchh = h / 96
     inchw = w / 96
     if ax is None:
-        plt.figure(figsize = ( inchw,inchh,))
+        plt.figure(figsize=(inchw, inchh,))
         plt.imshow(img)
         plt.axis('off')
     else:
@@ -1718,9 +1718,11 @@ def get_adv(loss, inp, norm='l2', eps=.1, ):
 
 
 def img2tensor():
-    import io, Image
+    import io
+    from PIL import Image
     buf = io.BytesIO()
-    plt.savefig(buf, format='jpeg')
+    # plt.savefig(buf, format='jpeg')
+    plt.savefig(buf, format='png')
     buf.seek(0)
     roc_curve = Image.open(buf)
     roc_curve_tensor = torchvision.transforms.ToTensor()(roc_curve)
