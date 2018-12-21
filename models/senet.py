@@ -381,7 +381,6 @@ class SENet(nn.Module):
 
 import lz
 
-
 def initialize_pretrained_model(model, num_classes, settings):
     # assert num_classes == settings['num_classes'], \
     #     'num_classes should be {}, but is {}'.format(

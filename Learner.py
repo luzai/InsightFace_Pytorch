@@ -394,45 +394,46 @@ class TorchDataset(object):
             )
             self.locks.append(mp.Lock())
         lz.timer.since_last_check(f'{gl_conf.num_recs} imgrec readers init')  # 27 s / 5 reader
-        try:
-            self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
-        except:
-            s = self.imgrecs[0].read_idx(0)
+        # try:
+        #     self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
+        # except:
+        s = self.imgrecs[0].read_idx(0)
+        header, _ = recordio.unpack(s)
+        assert header.flag > 0, 'ms1m or glint ...'
+        print('header0 label', header.label)
+        self.header0 = (int(header.label[0]), int(header.label[1]))
+        self.id2range = {}
+        self.imgidx = []
+        self.ids = []
+        ids_shif = int(header.label[0])
+        for identity in list(range(int(header.label[0]), int(header.label[1]))):
+            s = self.imgrecs[0].read_idx(identity)
             header, _ = recordio.unpack(s)
-            assert header.flag > 0, 'ms1m or glint ...'
-            print('header0 label', header.label)
-            self.header0 = (int(header.label[0]), int(header.label[1]))
-            self.id2range = {}
-            self.imgidx = []
-            self.ids = []
-            ids_shif = int(header.label[0])
-            for identity in list(range(int(header.label[0]), int(header.label[1]))):
-                s = self.imgrecs[0].read_idx(identity)
-                header, _ = recordio.unpack(s)
-                a, b = int(header.label[0]), int(header.label[1])
-                if b - a > gl_conf.cutoff:
-                    self.id2range[identity] = (a, b)
-                    self.ids.append(identity)
-                    self.imgidx += list(range(a, b))
-            self.num_classes = len(self.ids)
-            self.ids = np.asarray(self.ids)
-            self.num_classes = len(self.ids)
-            self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
-            ids_map_tmp = {identity: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
-            self.ids = [ids_map_tmp[id_] for id_ in self.ids]
-            self.ids = np.asanyarray(self.ids)
-            self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
-            
-            gl_conf.num_clss = self.num_classes
-            if gl_conf.mining == 'dop':
-                gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * -1
-            else:
-                gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * gl_conf.mining_init
-            gl_conf.id2range_dop = {str(id_): np.ones((range_[1] - range_[0],)) * gl_conf.mining_init for id_, range_ in
-                                    self.id2range.items()}
-            logging.info(f'update num_clss {gl_conf.num_clss} ')
-            lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + '/info.pk')
-            self.cur = 0
+            a, b = int(header.label[0]), int(header.label[1])
+            if b - a > gl_conf.cutoff:
+                self.id2range[identity] = (a, b)
+                self.ids.append(identity)
+                self.imgidx += list(range(a, b))
+        self.ids = np.asarray(self.ids)
+        self.num_classes = len(self.ids)
+        self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
+        ids_map_tmp = {identity: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
+        self.ids = [ids_map_tmp[id_] for id_ in self.ids]
+        self.ids = np.asanyarray(self.ids)
+        self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
+        
+        gl_conf.num_clss = self.num_classes
+        if gl_conf.mining == 'dop':
+            gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * -1
+        else:
+            gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * gl_conf.mining_init
+        gl_conf.id2range_dop = {str(id_):
+                                    np.ones((range_[1] - range_[0],)) *
+                                    gl_conf.mining_init for id_, range_ in
+                                self.id2range.items()}
+        logging.info(f'update num_clss {gl_conf.num_clss} ')
+        # lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
+        self.cur = 0
     
     def __len__(self):
         return len(self.imgidx)
@@ -549,7 +550,7 @@ from collections import defaultdict
 class RandomIdSampler(Sampler):
     def __init__(self):
         path_ms1m = gl_conf.use_data_folder
-        _, self.ids, self.id2range = lz.msgpack_load(path_ms1m / 'info.pk')
+        self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
         # above is the imgidx of .rec file
         # remember -1 to convert to pytorch imgidx
         self.num_instances = gl_conf.instances
@@ -559,7 +560,10 @@ class RandomIdSampler(Sampler):
         self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1])))).tolist()
                           for id, idxs in self.id2range.items()}  # it index based on 1
         self.ids = list(self.ids)
-        
+        if gl_conf.mining == 'rand':
+            self.nimgs = np.asarray([
+                range_[1] - range_[0] for id_, range_ in self.id2range.items()
+            ])
         # estimate number of examples in an epoch
         self.length = 0
         for pid in self.ids:
@@ -608,7 +612,6 @@ class RandomIdSampler(Sampler):
         return pids
     
     def get_batch_idxs(self):
-        
         pids = self.get_batch_ids()
         cnt = 0
         for pid in pids:
@@ -634,12 +637,57 @@ class RandomIdSampler(Sampler):
                 break
     
     def __iter__(self):
-        cnt = 0
-        while cnt < len(self):
-            # logging.info(f'cnt {cnt}')
-            for ind, pid, ind_ind in self.get_batch_idxs():
-                cnt += 1
-                yield (ind, pid, ind_ind)
+        if gl_conf.mining == 'rand':
+            for _ in range(len(self)):
+                pid = np.random.choice(
+                    self.ids, p=self.nimgs / self.nimgs.sum()
+                )
+                ind_ind = np.random.choice(
+                    range(len(self.index_dic[pid])),
+                )
+                ind = self.index_dic[pid][ind_ind]
+                yield ind, pid, ind_ind
+        else:
+            cnt = 0
+            while cnt < len(self):
+                # logging.info(f'cnt {cnt}')
+                for ind, pid, ind_ind in self.get_batch_idxs():
+                    cnt += 1
+                    yield (ind, pid, ind_ind)
+
+
+class SeqSampler(Sampler):
+    def __init__(self):
+        path_ms1m = gl_conf.use_data_folder
+        _, self.ids, self.id2range = lz.msgpack_load(path_ms1m / 'info.pk')
+        # above is the imgidx of .rec file
+        # remember -1 to convert to pytorch imgidx
+        self.num_instances = gl_conf.instances
+        self.batch_size = gl_conf.batch_size
+        assert self.batch_size % self.num_instances == 0
+        self.num_pids_per_batch = self.batch_size // self.num_instances
+        self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1])))).tolist()
+                          for id, idxs in self.id2range.items()}  # it index based on 1
+        self.ids = list(self.ids)
+        
+        # estimate number of examples in an epoch
+        self.length = 0
+        for pid in self.ids:
+            idxs = self.index_dic[pid]
+            num = len(idxs)
+            if num < self.num_instances:
+                num = self.num_instances
+            self.length += num - num % self.num_instances
+    
+    def __len__(self):
+        return self.length
+    
+    def __iter__(self):
+        for pid in self.id2range:
+            # range_ = self.id2range[pid]
+            for ind_ind in range(len(self.index_dic[pid])):
+                ind = self.index_dic[pid][ind_ind]
+                yield ind, pid, ind_ind
 
 
 class face_learner(object):
@@ -663,25 +711,14 @@ class face_learner(object):
             self.milestones = conf.milestones
             ## torch reader
             self.dataset = TorchDataset(gl_conf.use_data_folder)
+            
             self.loader = DataLoader(
                 self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
                 shuffle=False, sampler=RandomIdSampler(), drop_last=True,
                 pin_memory=True,
             )
             self.class_num = self.dataset.num_classes
-            
-            ## mxnet load serialized data
-            # self.loader = MxnetLoader(conf)
-            # self.class_num = 85164
-            
             print(self.class_num, 'classes, load ok ')
-            # else:
-            #     import copy
-            #     conf_t = copy.deepcopy(conf)
-            #     conf_t.data_mode = 'emore'
-            #     self.loader, self.class_num = get_train_loader(conf_t)
-            #     print(self.class_num)
-            #     self.class_num = 85164
             
             lz.mkdir_p(conf.log_path, delete=True)
             self.writer = SummaryWriter(conf.log_path)
@@ -735,6 +772,56 @@ class face_learner(object):
                 self.loader.dataset.root_path)  # todo postpone load eval
         else:
             self.threshold = conf.threshold
+    
+    def calc_importance(self, out):
+        conf = gl_conf
+        self.model.eval()
+        ds = TorchDataset(gl_conf.use_data_folder)
+        loader = DataLoader(
+            self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
+            shuffle=False, sampler=SeqSampler(), drop_last=False,
+            pin_memory=True,
+        )
+        gl_conf.dop = np.ones(ds.ids.max() + 1, dtype=int) * 1e-8
+        gl_conf.id2range_dop = {str(id_):
+                                    np.ones((range_[1] - range_[0],)) * 1e-8
+                                for id_, range_ in
+                                ds.id2range.items()}
+        gl_conf.sub_imp_loss = {str(id_):
+                                    np.ones((range_[1] - range_[0],)) * 1e-8
+                                for id_, range_ in
+                                ds.id2range.items()}
+        for ind_data, data in enumerate(loader):
+            if ind_data % 999 == 0:
+                logging.info(f'{ind_data} / {len(loader)}')
+            imgs = data['imgs']
+            labels_cpu = data['labels']
+            ind_inds = data['ind_inds']
+            imgs = imgs.to(conf.device)
+            labels = labels_cpu.to(conf.device)
+            
+            with torch.no_grad():
+                embeddings = self.model(imgs)
+            embeddings.requires_grad_(True)
+            thetas = self.head(embeddings, labels)
+            losses = nn.CrossEntropyLoss(reduction='none')(thetas, labels)
+            loss = losses.mean()
+            if gl_conf.tri_wei != 0:
+                loss_triplet = self.head_triplet(embeddings, labels)
+                loss = ((1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet) / (1 - gl_conf.tri_wei)
+            grad = torch.autograd.grad(loss, embeddings,
+                                       retain_graph=True, create_graph=False,
+                                       only_inputs=True)[0].detach()
+            gi = torch.norm(grad, dim=1)
+            for lable_, ind_ind_, gi_, loss_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy(),
+                                                    losses.detach().cpu().numpy()):
+                gl_conf.id2range_dop[str(lable_)][ind_ind_] = gi_
+                gl_conf.sub_imp_loss[str(lable_)][ind_ind_] = loss_
+                gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].mean()
+        lz.msgpack_dump({'dop': gl_conf.dop,
+                         'id2range_dop': gl_conf.id2range_dop,
+                         'sub_imp_loss': gl_conf.sub_imp_loss
+                         }, out)
     
     def train(self, conf, epochs):
         self.model.train()
@@ -805,7 +892,6 @@ class face_learner(object):
                 self.optimizer.zero_grad()
                 
                 def update_dop_cls(thetas, labels, dop):
-                    # dop = gl_conf.dop
                     with torch.no_grad():
                         bs = thetas.shape[0]
                         thetas[torch.arange(0, bs, dtype=torch.long), labels] = thetas.min()
@@ -1013,7 +1099,7 @@ class face_learner(object):
                                                           extra)))
         lz.msgpack_dump({'dop': gl_conf.dop,
                          'id2range_dop': gl_conf.id2range_dop,
-                         }, f'extra_{get_time()}_accuracy:{accuracy}_step:{self.step}_{extra}.pk')
+                         }, str(save_path) + f'/extra_{get_time()}_accuracy:{accuracy}_step:{self.step}_{extra}.pk')
         if not model_only:
             torch.save(
                 self.head.state_dict(),
@@ -1028,6 +1114,30 @@ class face_learner(object):
     
     def save(self, path=work_path + 'twoloss.pth'):
         torch.save(self.model, path)
+    
+    def list_steps(self, resume_path):
+        from pathlib import Path
+        save_path = Path(resume_path)
+        fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
+        steps = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
+        steps = np.asarray(steps, int)
+        return steps
+    
+    def load_state_by_step(self, resume_path, step, load_model=True, load_head=False, load_opt=False):
+        from pathlib import Path
+        save_path = Path(resume_path)
+        fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
+        steps = self.list_steps(resume_path)
+        chs = np.where(steps == step)[0]
+        chs = int(chs)
+        fixed_str = fixed_strs[chs].replace('model_', '')
+        modelp = save_path / 'model_{}'.format(fixed_str)
+        if load_model:
+            self.model.load_state_dict(torch.load(modelp))
+        if load_head:
+            self.head.load_state_dict(torch.load(save_path / 'head_{}'.format(fixed_str)))
+        if load_opt:
+            self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
     
     def load_state(self, conf, fixed_str=None, from_save_folder=False,
                    model_only=False, resume_path=None, load_optimizer=True,
