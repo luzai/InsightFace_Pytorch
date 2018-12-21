@@ -122,7 +122,7 @@ def extract_ms1m_info():
     self.ids = self.seq_identity
     print(f'{min(self.ids)}')
     for identity in self.seq_identity:
-        s = self.imgrec.read_idx(identity-1)
+        s = self.imgrec.read_idx(identity - 1)
         header, _ = recordio.unpack(s)
         header.label
         s = self.imgrec.read_idx(identity)
@@ -165,5 +165,27 @@ def load_ms1m_info():
     # (0, 42581.5, 42581.5, 85163)
 
 
+def cleanup(p=root_path + '/../work_space.bak'):
+    for nowp, containp, containf in os.walk(p):
+        flag = False
+        for f in containf:
+            if '.pth' in f and f != 'model_ir_se50.pth':
+                flag = True
+        if flag:
+            from pathlib import Path
+            save_path = Path(nowp)
+            fixed_strs = [t.name for t in save_path.glob('*_*.pth')]
+            steps = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
+            steps = np.asarray(steps, int)
+            max_step = max(steps)
+            for f in fixed_strs:
+                step = f.split('_')[-2].split(':')[-1]
+                step = int(step)
+                if step!=max_step:
+                    fp = nowp +'/' + f
+                    # print(fp)
+                    rm(fp)
+
+
 if __name__ == '__main__':
-    extract_ms1m_info()
+    cleanup()
