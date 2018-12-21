@@ -25,6 +25,8 @@ from config import gl_conf
 import torch.autograd
 import torch.multiprocessing as mp
 from models import *
+from torch.utils.data.sampler import Sampler
+from collections import defaultdict
 
 logger = logging.getLogger()
 
@@ -396,7 +398,9 @@ class TorchDataset(object):
         lz.timer.since_last_check(f'{gl_conf.num_recs} imgrec readers init')  # 27 s / 5 reader
         # try:
         #     self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
+        #     self.num_classes = len(self.ids)
         # except:
+        lz.timer.since_last_check('start cal dataset info')
         s = self.imgrecs[0].read_idx(0)
         header, _ = recordio.unpack(s)
         assert header.flag > 0, 'ms1m or glint ...'
@@ -432,8 +436,9 @@ class TorchDataset(object):
                                     gl_conf.mining_init for id_, range_ in
                                 self.id2range.items()}
         logging.info(f'update num_clss {gl_conf.num_clss} ')
-        # lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
+        lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
         self.cur = 0
+        lz.timer.since_last_check('finish cal dataset info')
     
     def __len__(self):
         return len(self.imgidx)
@@ -542,10 +547,6 @@ class Dataset_val(torch.utils.data.Dataset):
         return len(self.issame)
 
 
-from torch.utils.data.sampler import Sampler
-from collections import defaultdict
-
-
 # improve locality and improve load speed!
 class RandomIdSampler(Sampler):
     def __init__(self):
@@ -560,10 +561,11 @@ class RandomIdSampler(Sampler):
         self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1])))).tolist()
                           for id, idxs in self.id2range.items()}  # it index based on 1
         self.ids = list(self.ids)
-        if gl_conf.mining == 'rand':
+        if gl_conf.mining == 'rand.id' or gl_conf.mining == 'rand.img':
             self.nimgs = np.asarray([
                 range_[1] - range_[0] for id_, range_ in self.id2range.items()
             ])
+            self.nimgs_normed = self.nimgs / self.nimgs.sum()
         # estimate number of examples in an epoch
         self.length = 0
         for pid in self.ids:
@@ -579,7 +581,12 @@ class RandomIdSampler(Sampler):
     def get_batch_ids(self):
         pids = []
         dop = gl_conf.dop
-        if gl_conf.mining == 'imp':
+        if gl_conf.mining == 'rand.id':
+            pids = np.random.choice(self.ids,
+                                    size=int(self.num_pids_per_batch),
+                                    p=self.nimgs_normed,
+                                    replace=False)
+        elif gl_conf.mining == 'imp':
             # lz.logging.info(f'dop smapler {np.count_nonzero( dop == -1 )} {dop}')
             pids = np.random.choice(self.ids,
                                     size=int(self.num_pids_per_batch),
@@ -637,15 +644,17 @@ class RandomIdSampler(Sampler):
                 break
     
     def __iter__(self):
-        if gl_conf.mining == 'rand':
+        if gl_conf.mining == 'rand.img':  # quite slow
             for _ in range(len(self)):
+                # lz.timer.since_last_check('s next id iter')
                 pid = np.random.choice(
-                    self.ids, p=self.nimgs / self.nimgs.sum()
+                    self.ids, p=self.nimgs_normed,
                 )
                 ind_ind = np.random.choice(
                     range(len(self.index_dic[pid])),
                 )
                 ind = self.index_dic[pid][ind_ind]
+                # lz.timer.since_last_check('f next id iter')
                 yield ind, pid, ind_ind
         else:
             cnt = 0
@@ -659,7 +668,7 @@ class RandomIdSampler(Sampler):
 class SeqSampler(Sampler):
     def __init__(self):
         path_ms1m = gl_conf.use_data_folder
-        _, self.ids, self.id2range = lz.msgpack_load(path_ms1m / 'info.pk')
+        _, self.ids, self.id2range = lz.msgpack_load(path_ms1m / f'info.{gl_conf.cutoff}.pk')
         # above is the imgidx of .rec file
         # remember -1 to convert to pytorch imgidx
         self.num_instances = gl_conf.instances
@@ -688,6 +697,13 @@ class SeqSampler(Sampler):
             for ind_ind in range(len(self.index_dic[pid])):
                 ind = self.index_dic[pid][ind_ind]
                 yield ind, pid, ind_ind
+
+
+def update_dop_cls(thetas, labels, dop):
+    with torch.no_grad():
+        bs = thetas.shape[0]
+        thetas[torch.arange(0, bs, dtype=torch.long), labels] = thetas.min()
+        dop[labels.cpu().numpy()] = torch.argmax(thetas, dim=1).cpu().numpy()
 
 
 class face_learner(object):
@@ -891,12 +907,6 @@ class face_learner(object):
                 labels = labels_cpu.to(conf.device)
                 self.optimizer.zero_grad()
                 
-                def update_dop_cls(thetas, labels, dop):
-                    with torch.no_grad():
-                        bs = thetas.shape[0]
-                        thetas[torch.arange(0, bs, dtype=torch.long), labels] = thetas.min()
-                        dop[labels.cpu().numpy()] = torch.argmax(thetas, dim=1).cpu().numpy()
-                
                 if not conf.fgg:
                     # if tau > tau_thresh and ind_data < len(loader) - B_multi:  # todo enable it
                     #     logging.info('using sampling')
@@ -949,7 +959,7 @@ class face_learner(object):
                         loss_triplet = self.head_triplet(embeddings, labels)
                         loss_tri_meter.update(loss_triplet.item())
                         loss = ((1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet) / (1 - gl_conf.tri_wei)
-                    if not gl_conf.mining == 'imp':
+                    if gl_conf.mining == 'imp':
                         grad = torch.autograd.grad(loss, embeddings,
                                                    retain_graph=True, create_graph=False,
                                                    only_inputs=True)[0].detach()
@@ -958,8 +968,9 @@ class face_learner(object):
                         for group in self.optimizer.param_groups:
                             for param in group['params']:
                                 param.data = param.data.add(-gl_conf.weight_decay, group['lr'] * param.data)
-                    update_dop_cls(thetas, labels, gl_conf.dop)
-                    if not gl_conf.mining == 'imp':
+                    if gl_conf.mining == 'dop':
+                        update_dop_cls(thetas, labels, gl_conf.dop)
+                    if gl_conf.mining == 'imp':
                         gi = torch.norm(grad, dim=1)
                         for lable_, ind_ind_, gi_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy()):
                             gl_conf.id2range_dop[str(lable_)][ind_ind_] = gl_conf.id2range_dop[str(lable_)][
@@ -1008,14 +1019,19 @@ class face_learner(object):
                                  f'speed: {gl_conf.batch_size/(data_time.avg+loss_time.avg):.2f} imgs/s')
                 if self.step % self.board_loss_every == 0 and self.step != 0:
                     # record lr
-                    self.writer.add_scalar('lr', self.optimizer.param_groups[0]['lr'], self.step)
-                    self.writer.add_scalar('train_loss',
+                    self.writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
+                    self.writer.add_scalar('loss/ttl',
                                            ((1 - gl_conf.tri_wei) * loss_meter.avg +
                                             gl_conf.tri_wei * loss_tri_meter.avg) / (1 - gl_conf.tri_wei),
                                            self.step)
                     self.writer.add_scalar('loss/xent', loss_meter.avg, self.step)
                     self.writer.add_scalar('loss/triplet', loss_tri_meter.avg, self.step)
-                    self.writer.add_scalar('acc', acc_meter.avg, self.step)
+                    self.writer.add_scalar('info/acc', acc_meter.avg, self.step)
+                    self.writer.add_scalar('info/speed',
+                                           gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                    self.writer.add_scalar('info/datatime', data_time.avg)
+                    self.writer.add_scalar('info/losstime', loss_time.avg)
+                    
                     # self.scheduler.step(loss_board)
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
