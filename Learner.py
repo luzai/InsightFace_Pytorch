@@ -975,7 +975,7 @@ class face_learner(object):
                         for lable_, ind_ind_, gi_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy()):
                             gl_conf.id2range_dop[str(lable_)][ind_ind_] = gl_conf.id2range_dop[str(lable_)][
                                                                               ind_ind_] * 0.9 + 0.1 * gi_
-                            gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].mean()
+                            gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].sum() # todo should be sum?
                             #     gi = gi / gi.sum()
                     # tau = alpha_tau * tau + (1 - alpha_tau) * (
                     #         1 -

@@ -165,7 +165,7 @@ def load_ms1m_info():
     # (0, 42581.5, 42581.5, 85163)
 
 
-def cleanup(p=root_path + '/../work_space.bak'):
+def cleanup(p=root_path + 'work_space'):
     for nowp, containp, containf in os.walk(p):
         flag = False
         for f in containf:
@@ -181,11 +181,48 @@ def cleanup(p=root_path + '/../work_space.bak'):
             for f in fixed_strs:
                 step = f.split('_')[-2].split(':')[-1]
                 step = int(step)
-                if step!=max_step:
-                    fp = nowp +'/' + f
+                if step != max_step:
+                    fp = nowp + '/' + f
                     # print(fp)
                     rm(fp)
 
 
+def anaylze_imp(rp=root_path + 'work_space', p='glint.bs'):
+    path = rp +'/' + p+'/models/'
+    from pathlib import Path
+    assert osp.exists(path)
+    fixed_strs = [t.name for t in Path(path).glob('extra_*')]
+    steps = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
+    steps = np.asarray(steps)
+    ind_min, ind_max = steps.argmin(), steps.argmax()
+    fn1, fn2 = fixed_strs[ind_min], fixed_strs[ind_max]
+    fn1 = path+fn1
+    fn2 = path+ fn2
+    plt.figure()
+    res =  lz.msgpack_load(fn1)
+    top_imp = res['dop']
+    sub_imp = res['id2range_dop']
+    plt.plot(top_imp)
+    plt.yscale('log')
+    res = lz.msgpack_load(fn2)
+    top_imp = res['dop']
+    sub_imp = res['id2range_dop']
+    plt.plot(top_imp)
+    plt.show()
+    
+    plt.figure()
+    for i in range(1000):
+        _ = plt.plot(sub_imp[str(i)])
+    plt.yscale('log')
+    plt.show()
+    
+    plt.figure()
+    for i in range(90000, 90000 + 1000):
+        #     if str(i) in ldop:
+        _ = plt.plot(sub_imp[str(i)])
+    plt.yscale('log')
+    plt.show()
+
 if __name__ == '__main__':
-    cleanup()
+    # cleanup()
+    anaylze_imp()

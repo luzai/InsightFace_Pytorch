@@ -5,8 +5,8 @@ from torch.nn import CrossEntropyLoss
 from torchvision import transforms as trans
 
 num_devs = 4
-# lz.init_dev((1,2,3,))
-lz.init_dev(lz.get_dev(num_devs))
+lz.init_dev((0, 1,2,3,))
+# lz.init_dev(lz.get_dev(num_devs))
 # lz.init_dev((0,))
 
 conf = edict()
@@ -16,8 +16,9 @@ conf.no_eval = False
 conf.loss = 'arcface'  # softmax arcface
 
 conf.num_clss = None
-conf.dop = None
-conf.id2range_dop = None
+conf.dop = None # top_imp
+conf.id2range_dop = None # sub_imp
+
 conf.data_path = Path('/data2/share/')
 # conf.work_path = Path('work_space/glint.nas.imp.2')
 conf.work_path = Path('work_space/glint.bs')
@@ -32,7 +33,8 @@ conf.emore_folder = conf.data_path / 'faces_emore'
 conf.use_data_folder = conf.glint_folder
 # conf.use_data_folder = conf.ms1m_folder
 conf.cutoff = 10 if conf.use_data_folder == conf.ms1m_folder else 15
-conf.mining = 'rand.id'  # 'dop' 'imp' rand.img(slow) rand.id # todo imp is grad based todo loss based
+conf.mining = 'rand.id'  # 'dop' 'imp' rand.img(slow) rand.id
+# todo  imp.grad imp.loss
 conf.mining_init = 0.8 # for imp
 conf.rand_ratio = 9 / 27
 
