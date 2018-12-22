@@ -5,8 +5,8 @@ from torch.nn import CrossEntropyLoss
 from torchvision import transforms as trans
 
 num_devs = 4
-lz.init_dev((1,2,3,))
-# lz.init_dev(lz.get_dev(num_devs))
+# lz.init_dev((1,2,3,))
+lz.init_dev(lz.get_dev(num_devs))
 # lz.init_dev((0,))
 
 conf = edict()
@@ -73,7 +73,7 @@ if training:
     conf.log_path = conf.work_path / 'log'
     conf.save_path = conf.work_path / 'save'
     conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
-    conf.start_epoch = 0  # 0
+    conf.start_epoch = 4  # 0
     conf.use_opt = 'sgd'
     conf.adam_betas1 = .9  # .85 to .95
     conf.adam_betas2 = .99

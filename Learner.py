@@ -1029,8 +1029,8 @@ class face_learner(object):
                     self.writer.add_scalar('info/acc', acc_meter.avg, self.step)
                     self.writer.add_scalar('info/speed',
                                            gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
-                    self.writer.add_scalar('info/datatime', data_time.avg)
-                    self.writer.add_scalar('info/losstime', loss_time.avg)
+                    self.writer.add_scalar('info/datatime', data_time.avg, self.step)
+                    self.writer.add_scalar('info/losstime', loss_time.avg, self.step)
                     
                     # self.scheduler.step(loss_board)
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
