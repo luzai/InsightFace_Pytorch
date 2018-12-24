@@ -43,11 +43,11 @@ conf = get_config(training=False)
 learner = face_learner(conf, inference=True)
 learner.load_state(conf, None,
                    # resume_path='work_space/arcsft.triadap.dop.long/save/',
-                   resume_path='work_space/ms1m.better/models/',
+                   # resume_path='work_space/ms1m.better/models/',
+                   resume_path='work_space/glint.bs.cont/models/',
                    latest=True,
                    from_save_folder=True,
-                   model_only=True,
-                   )
+                   model_only=True, )
 learner.model.eval()
 logging.info('learner loaded')
 

@@ -299,7 +299,7 @@ class Arcface(Module):
         self.sin_m = math.sin(m)
         self.mm = self.sin_m * m  # issue 1
         self.threshold = math.cos(math.pi - m)
-
+    
     def forward(self, embbedings, label):
         # weights norm
         nB = len(embbedings)

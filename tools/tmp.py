@@ -187,7 +187,7 @@ def cleanup(p=root_path + 'work_space'):
                     rm(fp)
 
 
-def anaylze_imp(rp=root_path + 'work_space', p='glint.bs'):
+def anaylze_imp(rp=root_path + 'work_space', p='glint.bs.cont'):
     path = rp +'/' + p+'/models/'
     from pathlib import Path
     assert osp.exists(path)

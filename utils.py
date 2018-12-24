@@ -32,6 +32,26 @@ def separate_bn_paras(modules):
     return paras_only_bn, paras_wo_bn
 
 
+def seperate_last_params(modules, name='output_layer'):
+    if isinstance(modules, torch.nn.DataParallel):
+        modules = modules.module
+    if not isinstance(modules, list):
+        modules = [*modules.modules()]
+    paras_only_bn = []
+    paras_wo_bn = []
+    for layer in modules:
+        if 'model' in str(layer.__class__):
+            continue
+        if 'container' in str(layer.__class__):
+            continue
+        else:
+            if name in str(layer.__class__):
+                paras_only_bn.extend([*layer.parameters()])
+            else:
+                paras_wo_bn.extend([*layer.parameters()])
+    return paras_only_bn, paras_wo_bn
+
+
 def prepare_facebank(conf, model, mtcnn, tta=True):
     model.eval()
     embeddings = []
@@ -87,9 +107,9 @@ def face_reader(conf, conn, flag, boxes_arr, result_arr, learner, mtcnn, targets
             bboxes, faces = mtcnn.align_multi(image, limit=conf.face_limit)
         except:
             bboxes = []
-
+        
         results = learner.infer(conf, faces, targets, tta)
-
+        
         if len(bboxes) > 0:
             print('bboxes in reader : {}'.format(bboxes))
             bboxes = bboxes[:, :-1]  # shape:[10,4],only keep 10 highest possibiity faces

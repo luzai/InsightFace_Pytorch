@@ -644,18 +644,8 @@ class NASNetAMobile(nn.Module):
         x_cell_15 = self.cell_15(x_cell_14, x_cell_13)
         return x_cell_15
     
-    # def logits(self, features):
-    #     x = self.relu(features)
-    #     x = self.avg_pool(x)
-    #     x = x.view(x.size(0), -1)
-    #     x = self.dropout(x)
-    #     x = self.last_linear(x)
-    #     return x
-    
-    def forward(self, input, normalize=True, return_norm=False):
-        x = self.features(input)
-        # x = self.logits(x)
-        x = self.output_layer(x)
+    def logits(self, features, normalize=True, return_norm=False):
+        x = self.output_layer(features)
         x_norm, norm = l2_norm(x, axis=1, need_norm=True)
         if normalize:
             if return_norm:
@@ -667,6 +657,10 @@ class NASNetAMobile(nn.Module):
                 return x, norm
             else:
                 return x
+    
+    def forward(self, input, normalize=True, return_norm=False):
+        x = self.features(input)
+        return self.logits(x, normalize=normalize, return_norm=return_norm)
 
 
 def nasnetamobile(num_classes=1001, pretrained='imagenet'):
@@ -709,12 +703,11 @@ def nasnetamobile(num_classes=1001, pretrained='imagenet'):
 
 
 if __name__ == "__main__":
-    
     # model = NASNetAMobile(num_classes=512)
     model = nasnetamobile(512, )
     param_mb = sum(p.numel() for p in model.parameters()) / 1000000.0
     print(param_mb)
-
+    
     input = Variable(torch.randn(2, 3, 112, 112))
     # input = Variable(torch.randn(2, 3, 224, 224))
     output = model(input)

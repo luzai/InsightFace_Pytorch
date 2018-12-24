@@ -423,7 +423,7 @@ class TorchDataset(object):
         self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
         ids_map_tmp = {identity: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
         self.ids = [ids_map_tmp[id_] for id_ in self.ids]
-        self.ids = np.asanyarray(self.ids)
+        self.ids = np.asarray(self.ids)
         self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
         
         gl_conf.num_clss = self.num_classes
@@ -561,11 +561,11 @@ class RandomIdSampler(Sampler):
         self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1])))).tolist()
                           for id, idxs in self.id2range.items()}  # it index based on 1
         self.ids = list(self.ids)
-        if gl_conf.mining == 'rand.id' or gl_conf.mining == 'rand.img':
-            self.nimgs = np.asarray([
-                range_[1] - range_[0] for id_, range_ in self.id2range.items()
-            ])
-            self.nimgs_normed = self.nimgs / self.nimgs.sum()
+        # if gl_conf.mining == 'rand.id' or gl_conf.mining == 'rand.img':
+        self.nimgs = np.asarray([
+            range_[1] - range_[0] for id_, range_ in self.id2range.items()
+        ])
+        self.nimgs_normed = self.nimgs / self.nimgs.sum()
         # estimate number of examples in an epoch
         self.length = 0
         for pid in self.ids:
@@ -716,7 +716,7 @@ class face_learner(object):
             self.model = nasnetamobile(512)
             self.model = torch.nn.DataParallel(self.model).cuda()
         elif conf.net_mode == 'seresnext101':
-            self.head = se_resnext101_32x4d(512)
+            self.model = se_resnext101_32x4d(512)
             self.model = torch.nn.DataParallel(self.model).cuda()
         elif conf.net_mode == 'ir_se' or conf.net_mode == 'ir':
             self.model = torch.nn.DataParallel(Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)).cuda()
@@ -735,34 +735,41 @@ class face_learner(object):
             )
             self.class_num = self.dataset.num_classes
             print(self.class_num, 'classes, load ok ')
-            
-            lz.mkdir_p(conf.log_path, delete=True)
+            if conf.need_log:
+                lz.mkdir_p(conf.log_path, delete=True)
             self.writer = SummaryWriter(conf.log_path)
             self.step = 0
             if conf.loss == 'arcface':
-                self.head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num).to(conf.device)
+                self.head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num)
             elif conf.loss == 'softmax':
-                self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num).to(conf.device)
-            
+                self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num)
             else:
                 raise ValueError(f'{conf.loss}')
+            if conf.head_init is not None:
+                kernel = lz.msgpack_load(conf.head_init).astype(np.float32).transpose()
+                kernel = torch.from_numpy(kernel)
+                assert self.head.kernel.shape == kernel.shape
+                self.head.kernel.data = kernel
+            self.head = self.head.to(conf.device)
             self.head_triplet = TripletLoss().to(conf.device)
             print('two model heads generated')
             
             paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
             if conf.use_opt == 'adam':
-                if conf.finetune:
-                    self.optimizer = optim.Adam([{'params': [self.head.kernel], 'weight_decay': 0},
-                                                 ],
-                                                betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
-                                                lr=conf.lr
-                                                )
-                else:
-                    self.optimizer = optim.Adam([{'params': paras_wo_bn + [self.head.kernel], 'weight_decay': 0},
-                                                 {'params': paras_only_bn}, ],
-                                                betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
-                                                lr=conf.lr
-                                                )
+                # if conf.finetune:
+                #     self.optimizer = optim.Adam([{'params': [self.head.kernel,
+                #                                              self.model.output_layer
+                #                                              ], 'weight_decay': 0},
+                #                                  ],
+                #                                 betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
+                #                                 lr=conf.lr
+                #                                 )
+                # else:
+                self.optimizer = optim.Adam([{'params': paras_wo_bn + [self.head.kernel], 'weight_decay': 0},
+                                             {'params': paras_only_bn}, ],
+                                            betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
+                                            lr=conf.lr
+                                            )
             elif conf.net_mode == 'mobilefacenet':
                 self.optimizer = optim.SGD([
                     {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
@@ -770,15 +777,15 @@ class face_learner(object):
                     {'params': paras_only_bn}
                 ], lr=conf.lr, momentum=conf.momentum)
             else:
-                if conf.finetune:
-                    self.optimizer = optim.SGD([
-                        {'params': [self.head.kernel], 'weight_decay': gl_conf.weight_decay},
-                    ], lr=conf.lr, momentum=conf.momentum)
-                else:
-                    self.optimizer = optim.SGD([
-                        {'params': paras_wo_bn + [self.head.kernel], 'weight_decay': gl_conf.weight_decay},
-                        {'params': paras_only_bn}
-                    ], lr=conf.lr, momentum=conf.momentum)
+                # if conf.finetune:
+                #     self.optimizer = optim.SGD([
+                #         {'params': [self.head.kernel], 'weight_decay': gl_conf.weight_decay},
+                #     ], lr=conf.lr, momentum=conf.momentum)
+                # else:
+                self.optimizer = optim.SGD([
+                    {'params': paras_wo_bn + [self.head.kernel], 'weight_decay': gl_conf.weight_decay},
+                    {'params': paras_only_bn}
+                ], lr=conf.lr, momentum=conf.momentum)
             
             print(self.optimizer, 'optimizers generated')
             self.board_loss_every = 100  # len(self.loader) // 100
@@ -787,12 +794,54 @@ class face_learner(object):
             self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
                 self.loader.dataset.root_path)  # todo postpone load eval
         else:
-            self.threshold = conf.threshold
+            pass
+    
+    def calc_feature(self, ):
+        conf = gl_conf
+        self.model.eval()
+        loader = DataLoader(
+            self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
+            shuffle=False, sampler=SeqSampler(), drop_last=False,
+            pin_memory=True,
+        )
+        features = np.empty((self.dataset.num_classes, 512))
+        import collections
+        features_tmp = collections.defaultdict(list)
+        features_wei = collections.defaultdict(list)
+        for ind_data, data in enumerate(loader):
+            if ind_data % 99 == 3:
+                logging.info(f'{ind_data} / {len(loader)}')
+                # break
+            imgs = data['imgs']
+            labels = data['labels'].numpy()
+            imgs = imgs.to(conf.device)
+            labels_unique = np.unique(labels)
+            with torch.no_grad():
+                embeddings = self.model(imgs, normalize=False).cpu().numpy()
+            for la in labels_unique:
+                features_tmp[la].append(embeddings[labels == la].mean(axis=0))
+                features_wei[la].append(np.count_nonzero(labels == la))
+        self.nimgs = np.asarray([
+            range_[1] - range_[0] for id_, range_ in self.dataset.id2range.items()
+        ])
+        self.nimgs_normed = self.nimgs / self.nimgs.sum()
+        for ind_fea in features_tmp:
+            fea_tmp = features_tmp[ind_fea]
+            fea_tmp = np.asarray(fea_tmp)
+            fea_wei = features_wei[ind_fea]
+            fea_wei = np.asarray(fea_wei)
+            fea_wei = fea_wei / fea_wei.sum()
+            fea_wei = fea_wei.reshape((-1, 1))
+            fea = (fea_tmp * fea_wei).sum(axis=0)
+            from sklearn.preprocessing import normalize
+            print('how many norm', self.nimgs[ind_fea], np.sqrt((fea ** 2).sum()))
+            fea = normalize(fea.reshape(1, -1)).flatten()
+            features[ind_fea, :] = fea
+        lz.msgpack_dump(features, 'work_space/glint.15.fc7.pk')
     
     def calc_importance(self, out):
         conf = gl_conf
         self.model.eval()
-        ds = TorchDataset(gl_conf.use_data_folder)
         loader = DataLoader(
             self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
             shuffle=False, sampler=SeqSampler(), drop_last=False,
@@ -870,11 +919,11 @@ class face_learner(object):
             accuracy = 0
             lz.timer.since_last_check('epoch {} started'.format(e))
             if e == self.milestones[0]:
-                self.schedule_lr()
+                self.schedule_lr()  # to 1e-2
             if e == self.milestones[1]:
-                self.schedule_lr()
+                self.schedule_lr()  # to 1e-3
             if e == self.milestones[2]:
-                self.schedule_lr()
+                self.schedule_lr()  # tod 1e-4
             loader_enum = enumerate(loader)
             
             while True:
@@ -945,8 +994,10 @@ class face_learner(object):
                     #     loss.backward()
                     # else:
                     if conf.finetune:
+                        # todo
                         with torch.no_grad():
-                            embeddings = self.model(imgs)
+                            features = self.model.features(imgs)
+                        embeddings = self.model.logits(features)
                     else:
                         embeddings = self.model(imgs)
                     thetas = self.head(embeddings, labels)
@@ -975,7 +1026,7 @@ class face_learner(object):
                         for lable_, ind_ind_, gi_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy()):
                             gl_conf.id2range_dop[str(lable_)][ind_ind_] = gl_conf.id2range_dop[str(lable_)][
                                                                               ind_ind_] * 0.9 + 0.1 * gi_
-                            gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].sum() # todo should be sum?
+                            gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].sum()  # todo should be sum?
                             #     gi = gi / gi.sum()
                     # tau = alpha_tau * tau + (1 - alpha_tau) * (
                     #         1 -
@@ -1031,6 +1082,8 @@ class face_learner(object):
                                            gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
                     self.writer.add_scalar('info/datatime', data_time.avg, self.step)
                     self.writer.add_scalar('info/losstime', loss_time.avg, self.step)
+                    self.writer.add_scalar('info/epoch', e, self.step)
+                    self.writer.add_histogram('top_imp', gl_conf.dop, self.step)
                     
                     # self.scheduler.step(loss_board)
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
@@ -1069,7 +1122,7 @@ class face_learner(object):
     def schedule_lr(self):
         for params in self.optimizer.param_groups:
             params['lr'] = params['lr'] * gl_conf.lr_gamma
-        print(self.optimizer, 'lr', params['lr'])
+        logging.info(f'change lr to {params["lr"]}')
     
     def init_lr(self):
         for params in self.optimizer.param_groups:

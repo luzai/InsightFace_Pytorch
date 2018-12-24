@@ -46,7 +46,6 @@ class MTCNN():
         return boxes, faces
 
     def align_best(self, img, limit=None, min_face_size=20.0, ori_img=None):
-        try:
             boxes, landmarks = self.detect_faces(img, min_face_size)
             img = to_numpy(img)
             if limit:
@@ -73,9 +72,7 @@ class MTCNN():
                 return to_image(warped_face)
             else:
                 return to_image(img).resize((112,112), Image.BILINEAR)
-        except:
-            logging.info(f'fail !! {img}')
-            return to_image(img).resize((112, 112), Image.BILINEAR)
+       
 
     def detect_faces(self, image, min_face_size=20.0,
                      thresholds=[0.6, 0.7, 0.8],

@@ -101,7 +101,7 @@ def load_mx_rec(rec_path):
         img_info = imgrec.read_idx(idx)
         header, img = mx.recordio.unpack_img(img_info)  # rec is BGR format
         label = int(header.label)
-        img = np.asarray(img)[:, :, ::-1]  # the saved file is GRB format
+        img = np.asarray(img)[:, :, ::-1]  # the saved file is RGB format
         img = Image.fromarray(img)
         label_path = save_path / str(label)
         if not label_path.exists():
