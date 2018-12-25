@@ -756,15 +756,6 @@ class face_learner(object):
             
             paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
             if conf.use_opt == 'adam':
-                # if conf.finetune:
-                #     self.optimizer = optim.Adam([{'params': [self.head.kernel,
-                #                                              self.model.output_layer
-                #                                              ], 'weight_decay': 0},
-                #                                  ],
-                #                                 betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
-                #                                 lr=conf.lr
-                #                                 )
-                # else:
                 self.optimizer = optim.Adam([{'params': paras_wo_bn + [self.head.kernel], 'weight_decay': 0},
                                              {'params': paras_only_bn}, ],
                                             betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
@@ -777,11 +768,6 @@ class face_learner(object):
                     {'params': paras_only_bn}
                 ], lr=conf.lr, momentum=conf.momentum)
             else:
-                # if conf.finetune:
-                #     self.optimizer = optim.SGD([
-                #         {'params': [self.head.kernel], 'weight_decay': gl_conf.weight_decay},
-                #     ], lr=conf.lr, momentum=conf.momentum)
-                # else:
                 self.optimizer = optim.SGD([
                     {'params': paras_wo_bn + [self.head.kernel], 'weight_decay': gl_conf.weight_decay},
                     {'params': paras_only_bn}
@@ -994,10 +980,8 @@ class face_learner(object):
                     #     loss.backward()
                     # else:
                     if conf.finetune:
-                        # todo
-                        with torch.no_grad():
-                            features = self.model.features(imgs)
-                        embeddings = self.model.logits(features)
+                        # todo mode for nas resnext .. only
+                        embeddings = self.model(imgs, mode='finetune')
                     else:
                         embeddings = self.model(imgs)
                     thetas = self.head(embeddings, labels)

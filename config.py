@@ -21,7 +21,7 @@ conf.id2range_dop = None  # sub_imp
 
 conf.data_path = Path('/data2/share/')
 # conf.work_path = Path('work_space/glint.nas.imp.2')
-conf.work_path = Path('work_space/glint.bs.2')
+conf.work_path = Path('work_space/glint.bs.3')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -35,12 +35,12 @@ conf.use_data_folder = conf.glint_folder
 conf.cutoff = 10 if conf.use_data_folder == conf.ms1m_folder else 15
 conf.mining = 'rand.id'  # 'dop' 'imp' rand.img(slow) rand.id
 # todo imp.grad imp.loss
-conf.mining_init = 0.8  # for imp
+conf.mining_init = 0.8*2  # for imp
 conf.rand_ratio = 9 / 27
 
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
-conf.tri_wei = .1
+conf.tri_wei = .0
 conf.scale = 64.  # 30.
 conf.start_eval = False
 conf.instances = 4
@@ -71,13 +71,13 @@ conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
 conf.start_epoch = 0  # 0
-conf.use_opt = 'sgd'
+conf.use_opt = 'adam'
 conf.adam_betas1 = .9  # .85 to .95
-conf.adam_betas2 = .99
-conf.lr = 1e-1  # 3e-3  0.1   0.04,  # 0.028,  # 0.028 , 1e-2 # tri  0.00063,
+conf.adam_betas2 = .99 # 0.999 0.99
+conf.lr = 5e-4  # 3e-3  0.1 4e-2 5e-4  # tri 6e-4
 conf.lr_gamma = 0.1
 conf.epochs = 100
-conf.milestones = range(2, 100, 2)
+conf.milestones = range(1, 100, 1)
 # conf.epochs = 25
 # conf.milestones = [13, 19, 22]
 # conf.epochs = 8

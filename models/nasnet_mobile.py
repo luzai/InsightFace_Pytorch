@@ -658,8 +658,12 @@ class NASNetAMobile(nn.Module):
             else:
                 return x
     
-    def forward(self, input, normalize=True, return_norm=False):
-        x = self.features(input)
+    def forward(self, input, normalize=True, return_norm=False, mode='train'):
+        if mode == 'train':
+            x = self.features(input)
+        else:
+            with torch.no_grad():
+                x = self.features(input)
         return self.logits(x, normalize=normalize, return_norm=return_norm)
 
 
