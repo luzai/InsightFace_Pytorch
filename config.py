@@ -5,8 +5,8 @@ from torch.nn import CrossEntropyLoss
 from torchvision import transforms as trans
 
 num_devs = 2
-lz.init_dev((2, 3,))
-# lz.init_dev(lz.get_dev(num_devs))
+# lz.init_dev((2, 3,))
+lz.init_dev(lz.get_dev(num_devs))
 # lz.init_dev((0,))
 
 conf = edict()
@@ -21,7 +21,7 @@ conf.id2range_dop = None  # sub_imp
 
 conf.data_path = Path('/data2/share/')
 # conf.work_path = Path('work_space/glint.nas.imp.2')
-conf.work_path = Path('work_space/glint.bs.3')
+conf.work_path = Path('work_space/glint.cont.2')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -86,7 +86,7 @@ conf.momentum = 0.9
 conf.pin_memory = True
 conf.num_workers = 12 if not dbg else 1
 conf.ce_loss = CrossEntropyLoss()
-training = True   # True
+training = False   # False means test
 if not training:
     conf.batch_size *= 6
     conf.need_log = False
@@ -94,11 +94,11 @@ else:
     conf.need_log = True
 # conf.batch_size //= 12
 conf.batch_size = conf.batch_size // conf.instances * conf.instances
-conf.head_init = 'work_space/glint.15.fc7.pk'
+conf.head_init = ''
 
 def get_config(**kwargs):
     global conf
     return conf
 
 
-gl_conf = conf
+gl_conf = get_config()

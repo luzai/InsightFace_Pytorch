@@ -388,7 +388,7 @@ class TorchDataset(object):
         lz.timer.since_last_check('start timer for imgrec')
         for num_rec in range(gl_conf.num_recs):
             if num_rec == 1:
-                path_imgrec = path_imgrec.replace('/data2/share/', '/share/data/')
+                path_imgrec = path_imgrec.replace('/data2/share/', '/home/share/')
             self.imgrecs.append(
                 recordio.MXIndexedRecordIO(
                     path_imgidx, path_imgrec,
@@ -745,7 +745,7 @@ class face_learner(object):
                 self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num)
             else:
                 raise ValueError(f'{conf.loss}')
-            if conf.head_init is not None:
+            if conf.head_init:
                 kernel = lz.msgpack_load(conf.head_init).astype(np.float32).transpose()
                 kernel = torch.from_numpy(kernel)
                 assert self.head.kernel.shape == kernel.shape
@@ -1197,13 +1197,15 @@ class face_learner(object):
                    latest=True,
                    ):
         from pathlib import Path
-        if resume_path is not None:
+        if resume_path:
             save_path = Path(resume_path)
         elif from_save_folder and osp.exists(conf.save_path):
             save_path = conf.save_path
         else:
             save_path = conf.model_path
-        modelp = save_path / 'model_{}'.format(fixed_str)
+        modelp = save_path / '{}'.format(fixed_str)
+        if not osp.exists(modelp):
+            modelp = save_path / 'model_{}'.format(fixed_str)
         if not os.path.exists(modelp):
             fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
             if latest:

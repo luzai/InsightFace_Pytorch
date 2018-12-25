@@ -39,14 +39,11 @@ except:
     df_dump(df_pair, ijbcp, 'pair')
     df_dump(df_name, ijbcp, 'name')
 
-conf = get_config(training=False)
-learner = face_learner(conf, inference=True)
-learner.load_state(conf, None,
-                   # resume_path='work_space/arcsft.triadap.dop.long/save/',
-                   # resume_path='work_space/ms1m.better/models/',
-                   resume_path='work_space/glint.bs.cont/models/',
+conf = get_config()
+learner = face_learner(conf, )
+learner.load_state(conf, 'model.final.pth',
+                   resume_path='work_space/glint.cont.2/models/',
                    latest=True,
-                   from_save_folder=True,
                    model_only=True, )
 learner.model.eval()
 logging.info('learner loaded')
@@ -82,11 +79,11 @@ class DatasetIJBC2(torch.utils.data.Dataset):
         each_line = files[img_index]
         name_lmk_score = each_line.strip().split(' ')
         img_name = os.path.join(img_path, name_lmk_score[0])
-        img = cv2.imread(img_name)
+        img = cvb.read_img(img_name)
+        assert img is not None, img_name
         lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
         lmk = lmk.reshape((5, 2))
         warp_img = preprocess(img, landmark=lmk)
-        
         warp_img = to_image(warp_img)
         faceness_score = float(name_lmk_score[-1])
         if self.flip:

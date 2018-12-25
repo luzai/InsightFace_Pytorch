@@ -1451,9 +1451,9 @@ def to_json_format(obj, allow_np=True):
 
 def preprocess(img, bbox=None, landmark=None, **kwargs):
     from skimage import transform as trans
-    
     if isinstance(img, str):
         img = cvb.read_img(img, **kwargs)
+    assert img is not None
     img = img.copy()
     M = None
     # image_size = []
