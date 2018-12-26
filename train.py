@@ -9,18 +9,17 @@ if __name__ == '__main__':
     learner = face_learner(conf, )
     
     ## for resume or evaluate
-    # learner.load_state(conf,
-    #                    # resume_path=Path('work_space/arcsft.triadap.dop.long/save'),
-    #                    # model_only=True,
-    #                    # load_optimizer=False,
-    #                    # resume_path=Path('work_space/glint/models'),
-    #                    resume_path=Path('work_space/glint.bs/models'),
-    #                    model_only=False,
-    #                    load_optimizer=True,
-    #                    latest=True,
-    #                    )
+    learner.load_state(conf,
+                       # resume_path=Path('work_space/emore.nas.ft/models'),
+                       # model_only=False,
+                       # load_optimizer=False,
+                       # latest=True,
+                       resume_path=Path('work_space/ms1m.better/models'),
+                       model_only=True,
+                       load_optimizer=False,
+                       latest=True,
+                       )
     
-    # learner.save()
     # log_lrs, losses = learner.find_lr(conf,
     #                                   # final_value=100,
     #                                   num=200,
@@ -29,8 +28,8 @@ if __name__ == '__main__':
     # print(best_lr)
     # conf.lr = best_lr
     
-    learner.init_lr()  # todo what if ...
-    learner.train(conf, conf.epochs)
+    # learner.init_lr()  # todo what if ...
+    # learner.train(conf, conf.epochs)
     
     # def calc_importance():
     #     steps = learner.list_steps(conf.model_path)
@@ -47,4 +46,4 @@ if __name__ == '__main__':
     #
     # calc_importance()
     
-    # learner.calc_feature()
+    learner.calc_feature(out='work_space/ms1m.rv1.fc7.pk')

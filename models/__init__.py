@@ -58,27 +58,25 @@ from models.pnasnet import pnasnet5large
 from models.polynet import polynet
 
 if __name__ == '__main__':
+    import torch
+    
     for model in [
-        # resnet50(pretrained=None),  # 1.4k -->1.5k
-        nasnetamobile(pretrained=None), # 1.5k --> 1.6k
-        # densenet161(pretrained=None), # 2.6k
-        # senet154(pretrained=None), # 4.4k   # more than 12k
-        # se_resnet101(pretrained=None), # 2.2k
-        # se_resnet152(pretrained=None), # 2.9k
-        # se_resnext101_32x4d(pretrained=None),# 2.6k
+        # se_resnet101(pretrained=None),  # 2.2k
+        # se_resnet152(pretrained=None),  # 2.9k
+        # se_resnext101_32x4d(pretrained=None),  # 2.6k
+        # nasnetamobile(pretrained=None),  # 1.5k --> 1.6k
+        senet154(pretrained=None),  # 4.4k   # more than 12k
+        resnet50(pretrained=None),  # 1.4k -->1.5k
+        densenet161(pretrained=None),  # 2.6k
+        inceptionresnetv2(pretrained=None),
         # polynet(pretrained=None),
-        # inceptionresnetv2(pretrained=None),
     ]:
         model = model.cuda()
-        print('next')
-        import torch
-        
-        input = torch.autograd.Variable(torch.randn(8, 3, 112, 112)).cuda()
-        # input = Variable(torch.randn(2, 3, 224, 224))
+        # input = torch.autograd.Variable(torch.randn(8, 3, 112, 112)).cuda()
+        input = torch.autograd.Variable(torch.randn(8, 3, 224, 224)).cuda()
         output = model(input)
         output.mean().backward()
         param_mb = sum(p.numel() for p in model.parameters()) / 1000000.0
-        print(param_mb)
-        import time
-        
-        time.sleep(10)
+        print(model.__class__, param_mb)
+        # import time
+        # time.sleep(10)

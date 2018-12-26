@@ -475,8 +475,8 @@ class TorchDataset(object):
         index, pid, ind_ind = index
         ## rand until lock
         # while True:
-        #     for ind in range(len(self.locks)):
-        #         succ = self.locks[ind].acquire(timeout=0)
+        #     for ind_rec in range(len(self.locks)):
+        #         succ = self.locks[ind_rec].acquire(timeout=0)
         #         if succ: break
         #     if succ: break
         
@@ -587,12 +587,13 @@ class RandomIdSampler(Sampler):
                                     p=self.nimgs_normed,
                                     replace=False)
         elif gl_conf.mining == 'imp':
-            # lz.logging.info(f'dop smapler {np.count_nonzero( dop == -1 )} {dop}')
+            # lz.logging.info(f'dop smapler {np.count_nonzero( dop == gl_conf.mining_init)} {dop}') # todo
             pids = np.random.choice(self.ids,
                                     size=int(self.num_pids_per_batch),
                                     p=gl_conf.dop / gl_conf.dop.sum(),
                                     replace=False)
         elif gl_conf.mining == 'dop':
+            # lz.logging.info(f'dop smapler {np.count_nonzero( dop ==-1)} {dop}')
             nrand_ids = int(self.num_pids_per_batch * gl_conf.rand_ratio)
             pids_now = np.random.choice(self.ids,
                                         size=nrand_ids,
@@ -759,7 +760,8 @@ class face_learner(object):
                 self.optimizer = optim.Adam([{'params': paras_wo_bn + [self.head.kernel], 'weight_decay': 0},
                                              {'params': paras_only_bn}, ],
                                             betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
-                                            lr=conf.lr
+                                            amsgrad= True,
+                                            lr=conf.lr,
                                             )
             elif conf.net_mode == 'mobilefacenet':
                 self.optimizer = optim.SGD([
@@ -782,7 +784,7 @@ class face_learner(object):
         else:
             pass
     
-    def calc_feature(self, ):
+    def calc_feature(self, out='t.pk' ):
         conf = gl_conf
         self.model.eval()
         loader = DataLoader(
@@ -823,7 +825,7 @@ class face_learner(object):
             print('how many norm', self.nimgs[ind_fea], np.sqrt((fea ** 2).sum()))
             fea = normalize(fea.reshape(1, -1)).flatten()
             features[ind_fea, :] = fea
-        lz.msgpack_dump(features, 'work_space/glint.15.fc7.pk')
+        lz.msgpack_dump(features,out )
     
     def calc_importance(self, out):
         conf = gl_conf
@@ -902,14 +904,11 @@ class face_learner(object):
         # tau_thresh = (Batch_size + 3 * batch_size) / (3 * batch_size)
         # alpha_tau = .9
         for e in range(conf.start_epoch, epochs):
-            accuracy = 0
+            # accuracy = 0
             lz.timer.since_last_check('epoch {} started'.format(e))
-            if e == self.milestones[0]:
-                self.schedule_lr()  # to 1e-2
-            if e == self.milestones[1]:
-                self.schedule_lr()  # to 1e-3
-            if e == self.milestones[2]:
-                self.schedule_lr()  # tod 1e-4
+            for milestone in self.milestones:
+                if e == milestone:
+                    self.schedule_lr()
             loader_enum = enumerate(loader)
             
             while True:
