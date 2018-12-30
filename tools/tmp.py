@@ -187,28 +187,36 @@ def cleanup(p=root_path + 'work_space'):
                     rm(fp)
 
 
-def anaylze_imp(rp=root_path + 'work_space', p='glint.bs.cont'):
-    path = rp +'/' + p+'/models/'
+def anaylze_imp(p='glint.bs.cont'):
+    rp = root_path + 'work_space'
+    path = rp + '/' + p + '/models/'
     from pathlib import Path
-    assert osp.exists(path)
+    assert osp.exists(path), path
     fixed_strs = [t.name for t in Path(path).glob('extra_*')]
     steps = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
     steps = np.asarray(steps)
     ind_min, ind_max = steps.argmin(), steps.argmax()
     fn1, fn2 = fixed_strs[ind_min], fixed_strs[ind_max]
-    fn1 = path+fn1
-    fn2 = path+ fn2
+    fn1 = path + fn1
+    fn2 = path + fn2
+    
     plt.figure()
-    res =  lz.msgpack_load(fn1)
+    res = lz.msgpack_load(fn1)
     top_imp = res['dop']
     sub_imp = res['id2range_dop']
     plt.plot(top_imp)
     plt.yscale('log')
+    
     res = lz.msgpack_load(fn2)
     top_imp = res['dop']
     sub_imp = res['id2range_dop']
-    plt.plot(top_imp)
+    plt.plot(top_imp, alpha=0.9)
     plt.show()
+    
+    # plt.figure()
+    # plt.plot()
+    # plt.show()
+    # todo divided by nimgs
     
     plt.figure()
     for i in range(1000):
@@ -217,12 +225,30 @@ def anaylze_imp(rp=root_path + 'work_space', p='glint.bs.cont'):
     plt.show()
     
     plt.figure()
-    for i in range(90000, 90000 + 1000):
-        #     if str(i) in ldop:
+    max_key = np.asarray(list(sub_imp.keys()), dtype=int).max()
+    for i in range(max_key - 1000, max_key):
         _ = plt.plot(sub_imp[str(i)])
     plt.yscale('log')
     plt.show()
+    
+    all_sub_imp = np.concatenate(list(sub_imp.values()), )
+    cnt = np.count_nonzero(
+        all_sub_imp == -1
+    )
+    print(cnt / all_sub_imp.shape[0])
+    plt.figure()
+    plt.hist(all_sub_imp)
+    plt.show()
+    
+    cnt = np.count_nonzero(
+        top_imp == -1
+    )
+    print(cnt / top_imp.shape[0])
+    plt.figure()
+    plt.hist(top_imp)
+    plt.show()
+
 
 if __name__ == '__main__':
     # cleanup()
-    anaylze_imp()
+    anaylze_imp('emore.nas.2')

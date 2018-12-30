@@ -427,10 +427,7 @@ class TorchDataset(object):
         self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
         
         gl_conf.num_clss = self.num_classes
-        if gl_conf.mining == 'dop':
-            gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * -1
-        else:
-            gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * gl_conf.mining_init
+        gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * gl_conf.mining_init
         gl_conf.id2range_dop = {str(id_):
                                     np.ones((range_[1] - range_[0],)) *
                                     gl_conf.mining_init for id_, range_ in
@@ -561,7 +558,6 @@ class RandomIdSampler(Sampler):
         self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1])))).tolist()
                           for id, idxs in self.id2range.items()}  # it index based on 1
         self.ids = list(self.ids)
-        # if gl_conf.mining == 'rand.id' or gl_conf.mining == 'rand.img':
         self.nimgs = np.asarray([
             range_[1] - range_[0] for id_, range_ in self.id2range.items()
         ])
@@ -760,7 +756,7 @@ class face_learner(object):
                 self.optimizer = optim.Adam([{'params': paras_wo_bn + [self.head.kernel], 'weight_decay': 0},
                                              {'params': paras_only_bn}, ],
                                             betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
-                                            amsgrad= True,
+                                            amsgrad=True,
                                             lr=conf.lr,
                                             )
             elif conf.net_mode == 'mobilefacenet':
@@ -784,7 +780,7 @@ class face_learner(object):
         else:
             pass
     
-    def calc_feature(self, out='t.pk' ):
+    def calc_feature(self, out='t.pk'):
         conf = gl_conf
         self.model.eval()
         loader = DataLoader(
@@ -825,7 +821,7 @@ class face_learner(object):
             print('how many norm', self.nimgs[ind_fea], np.sqrt((fea ** 2).sum()))
             fea = normalize(fea.reshape(1, -1)).flatten()
             features[ind_fea, :] = fea
-        lz.msgpack_dump(features,out )
+        lz.msgpack_dump(features, out)
     
     def calc_importance(self, out):
         conf = gl_conf
@@ -1003,14 +999,16 @@ class face_learner(object):
                             for param in group['params']:
                                 param.data = param.data.add(-gl_conf.weight_decay, group['lr'] * param.data)
                     if gl_conf.mining == 'dop':
-                        update_dop_cls(thetas, labels, gl_conf.dop)
+                        update_dop_cls(thetas, labels_cpu, gl_conf.dop)
                     if gl_conf.mining == 'imp':
                         gi = torch.norm(grad, dim=1)
                         for lable_, ind_ind_, gi_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy()):
                             gl_conf.id2range_dop[str(lable_)][ind_ind_] = gl_conf.id2range_dop[str(lable_)][
                                                                               ind_ind_] * 0.9 + 0.1 * gi_
                             gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].sum()  # todo should be sum?
-                            #     gi = gi / gi.sum()
+                    if gl_conf.mining == 'rand.id':
+                        gl_conf.dop[labels_cpu.numpy()] = 1
+                        #     gi = gi / gi.sum()
                     # tau = alpha_tau * tau + (1 - alpha_tau) * (
                     #         1 -
                     #         (1 / (gi ** 2).sum()).item() *
@@ -1066,25 +1064,22 @@ class face_learner(object):
                     self.writer.add_scalar('info/datatime', data_time.avg, self.step)
                     self.writer.add_scalar('info/losstime', loss_time.avg, self.step)
                     self.writer.add_scalar('info/epoch', e, self.step)
-                    self.writer.add_histogram('top_imp', gl_conf.dop, self.step)
-                    
-                    # self.scheduler.step(loss_board)
+                    dop = gl_conf.dop
+                    self.writer.add_histogram('top_imp', dop, self.step)
+                    self.writer.add_scalar('info/doprat',
+                             np.count_nonzero(dop == gl_conf.mining_init) / dop.shape[0], self.step)
+               
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
                                                                                           self.loader.dataset.root_path,
                                                                                           'agedb_30')
-                    # accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, agedb_30,
-                    #                                                           agedb_30_issame)
                     self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor)
                     logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-                    # accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.lfw, self.lfw_issame)
                     accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
                                                                                           self.loader.dataset.root_path,
                                                                                           'lfw')
                     self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor)
                     logging.info(f'validation accuracy on lfw is {accuracy} ')
-                    # accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.cfp_fp,
-                    #                                                           self.cfp_fp_issame)
                     accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
                                                                                           self.loader.dataset.root_path,
                                                                                           'cfp_fp')
@@ -1193,7 +1188,7 @@ class face_learner(object):
     
     def load_state(self, conf, fixed_str=None, from_save_folder=False,
                    model_only=False, resume_path=None, load_optimizer=True,
-                   latest=True,
+                   latest=True, load_imp=False,
                    ):
         from pathlib import Path
         if resume_path:
@@ -1228,6 +1223,8 @@ class face_learner(object):
             self.head.load_state_dict(torch.load(save_path / 'head_{}'.format(fixed_str)))
             if load_optimizer:
                 self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
+        if load_imp:
+            pass # todo load imp
     
     def board_val(self, db_name, accuracy, best_threshold, roc_curve_tensor):
         self.writer.add_scalar('{}_accuracy'.format(db_name), accuracy, self.step)

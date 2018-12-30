@@ -5,8 +5,8 @@ from torch.nn import CrossEntropyLoss
 from torchvision import transforms as trans
 
 num_devs = 3
-# lz.init_dev((2, 3,))
-lz.init_dev(lz.get_dev(num_devs))
+lz.init_dev((1, 2, 3,))
+# lz.init_dev(lz.get_dev(num_devs))
 # lz.init_dev((0,))
 
 conf = edict()
@@ -20,7 +20,7 @@ conf.dop = None  # top_imp
 conf.id2range_dop = None  # sub_imp
 
 conf.data_path = Path('/data2/share/')
-conf.work_path = Path('work_space/emore.nas.imp')
+conf.work_path = Path('work_space/emore.nas.2')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -29,7 +29,7 @@ conf.ms1m_folder = conf.data_path / 'faces_ms1m_112x112'
 conf.glint_folder = conf.data_path / 'glint'
 conf.emore_folder = conf.data_path / 'faces_emore'
 
-conf.use_data_folder =conf.ms1m_folder  # conf.emore_folder  # conf.glint_folder #  conf.ms1m_folder
+conf.use_data_folder = conf.emore_folder  # conf.emore_folder  # conf.glint_folder #  conf.ms1m_folder
 
 if conf.use_data_folder == conf.ms1m_folder:
     conf.cutoff = 10
@@ -38,11 +38,11 @@ elif conf.use_data_folder == conf.glint_folder:
 elif conf.use_data_folder == conf.emore_folder:
     conf.cutoff = 0
 
-conf.cutoff = 0
-conf.mining = 'imp'  # 'dop' 'imp' rand.img(slow) rand.id
+# conf.cutoff = 0
+conf.mining = 'rand.id'  # 'dop' 'imp' rand.img(slow) rand.id
 # todo imp.grad imp.loss
-conf.mining_init = 0.8 * 2  # for imp
-conf.eps_greed = .3
+conf.mining_init = -1 # for imp
+conf.eps_greed = .3 # todo
 conf.rand_ratio = 9 / 27
 
 conf.fgg = ''  # g gg ''
@@ -67,7 +67,7 @@ conf.test_transform = trans.Compose([
     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
 
-conf.batch_size = 78 * num_devs if not dbg else 8 * num_devs  # xent: 96 92 tri: 112 108
+conf.batch_size = 68 * num_devs if not dbg else 8 * num_devs  # xent: 96 92 tri: 112 108
 conf.num_recs = 2 if not dbg else 1
 # --------------------Training Config ------------------------
 conf.log_path = conf.work_path / 'log'
@@ -77,10 +77,10 @@ conf.start_epoch = 0  # 0
 conf.use_opt = 'adam'
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
-conf.lr = 5e-4  # 3e-3  0.1 4e-2 5e-4  # tri 6e-4
-conf.lr_gamma = 0.5
+conf.lr = 1e-3  # 3e-3  0.1 4e-2 5e-4  # tri 6e-4
+conf.lr_gamma = 0.1
 conf.epochs = 100
-conf.milestones = range(2, 100, 1)
+conf.milestones = range(5, 100, 2)
 # conf.epochs = 25
 # conf.milestones = [13, 19, 22]
 # conf.epochs = 8
@@ -90,7 +90,7 @@ conf.pin_memory = True
 conf.num_workers = 12 if not dbg else 1
 conf.ce_loss = CrossEntropyLoss()
 conf.finetune = False
-training = False  # False means test
+training = True  # False means test
 if not training or conf.finetune:
     conf.batch_size *= 2
 if not training:
@@ -99,6 +99,7 @@ else:
     conf.need_log = True
 conf.batch_size = conf.batch_size // conf.instances * conf.instances
 conf.head_init = ''
+
 
 def get_config(**kwargs):
     global conf
