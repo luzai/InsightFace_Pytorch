@@ -10,14 +10,11 @@ if __name__ == '__main__':
     
     ## for resume or evaluate
     learner.load_state(conf,
-                       resume_path=Path('work_space/emore.nas.imp/models'),
+                       resume_path=Path('work_space/emore.r50.dop/models'),
                        model_only=False,
                        load_optimizer=True,
                        latest=True,
-                       # resume_path=Path('work_space/ms1m.better/models'),
-                       # model_only=True,
-                       # load_optimizer=False,
-                       # latest=True,
+                       load_imp=True,
                        )
     
     # log_lrs, losses = learner.find_lr(conf,

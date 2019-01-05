@@ -388,7 +388,7 @@ class TorchDataset(object):
         lz.timer.since_last_check('start timer for imgrec')
         for num_rec in range(gl_conf.num_recs):
             if num_rec == 1:
-                path_imgrec = path_imgrec.replace('/data2/share/', '/home/share/')
+                path_imgrec = path_imgrec.replace('/data2/share/', '/share/data/')
             self.imgrecs.append(
                 recordio.MXIndexedRecordIO(
                     path_imgidx, path_imgrec,
@@ -465,6 +465,7 @@ class TorchDataset(object):
         return nd.transpose(datum, axes=(2, 0, 1))
     
     def _get_single_item(self, index):
+        
         # self.cur += 1
         # index += 1  # noneed,  here it index (imgidx) start from 1,.rec start from 1
         # assert index != 0 and index < len(self) + 1 # index can > len(self)
@@ -558,6 +559,7 @@ class RandomIdSampler(Sampler):
         self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1])))).tolist()
                           for id, idxs in self.id2range.items()}  # it index based on 1
         self.ids = list(self.ids)
+        # if gl_conf.mining == 'rand.id' or gl_conf.mining == 'rand.img':
         self.nimgs = np.asarray([
             range_[1] - range_[0] for id_, range_ in self.id2range.items()
         ])
@@ -588,6 +590,7 @@ class RandomIdSampler(Sampler):
                                     size=int(self.num_pids_per_batch),
                                     p=gl_conf.dop / gl_conf.dop.sum(),
                                     replace=False)
+        # todo dio with no replacement
         elif gl_conf.mining == 'dop':
             # lz.logging.info(f'dop smapler {np.count_nonzero( dop ==-1)} {dop}')
             nrand_ids = int(self.num_pids_per_batch * gl_conf.rand_ratio)
@@ -712,6 +715,9 @@ class face_learner(object):
         elif conf.net_mode == 'nasnetamobile':
             self.model = nasnetamobile(512)
             self.model = torch.nn.DataParallel(self.model).cuda()
+        elif conf.net_mode == 'seresnext50':
+            self.model = se_resnext50_32x4d(512, )
+            self.model = torch.nn.DataParallel(self.model).cuda()
         elif conf.net_mode == 'seresnext101':
             self.model = se_resnext101_32x4d(512)
             self.model = torch.nn.DataParallel(self.model).cuda()
@@ -756,7 +762,7 @@ class face_learner(object):
                 self.optimizer = optim.Adam([{'params': paras_wo_bn + [self.head.kernel], 'weight_decay': 0},
                                              {'params': paras_only_bn}, ],
                                             betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
-                                            amsgrad=True,
+                                            amsgrad= True,
                                             lr=conf.lr,
                                             )
             elif conf.net_mode == 'mobilefacenet':
@@ -780,7 +786,7 @@ class face_learner(object):
         else:
             pass
     
-    def calc_feature(self, out='t.pk'):
+    def calc_feature(self, out='t.pk' ):
         conf = gl_conf
         self.model.eval()
         loader = DataLoader(
@@ -821,7 +827,7 @@ class face_learner(object):
             print('how many norm', self.nimgs[ind_fea], np.sqrt((fea ** 2).sum()))
             fea = normalize(fea.reshape(1, -1)).flatten()
             features[ind_fea, :] = fea
-        lz.msgpack_dump(features, out)
+        lz.msgpack_dump(features,out )
     
     def calc_importance(self, out):
         conf = gl_conf
@@ -1224,7 +1230,9 @@ class face_learner(object):
             if load_optimizer:
                 self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
         if load_imp:
-            pass # todo load imp
+            extra = lz.msgpack_load(save_path/ f'extra_{fixed_str}')
+            gl_conf.dop = extra['dop']
+            gl_conf.id2range_dop = extra['id2range_dop']
     
     def board_val(self, db_name, accuracy, best_threshold, roc_curve_tensor):
         self.writer.add_scalar('{}_accuracy'.format(db_name), accuracy, self.step)

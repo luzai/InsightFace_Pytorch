@@ -40,13 +40,15 @@ except:
     df_dump(df_name, ijbcp, 'name')
 
 conf = get_config()
+conf.need_log = False
+conf.batch_size *= 2
 learner = face_learner(conf, )
 learner.load_state(conf, 'model.final.pth',
-                   resume_path='work_space/glint.cont.2/models/',
-                   latest=True,
+                   resume_path='work_space/emore.r50.cont/models/',
+                   latest=False,
                    model_only=True, )
 learner.model.eval()
-logging.info('learner loaded')
+# logging.info('learner loaded')
 
 # use_topk = 999
 # df_pair = df_pair.iloc[:use_topk, :]

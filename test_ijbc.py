@@ -34,6 +34,8 @@ all_tids = list(t2s.keys())
 chkpnt_path = Path('work_space/arcsft.triadap.s64.0.1')
 model_path = chkpnt_path / 'save'
 conf = get_config(training=False, work_path=chkpnt_path)
+conf.need_log=False
+conf.batch_size*=2
 
 from torch.utils.data.dataloader import default_collate
 

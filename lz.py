@@ -1094,13 +1094,16 @@ def show_img(path):
     return fig
 
 
-def plt_imshow(img, ax=None):
+def plt_imshow(img, ax=None, keep_ori_size=True):
     img = to_img(img)
-    h, w, c, = img.shape
-    inchh = h / 96
-    inchw = w / 96
     if ax is None:
-        plt.figure(figsize=(inchw, inchh,))
+        h, w, c, = img.shape
+        inchh = h / 96
+        inchw = w / 96
+        if keep_ori_size:
+            plt.figure(figsize=(inchw, inchh,))
+        else:
+            plt.figure()
         plt.imshow(img)
         plt.axis('off')
     else:
@@ -1132,6 +1135,19 @@ def plt_imshow_board(img, ax=None, color=None):
         margin = 2
         ax.set_xlim(-margin, N + margin)
         ax.set_ylim(M + margin, -margin)
+
+
+def plt_imshow_tensor(imgs, ncol=4, limit=1024):
+    import torchvision
+    imgs_thumb = torchvision.utils.make_grid(
+        to_torch(imgs), normalize=True,
+        nrow=int(np.sqrt(imgs.shape[0])) // ncol * ncol,
+        scale_each=True).numpy()
+    imgs_thumb = to_img(imgs_thumb)
+    maxlen = max(imgs_thumb.shape)
+    if maxlen > limit and limit is not None:
+        imgs_thumb = cvb.resize_keep_ar(imgs_thumb, limit, limit, )
+    plt_imshow(imgs_thumb)
 
 
 def to_img(img, ):

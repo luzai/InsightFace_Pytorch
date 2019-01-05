@@ -248,7 +248,6 @@ def anaylze_imp(p='glint.bs.cont'):
     plt.hist(top_imp)
     plt.show()
 
-
 if __name__ == '__main__':
-    # cleanup()
-    anaylze_imp('emore.nas.2')
+    cleanup()
+    #anaylze_imp('emore.nas.2')
