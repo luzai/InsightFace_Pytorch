@@ -21,7 +21,7 @@ from mxnet import recordio
 import torch
 from pathlib import Path
 from torch.utils.data import DataLoader
-from config import gl_conf
+from config import conf as gl_conf
 import torch.autograd
 import torch.multiprocessing as mp
 from models import *
@@ -425,13 +425,20 @@ class TorchDataset(object):
         self.ids = [ids_map_tmp[id_] for id_ in self.ids]
         self.ids = np.asarray(self.ids)
         self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
-        
         gl_conf.num_clss = self.num_classes
-        gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * gl_conf.mining_init
-        gl_conf.id2range_dop = {str(id_):
-                                    np.ones((range_[1] - range_[0],)) *
-                                    gl_conf.mining_init for id_, range_ in
-                                self.id2range.items()}
+        gl_conf.explored = np.zeros(self.ids.max() + 1, dtype=int)
+        if gl_conf.mining == 'dop':
+            gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * gl_conf.mining_init
+            gl_conf.id2range_dop = {str(id_):
+                                        np.ones((range_[1] - range_[0],)) *
+                                        gl_conf.mining_init for id_, range_ in
+                                    self.id2range.items()}
+        elif gl_conf.mining == 'imp' or gl_conf.mining == 'rand.id':
+            gl_conf.id2range_dop = {str(id_):
+                                        np.ones((range_[1] - range_[0],)) *
+                                        gl_conf.mining_init for id_, range_ in
+                                    self.id2range.items()}
+            gl_conf.dop = np.asarray([v.sum() for v in self.id2range.values()])
         logging.info(f'update num_clss {gl_conf.num_clss} ')
         lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
         self.cur = 0
@@ -465,43 +472,24 @@ class TorchDataset(object):
         return nd.transpose(datum, axes=(2, 0, 1))
     
     def _get_single_item(self, index):
-        
         # self.cur += 1
         # index += 1  # noneed,  here it index (imgidx) start from 1,.rec start from 1
         # assert index != 0 and index < len(self) + 1 # index can > len(self)
         succ = False
         index, pid, ind_ind = index
         ## rand until lock
-        # while True:
-        #     for ind_rec in range(len(self.locks)):
-        #         succ = self.locks[ind_rec].acquire(timeout=0)
-        #         if succ: break
-        #     if succ: break
+        while True:
+            for ind_rec in range(len(self.locks)):
+                succ = self.locks[ind_rec].acquire(timeout=0)
+                if succ: break
+            if succ: break
         
         ##  locality based
-        ## todo assumm nrec = 2
-        if index < self.imgidx[len(self.imgidx) // 2]:
-            ind_rec = 0
-        else:
-            ind_rec = 1
-        succ = self.locks[ind_rec].acquire()
-        # logging.info(f'use {ind}')
-        
-        # ind = index // ((max(self.imgidx) + 1) // len(self.locks))
-        
-        # for ind in range(len(self.locks)):
-        #     succ = self.locks[ind].acquire(timeout=0)
-        #     if succ: break
-        # if not succ:
-        #     print(f'not succ ind is {ind}')
-        #     self.locks.append(mp.Lock())
-        #     self.imgrecs.append(recordio.MXIndexedRecordIO(
-        #         self.path_imgidx, self.path_imgrec, 'r'))
-        #     print(f'add a imgrec, ttl num {len(self.locks)}')
-        #     ind = len(self.locks) - 1
-        #     succ = self.locks[ind].acquire()
-        
-        # succ = self.lock.acquire(timeout=0)
+        # if index < self.imgidx[len(self.imgidx) // 2]:
+        #     ind_rec = 0
+        # else:
+        #     ind_rec = 1
+        # succ = self.locks[ind_rec].acquire()
         
         s = self.imgrecs[ind_rec].read_idx(index)  # from [ 1 to 3804846 ]
         rls_succ = self.locks[ind_rec].release()
@@ -559,7 +547,6 @@ class RandomIdSampler(Sampler):
         self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1])))).tolist()
                           for id, idxs in self.id2range.items()}  # it index based on 1
         self.ids = list(self.ids)
-        # if gl_conf.mining == 'rand.id' or gl_conf.mining == 'rand.img':
         self.nimgs = np.asarray([
             range_[1] - range_[0] for id_, range_ in self.id2range.items()
         ])
@@ -578,13 +565,7 @@ class RandomIdSampler(Sampler):
     
     def get_batch_ids(self):
         pids = []
-        dop = gl_conf.dop
-        if gl_conf.mining == 'rand.id':
-            pids = np.random.choice(self.ids,
-                                    size=int(self.num_pids_per_batch),
-                                    p=self.nimgs_normed,
-                                    replace=False)
-        elif gl_conf.mining == 'imp':
+        if gl_conf.mining == 'imp' or gl_conf.mining == 'rand.id':
             # lz.logging.info(f'dop smapler {np.count_nonzero( dop == gl_conf.mining_init)} {dop}') # todo
             pids = np.random.choice(self.ids,
                                     size=int(self.num_pids_per_batch),
@@ -1004,6 +985,7 @@ class face_learner(object):
                         for group in self.optimizer.param_groups:
                             for param in group['params']:
                                 param.data = param.data.add(-gl_conf.weight_decay, group['lr'] * param.data)
+                    gl_conf.explored[labels_cpu.numpy()] = 1
                     if gl_conf.mining == 'dop':
                         update_dop_cls(thetas, labels_cpu, gl_conf.dop)
                     if gl_conf.mining == 'imp':
@@ -1015,6 +997,7 @@ class face_learner(object):
                     if gl_conf.mining == 'rand.id':
                         gl_conf.dop[labels_cpu.numpy()] = 1
                         #     gi = gi / gi.sum()
+                    
                     # tau = alpha_tau * tau + (1 - alpha_tau) * (
                     #         1 -
                     #         (1 / (gi ** 2).sum()).item() *
@@ -1073,7 +1056,7 @@ class face_learner(object):
                     dop = gl_conf.dop
                     self.writer.add_histogram('top_imp', dop, self.step)
                     self.writer.add_scalar('info/doprat',
-                                           np.count_nonzero(dop == gl_conf.mining_init) / dop.shape[0], self.step)
+                                           np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
                 
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
@@ -1095,8 +1078,6 @@ class face_learner(object):
                     self.save_state(conf, accuracy)
                 
                 self.step += 1
-                # if self.step % conf.num_steps_per_epoch == 0 and self.step != 0:
-                #     break
                 loss_time.update(
                     lz.timer.since_last_check('loss ok', verbose=False)
                 )

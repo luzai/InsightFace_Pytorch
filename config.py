@@ -2,6 +2,7 @@ from pathlib import Path
 import lz
 from lz import *
 from torch.nn import CrossEntropyLoss
+# todo label smooth
 from torchvision import transforms as trans
 
 num_devs = 3
@@ -18,6 +19,7 @@ conf.loss = 'arcface'  # softmax arcface
 conf.num_clss = None
 conf.dop = None  # top_imp
 conf.id2range_dop = None  # sub_imp
+conf.explored=None
 
 conf.data_path = Path('/data2/share/')
 conf.work_path = Path('work_space/emore.r50.dop')
@@ -39,8 +41,7 @@ elif conf.use_data_folder == conf.emore_folder:
     conf.cutoff = 0
 
 # conf.cutoff = 0
-conf.mining = 'dop'  # 'dop' 'imp' rand.img(slow) rand.id
-# todo imp.grad imp.loss
+conf.mining = 'dop'  # 'dop' 'imp' rand.img(slow) rand.id # todo imp.grad imp.loss
 conf.mining_init = -1  # for imp 1.6
 conf.eps_greed = .3  # todo
 conf.rand_ratio = 9 / 27
@@ -98,10 +99,3 @@ else:
 conf.batch_size = conf.batch_size // conf.instances * conf.instances
 conf.head_init = ''  # work_space/glint.15.fc7.pk
 
-
-def get_config(**kwargs):
-    global conf
-    return conf
-
-
-gl_conf = get_config()
