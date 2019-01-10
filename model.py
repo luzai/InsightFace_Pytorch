@@ -282,7 +282,7 @@ class MobileFaceNet(Module):
 
 
 ##################################  Arcface head #################
-from config import gl_conf
+from config import conf as gl_conf
 
 
 class Arcface(Module):

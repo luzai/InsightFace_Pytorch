@@ -24,7 +24,7 @@ if __name__ == '__main__':
     parser.add_argument("-c", "--score", help="whether show the confidence score", action="store_true", default=True)
     args = parser.parse_args()
 
-    conf = get_config(False)
+    conf = get_config( )
 
     learner = face_learner(conf, True)
     learner.threshold = args.threshold

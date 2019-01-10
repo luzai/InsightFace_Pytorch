@@ -20,7 +20,7 @@ import torch.utils.model_zoo as model_zoo
 from torch.autograd import Variable
 import numpy as np
 
-from config import gl_conf
+from config import conf as gl_conf
 from model import Linear_block, Flatten, l2_norm
 import lz
 

@@ -438,7 +438,7 @@ class TorchDataset(object):
                                         np.ones((range_[1] - range_[0],)) *
                                         gl_conf.mining_init for id_, range_ in
                                     self.id2range.items()}
-            gl_conf.dop = np.asarray([v.sum() for v in self.id2range.values()])
+            gl_conf.dop = np.asarray([v.sum() for v in gl_conf.id2range_dop.values()])
         logging.info(f'update num_clss {gl_conf.num_clss} ')
         lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
         self.cur = 0
@@ -565,6 +565,7 @@ class RandomIdSampler(Sampler):
     
     def get_batch_ids(self):
         pids = []
+        dop = gl_conf.dop
         if gl_conf.mining == 'imp' or gl_conf.mining == 'rand.id':
             # lz.logging.info(f'dop smapler {np.count_nonzero( dop == gl_conf.mining_init)} {dop}') # todo
             pids = np.random.choice(self.ids,

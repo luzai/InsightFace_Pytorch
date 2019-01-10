@@ -1,11 +1,10 @@
 from lz import *
-from config import get_config, gl_conf
+from config import conf
 from Learner import face_learner
 import argparse
 from pathlib import Path
 
 if __name__ == '__main__':
-    conf = get_config()
     learner = face_learner(conf, )
     
     ## for resume or evaluate

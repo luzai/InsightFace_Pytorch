@@ -5,10 +5,10 @@ from torch.nn import CrossEntropyLoss
 # todo label smooth
 from torchvision import transforms as trans
 
-num_devs = 3
-lz.init_dev((3,2,1,))
+num_devs = 1
+# lz.init_dev((3,2,1,))
 # lz.init_dev(lz.get_dev(num_devs))
-# lz.init_dev((0,))
+lz.init_dev((2,))
 
 conf = edict()
 conf.num_devs = num_devs
@@ -69,7 +69,7 @@ conf.test_transform = trans.Compose([
 ])
 
 conf.batch_size = 89 * num_devs if not dbg else 8 * num_devs  # xent: 96 92 tri: 112 108
-conf.num_recs = 2 if not dbg else 1
+conf.num_recs = 1
 # --------------------Training Config ------------------------
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
