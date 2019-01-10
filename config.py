@@ -5,8 +5,8 @@ from torch.nn import CrossEntropyLoss
 from torchvision import transforms as trans
 
 num_devs = 3
-# lz.init_dev((1, 2, 3,))
-lz.init_dev(lz.get_dev(num_devs))
+lz.init_dev((3,2,1,))
+# lz.init_dev(lz.get_dev(num_devs))
 # lz.init_dev((0,))
 
 conf = edict()
@@ -20,7 +20,7 @@ conf.dop = None  # top_imp
 conf.id2range_dop = None  # sub_imp
 
 conf.data_path = Path('/data2/share/')
-conf.work_path = Path('work_space/emore.r50.dop.cont')
+conf.work_path = Path('work_space/emore.r50.dop')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -73,7 +73,7 @@ conf.num_recs = 2 if not dbg else 1
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
-conf.start_epoch = 1  # 0
+conf.start_epoch = 0  # 0
 conf.use_opt = 'sgd'
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
@@ -81,8 +81,8 @@ conf.lr = 1e-1  # 3e-3  0.1 4e-2 5e-4  # tri 6e-4
 conf.lr_gamma = 0.1
 # conf.epochs = 25
 # conf.milestones = [14, 19, 22]
-conf.epochs = 12
-conf.milestones = [5, 8, 10]
+conf.epochs = 15
+conf.milestones = [5, 9, 11]
 conf.momentum = 0.9
 conf.pin_memory = True
 conf.num_workers = 12 if not dbg else 1

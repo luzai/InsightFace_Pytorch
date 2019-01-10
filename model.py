@@ -6,7 +6,7 @@ import torch
 from collections import namedtuple
 import math
 
-upgrade = False
+upgrade = True
 
 
 ##################################  Original Arcface Model

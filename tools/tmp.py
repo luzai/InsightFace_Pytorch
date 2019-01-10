@@ -250,4 +250,4 @@ def anaylze_imp(p='glint.bs.cont'):
 
 if __name__ == '__main__':
     cleanup()
-    #anaylze_imp('emore.nas.2')
+    # anaylze_imp('emore.r50.dop/')

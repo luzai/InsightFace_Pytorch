@@ -598,7 +598,7 @@ class RandomIdSampler(Sampler):
                                         size=nrand_ids,
                                         replace=False)
             pids.append(pids_now)
-            for _ in range(int(1 / gl_conf.rand_ratio) + 1):
+            for _ in range(int(1 / gl_conf.rand_ratio) - 1):
                 pids_next = dop[pids_now]
                 pids_next[pids_next == -1] = np.random.choice(self.ids,
                                                               size=len(pids_next[pids_next == -1]),
@@ -762,7 +762,7 @@ class face_learner(object):
                 self.optimizer = optim.Adam([{'params': paras_wo_bn + [self.head.kernel], 'weight_decay': 0},
                                              {'params': paras_only_bn}, ],
                                             betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
-                                            amsgrad= True,
+                                            amsgrad=True,
                                             lr=conf.lr,
                                             )
             elif conf.net_mode == 'mobilefacenet':
@@ -786,7 +786,7 @@ class face_learner(object):
         else:
             pass
     
-    def calc_feature(self, out='t.pk' ):
+    def calc_feature(self, out='t.pk'):
         conf = gl_conf
         self.model.eval()
         loader = DataLoader(
@@ -827,7 +827,7 @@ class face_learner(object):
             print('how many norm', self.nimgs[ind_fea], np.sqrt((fea ** 2).sum()))
             fea = normalize(fea.reshape(1, -1)).flatten()
             features[ind_fea, :] = fea
-        lz.msgpack_dump(features,out )
+        lz.msgpack_dump(features, out)
     
     def calc_importance(self, out):
         conf = gl_conf
@@ -1073,8 +1073,8 @@ class face_learner(object):
                     dop = gl_conf.dop
                     self.writer.add_histogram('top_imp', dop, self.step)
                     self.writer.add_scalar('info/doprat',
-                             np.count_nonzero(dop == gl_conf.mining_init) / dop.shape[0], self.step)
-               
+                                           np.count_nonzero(dop == gl_conf.mining_init) / dop.shape[0], self.step)
+                
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
                                                                                           self.loader.dataset.root_path,
@@ -1230,9 +1230,9 @@ class face_learner(object):
             if load_optimizer:
                 self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
         if load_imp:
-            extra = lz.msgpack_load(save_path/ f'extra_{fixed_str}')
-            gl_conf.dop = extra['dop']
-            gl_conf.id2range_dop = extra['id2range_dop']
+            extra = lz.msgpack_load(save_path / f'extra_{fixed_str.replace(".pth", ".pk")}')
+            gl_conf.dop = extra['dop'].copy()
+            gl_conf.id2range_dop = extra['id2range_dop'].copy()
     
     def board_val(self, db_name, accuracy, best_threshold, roc_curve_tensor):
         self.writer.add_scalar('{}_accuracy'.format(db_name), accuracy, self.step)
