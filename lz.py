@@ -237,7 +237,12 @@ def allow_growth_keras():
 
 def get_mem():
     import psutil
-    mem = psutil.virtual_memory()
+    while True:
+        try:
+            mem = psutil.virtual_memory()
+            break
+        except:
+            pass
     free = mem.free / 1024 ** 3
     available = mem.available / 1024 ** 3
     return available
@@ -348,9 +353,14 @@ class Logger(object):
             self.file.close()
 
 
+def set_file_logger_prt(path=root_path):
+    path = str(path) + '/'
+    sys.stdout = Logger(path + 'log-prt')
+    sys.stderr = Logger(path + 'log-prt-err')
+
+
 if os.environ.get('log', '0') == '1':
-    sys.stdout = Logger(root_path + 'log-prt')
-    sys.stderr = Logger(root_path + 'log-prt-err')
+    set_file_logger_prt()
 
 
 class Timer(object):
@@ -1744,7 +1754,7 @@ class AverageMeter(object):
         self.avg = 0
         self.sum = 0
         self.count = 0
-        self.mem = collections.deque(maxlen=100)
+        self.mem = collections.deque(maxlen=10) # todo ?
     
     def reset(self):
         self.val = 0

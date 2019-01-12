@@ -23,10 +23,10 @@ if __name__ == '__main__':
     # best_lr = 10 ** (log_lrs[np.argmin(losses)])
     # print(best_lr)
     # conf.lr = best_lr
-    
-    learner.init_lr()  # todo what if ...
-    learner.train(conf, conf.epochs)
-    
+    learner.push2redis()
+    # learner.init_lr()  # todo what if ...
+    # learner.train(conf, conf.epochs)
+
     # def calc_importance():
     #     steps = learner.list_steps(conf.model_path)
     #     for step in steps[::-1]:

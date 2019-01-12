@@ -370,6 +370,7 @@ class MxnetLoader():
     def __len__(self):
         return len(self.train_loader)
 '''
+import redis
 
 
 class TorchDataset(object):
@@ -385,6 +386,12 @@ class TorchDataset(object):
         self.path_imgrec = path_imgrec
         self.imgrecs = []
         self.locks = []
+        
+        try:
+            self.r = redis.StrictRedis()
+        except:
+            self.r = None
+        
         lz.timer.since_last_check('start timer for imgrec')
         for num_rec in range(gl_conf.num_recs):
             if num_rec == 1:
@@ -478,6 +485,22 @@ class TorchDataset(object):
         # assert index != 0 and index < len(self) + 1 # index can > len(self)
         succ = False
         index, pid, ind_ind = index
+        if self.r:
+            img = self.r.get(f'imgs/{index}')
+            if img is not None:
+                # print('hit! ')
+                imgs = self.imdecode(img)
+                _rd = random.randint(0, 1)
+                if _rd == 1:
+                    imgs = mx.ndarray.flip(data=imgs, axis=1)
+                imgs = imgs.asnumpy()
+                imgs = imgs / 255.
+                # simply use 0.5 as mean
+                imgs -= 0.5
+                imgs /= 0.5
+                imgs = imgs.transpose((2, 0, 1))
+                return {'imgs': np.array(imgs, dtype=np.float32), 'labels': pid,
+                        'ind_inds': ind_ind}
         ## rand until lock
         while True:
             for ind_rec in range(len(self.locks)):
@@ -514,6 +537,10 @@ class TorchDataset(object):
         imgs -= 0.5
         imgs /= 0.5
         imgs = imgs.transpose((2, 0, 1))
+        
+        if gl_conf.use_redis and self.r and lz.get_mem() >= 20:  # todo check memory
+            self.r.set(f'imgs/{index}', img)
+        
         return {'imgs': np.array(imgs, dtype=np.float32), 'labels': label,
                 'ind_inds': ind_ind}
 
@@ -707,6 +734,7 @@ class face_learner(object):
         if conf.need_log:
             lz.mkdir_p(conf.log_path, delete=True)
             lz.set_file_logger(conf.log_path)
+            lz.set_file_logger_prt(conf.log_path)
         self.writer = SummaryWriter(conf.log_path)
         self.step = 0
         
@@ -777,6 +805,23 @@ class face_learner(object):
         self.save_every = len(self.loader) // 3
         self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
             self.loader.dataset.root_path)  # todo postpone load eval
+    
+    def push2redis(self, limits=6 * 10 ** 6 // 8):
+        conf = gl_conf
+        self.model.eval()
+        loader = DataLoader(
+            self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
+            shuffle=False, sampler=SeqSampler(), drop_last=False,
+            pin_memory=True,
+        )
+        meter = lz.AverageMeter()
+        lz.timer.since_last_check(verbose=False)
+        for ind_data, data in enumerate(loader):
+            meter.update(lz.timer.since_last_check(verbose=False))
+            if ind_data % 99 == 0:
+                print(ind_data, meter.avg)
+            if ind_data > limits:
+                break
     
     def calc_feature(self, out='t.pk'):
         conf = gl_conf

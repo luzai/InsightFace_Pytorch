@@ -24,8 +24,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/')
-# conf.work_path = Path('work_space/emore.r50.dop')
-conf.work_path = Path('work_space/dbg/notri.head.chkpnt')
+conf.work_path = Path('work_space/emore.r50.dop.head.notri.chkpnt')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -44,8 +43,8 @@ elif conf.use_data_folder == conf.emore_folder:
     conf.cutoff = 0
 
 # conf.cutoff = 0
-conf.mining = 'rand.id'  # 'dop' 'imp' rand.img(slow) rand.id # todo imp.grad imp.loss
-conf.mining_init = 1  # for imp 1.6
+conf.mining = 'dop'  # 'dop' 'imp' rand.img(slow) rand.id # todo imp.grad imp.loss
+conf.mining_init = -1  # for imp 1.6
 conf.eps_greed = .3  # todo
 conf.rand_ratio = 9 / 27
 
@@ -74,7 +73,8 @@ conf.test_transform = trans.Compose([
 conf.batch_size = 145 * num_devs if not dbg else 8 * num_devs  # 145 89 xent: 96 92 tri: 112 108
 conf.use_chkpnt = True
 conf.backbone_with_head = True
-conf.board_loss_every = 1  # 100
+conf.use_redis = True
+conf.board_loss_every = 100  # 100
 conf.num_recs = 1
 # --------------------Training Config ------------------------
 conf.log_path = conf.work_path / 'log'
