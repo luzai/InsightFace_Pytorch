@@ -396,11 +396,11 @@ class TorchDataset(object):
             )
             self.locks.append(mp.Lock())
         lz.timer.since_last_check(f'{gl_conf.num_recs} imgrec readers init')  # 27 s / 5 reader
+        lz.timer.since_last_check('start cal dataset info')
         # try:
         #     self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
         #     self.num_classes = len(self.ids)
         # except:
-        lz.timer.since_last_check('start cal dataset info')
         s = self.imgrecs[0].read_idx(0)
         header, _ = recordio.unpack(s)
         assert header.flag > 0, 'ms1m or glint ...'
@@ -425,6 +425,8 @@ class TorchDataset(object):
         self.ids = [ids_map_tmp[id_] for id_ in self.ids]
         self.ids = np.asarray(self.ids)
         self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
+        lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
+        
         gl_conf.num_clss = self.num_classes
         gl_conf.explored = np.zeros(self.ids.max() + 1, dtype=int)
         if gl_conf.mining == 'dop':
@@ -440,7 +442,6 @@ class TorchDataset(object):
                                     self.id2range.items()}
             gl_conf.dop = np.asarray([v.sum() for v in gl_conf.id2range_dop.values()])
         logging.info(f'update num_clss {gl_conf.num_clss} ')
-        lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
         self.cur = 0
         lz.timer.since_last_check('finish cal dataset info')
     
@@ -689,59 +690,61 @@ def update_dop_cls(thetas, labels, dop):
 
 
 class face_learner(object):
-    def __init__(self, conf, inference=False, ):
+    def __init__(self, conf, ):
         logging.info(f'face learner use {conf}')
+        self.milestones = conf.milestones
+        ## torch reader
+        self.dataset = TorchDataset(gl_conf.use_data_folder)
+        
+        self.loader = DataLoader(
+            self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
+            shuffle=False, sampler=RandomIdSampler(), drop_last=True,
+            pin_memory=True,
+        )
+        self.class_num = self.dataset.num_classes
+        print(self.class_num, 'classes, load ok ')
+        if conf.need_log:
+            lz.mkdir_p(conf.log_path, delete=True)
+        self.writer = SummaryWriter(conf.log_path)
+        self.step = 0
+        
         if conf.net_mode == 'mobilefacenet':
-            self.model = torch.nn.DataParallel(MobileFaceNet(conf.embedding_size)).cuda()
+            self.model = MobileFaceNet(conf.embedding_size)
             print('MobileFaceNet model generated')
         elif conf.net_mode == 'nasnetamobile':
             self.model = nasnetamobile(512)
-            self.model = torch.nn.DataParallel(self.model).cuda()
         elif conf.net_mode == 'seresnext50':
             self.model = se_resnext50_32x4d(512, )
-            self.model = torch.nn.DataParallel(self.model).cuda()
         elif conf.net_mode == 'seresnext101':
             self.model = se_resnext101_32x4d(512)
-            self.model = torch.nn.DataParallel(self.model).cuda()
         elif conf.net_mode == 'ir_se' or conf.net_mode == 'ir':
-            self.model = torch.nn.DataParallel(Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)).cuda()
+            self.model = Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)
             print('{}_{} model generated'.format(conf.net_mode, conf.net_depth))
         else:
             raise ValueError(conf.net_mode)
-        if not inference:
-            self.milestones = conf.milestones
-            ## torch reader
-            self.dataset = TorchDataset(gl_conf.use_data_folder)
-            
-            self.loader = DataLoader(
-                self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
-                shuffle=False, sampler=RandomIdSampler(), drop_last=True,
-                pin_memory=True,
-            )
-            self.class_num = self.dataset.num_classes
-            print(self.class_num, 'classes, load ok ')
-            if conf.need_log:
-                lz.mkdir_p(conf.log_path, delete=True)
-            self.writer = SummaryWriter(conf.log_path)
-            self.step = 0
-            if conf.loss == 'arcface':
-                self.head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num)
-            elif conf.loss == 'softmax':
-                self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num)
-            else:
-                raise ValueError(f'{conf.loss}')
-            if conf.head_init:
-                kernel = lz.msgpack_load(conf.head_init).astype(np.float32).transpose()
-                kernel = torch.from_numpy(kernel)
-                assert self.head.kernel.shape == kernel.shape
-                self.head.kernel.data = kernel
-            self.head = self.head.to(conf.device)
-            self.head_triplet = TripletLoss().to(conf.device)
-            print('two model heads generated')
-            
-            paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
+        
+        if conf.backbone_with_head:
+            self.head = self.model.head
+        if conf.loss == 'arcface':
+            self.head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num)
+        elif conf.loss == 'softmax':
+            self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num)
+        else:
+            raise ValueError(f'{conf.loss}')
+        self.model = torch.nn.DataParallel(self.model).cuda()
+        if conf.head_init:
+            kernel = lz.msgpack_load(conf.head_init).astype(np.float32).transpose()
+            kernel = torch.from_numpy(kernel)
+            assert self.head.kernel.shape == kernel.shape
+            self.head.kernel.data = kernel
+        self.head = self.head.to(conf.device)
+        self.head_triplet = TripletLoss().to(conf.device)
+        print('two model heads generated')
+        
+        paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
+        if not gl_conf.backbone_with_head:
             if conf.use_opt == 'adam':
-                self.optimizer = optim.Adam([{'params': paras_wo_bn + [self.head.kernel], 'weight_decay': 0},
+                self.optimizer = optim.Adam([{'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': 0},
                                              {'params': paras_only_bn}, ],
                                             betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
                                             amsgrad=True,
@@ -750,23 +753,28 @@ class face_learner(object):
             elif conf.net_mode == 'mobilefacenet':
                 self.optimizer = optim.SGD([
                     {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
-                    {'params': [paras_wo_bn[-1]] + [self.head.kernel], 'weight_decay': 4e-4},
+                    {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
                     {'params': paras_only_bn}
                 ], lr=conf.lr, momentum=conf.momentum)
             else:
                 self.optimizer = optim.SGD([
-                    {'params': paras_wo_bn + [self.head.kernel], 'weight_decay': gl_conf.weight_decay},
-                    {'params': paras_only_bn}
+                    {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': gl_conf.weight_decay},
+                    {'params': paras_only_bn},
+                
                 ], lr=conf.lr, momentum=conf.momentum)
-            
-            print(self.optimizer, 'optimizers generated')
-            self.board_loss_every = 100  # len(self.loader) // 100
-            self.evaluate_every = len(self.loader) // 3
-            self.save_every = len(self.loader) // 3
-            self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
-                self.loader.dataset.root_path)  # todo postpone load eval
         else:
-            pass
+            self.optimizer = optim.SGD([
+                {'params': paras_wo_bn, 'weight_decay': gl_conf.weight_decay},
+                {'params': paras_only_bn},
+            
+            ], lr=conf.lr, momentum=conf.momentum)
+        
+        print(self.optimizer, 'optimizers generated')
+        self.board_loss_every = 100  # len(self.loader) // 100
+        self.evaluate_every = len(self.loader) // 3
+        self.save_every = len(self.loader) // 3
+        self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
+            self.loader.dataset.root_path)  # todo postpone load eval
     
     def calc_feature(self, out='t.pk'):
         conf = gl_conf
@@ -962,12 +970,15 @@ class face_learner(object):
                     #     loss_meter.update(loss.item())
                     #     loss.backward()
                     # else:
-                    if conf.finetune:
-                        # todo mode for nas resnext .. only
-                        embeddings = self.model(imgs, mode='finetune')
+                    if not gl_conf.backbone_with_head:
+                        if conf.finetune:
+                            # todo mode for nas resnext .. only
+                            embeddings = self.model(imgs, mode='finetune')
+                        else:
+                            embeddings = self.model(imgs)
+                        thetas = self.head(embeddings, labels)
                     else:
-                        embeddings = self.model(imgs)
-                    thetas = self.head(embeddings, labels)
+                        embeddings, thetas = self.model(imgs, labels=labels)
                     loss = conf.ce_loss(thetas, labels)
                     acc_t = (thetas.argmax(dim=1) == labels)
                     acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
@@ -1019,11 +1030,9 @@ class face_learner(object):
                     embeddings_o = self.model(imgs)
                     thetas_o = self.head(embeddings_o, labels)
                     loss_o = conf.ce_loss(thetas_o, labels)
-                    grad = \
-                        torch.autograd.grad(loss_o, embeddings_o,
-                                            retain_graph=True, create_graph=True,
-                                            only_inputs=True)[
-                            0]
+                    grad = torch.autograd.grad(loss_o, embeddings_o,
+                                               retain_graph=True, create_graph=True,
+                                               only_inputs=True)[0]
                     embeddings = embeddings_o + conf.fgg_wei * grad
                     thetas = self.head(embeddings, labels)
                     loss = conf.ce_loss(thetas, labels)

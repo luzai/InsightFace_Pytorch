@@ -35,7 +35,7 @@ class SEModule(Module):
         self.fc2 = Conv2d(
             channels // reduction, channels, kernel_size=1, padding=0, bias=False)
         self.sigmoid = Sigmoid()
-
+    
     def forward(self, x):
         module_input = x
         x = self.avg_pool(x)
@@ -58,7 +58,7 @@ class bottleneck_IR(Module):
             BatchNorm2d(in_channel),
             Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False), PReLU(depth),
             Conv2d(depth, depth, (3, 3), stride, 1, bias=False), BatchNorm2d(depth))
-
+    
     def forward(self, x):
         shortcut = self.shortcut_layer(x)
         res = self.res_layer(x)
@@ -95,7 +95,7 @@ class bottleneck_IR_SE(Module):
                 BatchNorm2d(depth),
                 SEModule(depth, 16)
             )
-
+    
     def forward(self, x):
         if self.shortcut_layer is not None:
             shortcut = self.shortcut_layer(x)
@@ -138,6 +138,8 @@ def get_blocks(num_layers):
     return blocks
 
 
+from torch.utils.checkpoint import checkpoint_sequential
+
 class Backbone(Module):
     def __init__(self, num_layers, drop_ratio, mode='ir'):
         super(Backbone, self).__init__()
@@ -164,12 +166,24 @@ class Backbone(Module):
                                 bottleneck.depth,
                                 bottleneck.stride))
         self.body = Sequential(*modules)
-
-    def forward(self, x, normalize=True, return_norm=False):
+        if gl_conf.backbone_with_head:
+            if gl_conf.loss == 'arcface':
+                self.head = Arcface(embedding_size=gl_conf.embedding_size, classnum=gl_conf.num_clss)
+            elif gl_conf.loss == 'softmax':
+                self.head = MySoftmax(embedding_size=gl_conf.embedding_size, classnum=gl_conf.num_clss)
+            else:
+                raise ValueError(f'{gl_conf.loss}')
+    
+    def forward(self, x, normalize=True, return_norm=False,labels = None):
         x = self.input_layer(x)
-        x = self.body(x)
+        if not gl_conf.use_chkpnt:
+            x = self.body(x)
+        else:
+            x = checkpoint_sequential(self.body, 4, x)
         x = self.output_layer(x)
         x_norm, norm = l2_norm(x, axis=1, need_norm=True)
+        if gl_conf.backbone_with_head:
+            return x_norm, self.head(x,labels)
         if normalize:
             if return_norm:
                 return x_norm, norm
@@ -180,9 +194,9 @@ class Backbone(Module):
                 return x, norm
             else:
                 return x
-        
 
-##################################  MobileFaceNet #############################################################
+
+##################################  MobileFaceNet
 
 
 class Conv_block(Module):
@@ -192,7 +206,7 @@ class Conv_block(Module):
                            bias=False)
         self.bn = BatchNorm2d(out_c)
         self.prelu = PReLU(out_c)
-
+    
     def forward(self, x):
         x = self.conv(x)
         x = self.bn(x)
@@ -206,7 +220,7 @@ class Linear_block(Module):
         self.conv = Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding,
                            bias=False)
         self.bn = BatchNorm2d(out_c)
-
+    
     def forward(self, x):
         x = self.conv(x)
         x = self.bn(x)
@@ -220,7 +234,7 @@ class Depth_Wise(Module):
         self.conv_dw = Conv_block(groups, groups, groups=groups, kernel=kernel, padding=padding, stride=stride)
         self.project = Linear_block(groups, out_c, kernel=(1, 1), padding=(0, 0), stride=(1, 1))
         self.residual = residual
-
+    
     def forward(self, x):
         if self.residual:
             short_cut = x
@@ -242,7 +256,7 @@ class Residual(Module):
             modules.append(
                 Depth_Wise(c, c, residual=True, kernel=kernel, padding=padding, stride=stride, groups=groups))
         self.model = Sequential(*modules)
-
+    
     def forward(self, x):
         return self.model(x)
 
@@ -263,7 +277,7 @@ class MobileFaceNet(Module):
         self.conv_6_flatten = Flatten()
         self.linear = Linear(512, embedding_size, bias=False)
         self.bn = BatchNorm1d(embedding_size)
-
+    
     def forward(self, x):
         out = self.conv1(x)
         out = self.conv2_dw(out)
@@ -283,6 +297,9 @@ class MobileFaceNet(Module):
 
 ##################################  Arcface head #################
 from config import conf as gl_conf
+from torch.nn.utils import weight_norm
+
+use_kernel2 = False # kernel2 not work!
 
 
 class Arcface(Module):
@@ -290,9 +307,14 @@ class Arcface(Module):
     def __init__(self, embedding_size=512, classnum=51332, s=gl_conf.scale, m=0.5):
         super(Arcface, self).__init__()
         self.classnum = classnum
-        self.kernel = Parameter(torch.Tensor(embedding_size, classnum))
+        if not use_kernel2:
+            self.kernel = Parameter(torch.Tensor(embedding_size, classnum))
+            self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
+        else:
+            self.kernel = weight_norm(nn.Linear(embedding_size, classnum, bias=False))
+            self.kernel.weight_g.data = torch.ones((classnum, 1))
+            self.kernel.weight_v.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
         # initial kernel
-        self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
         self.m = m  # the margin value, default is 0.5
         self.s = s  # scalar value default is 64, see normface https://arxiv.org/abs/1704.06369
         self.cos_m = math.cos(m)
@@ -303,9 +325,12 @@ class Arcface(Module):
     def forward(self, embbedings, label):
         # weights norm
         nB = len(embbedings)
-        kernel_norm = l2_norm(self.kernel, axis=0)
-        # cos(theta+m)
-        cos_theta = torch.mm(embbedings, kernel_norm)
+        if not use_kernel2:
+            kernel_norm = l2_norm(self.kernel, axis=0)
+            # cos(theta+m)
+            cos_theta = torch.mm(embbedings, kernel_norm)
+        else:
+            cos_theta = self.kernel(embbedings)
         #         output = torch.mm(embbedings,kernel_norm)
         cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability
         cos_theta_2 = torch.pow(cos_theta, 2)
@@ -317,6 +342,8 @@ class Arcface(Module):
         #     -m<=theta<=pi-m
         cond_v = cos_theta - self.threshold
         cond_mask = cond_v <= 0
+        if torch.any(cond_mask).item():
+            print('this may be a difficult sample')
         keep_val = (cos_theta - self.mm)  # when theta not in [0,pi], use cosface instead
         cos_theta_m[cond_mask] = keep_val[cond_mask]
         output = cos_theta * 1.0  # a little bit hacky way to prevent in_place operation on cos_theta
@@ -338,7 +365,7 @@ class Am_softmax(Module):
         self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
         self.m = 0.35  # additive margin recommended by the paper
         self.s = 30.  # see normface https://arxiv.org/abs/1704.06369
-
+    
     def forward(self, embbedings, label):
         kernel_norm = l2_norm(self.kernel, axis=0)
         cos_theta = torch.mm(embbedings, kernel_norm)
@@ -361,7 +388,7 @@ class MySoftmax(Module):
         self.kernel = Parameter(torch.Tensor(embedding_size, classnum))
         self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
         self.s = gl_conf.scale
-
+    
     def forward(self, embeddings, label):
         kernel_norm = l2_norm(self.kernel, axis=0)
         cos_theta = torch.mm(embeddings, kernel_norm).clamp(-1, 1) * self.s
@@ -378,15 +405,15 @@ class TripletLoss(Module):
     Args:
     - margin (float): margin for triplet.
     """
-
+    
     def __init__(self, margin=0.3):
         super(TripletLoss, self).__init__()
         self.margin = margin
         self.ranking_loss = nn.MarginRankingLoss(margin=margin)
-
+    
     def forward(self, inputs, targets):
         n = inputs.size(0)  # todo is this version  correct?
-
+        
         # Compute pairwise distance, replace by the official when merged
         dist = torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(n, n)
         dist = dist + dist.t()
@@ -405,9 +432,9 @@ class TripletLoss(Module):
         dist_ap = (daps * ap_wei).sum(dim=1)
         dist_an = (dans * an_wei).sum(dim=1)
         loss = F.softplus(dist_ap - dist_an).mean()
-
+        
         return loss
-
+    
     def forward_slow(self, inputs, targets):
         """
         Args:
@@ -415,13 +442,12 @@ class TripletLoss(Module):
         - targets: ground truth labels with shape (num_classes)
         """
         n = inputs.size(0)
-
+        
         # Compute pairwise distance, replace by the official when merged
         dist = torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(n, n)
         dist = dist + dist.t()
         dist.addmm_(1, -2, inputs, inputs.t()).clamp_(min=1e-12).sqrt_()
-
-
+        
         # For each anchor, find the hardest positive and negative
         mask = targets.expand(n, n).eq(targets.expand(n, n).t())
         dist_ap, dist_an = [], []
@@ -436,16 +462,16 @@ class TripletLoss(Module):
             # ap_wei = F.softmax(daps.detach() / (128 ** (1/2)), dim=0)
             # ap_wei = F.softmax(daps, dim=0) # allow atention on weright
             dist_ap.append((daps * ap_wei).sum().unsqueeze(0))
-
+            
             dans = dist[i][mask[i] == 0]
             an_wei = F.softmax(-dans.detach(), dim=0)
             # an_wei = F.softmax(-dans.detach() / (128 ** (1/2)) , dim=0)
             # an_wei = F.softmax(-dans, dim=0)
             dist_an.append((dans * an_wei).sum().unsqueeze(0))
-
+        
         dist_ap = torch.cat(dist_ap)
         dist_an = torch.cat(dist_an)
-
+        
         # Compute ranking hinge loss
         # y = torch.ones_like(dist_an)
         # loss = self.ranking_loss(dist_an, dist_ap, y)

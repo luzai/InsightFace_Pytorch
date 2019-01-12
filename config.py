@@ -8,7 +8,7 @@ from torchvision import transforms as trans
 num_devs = 1
 # lz.init_dev((3,2,1,))
 # lz.init_dev(lz.get_dev(num_devs))
-lz.init_dev((2,))
+lz.init_dev((3,))
 
 conf = edict()
 conf.num_devs = num_devs
@@ -68,7 +68,9 @@ conf.test_transform = trans.Compose([
     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
 
-conf.batch_size = 89 * num_devs if not dbg else 8 * num_devs  # xent: 96 92 tri: 112 108
+conf.batch_size = 145 * num_devs if not dbg else 8 * num_devs  # 89 xent: 96 92 tri: 112 108
+conf.use_chkpnt=True
+conf.backbone_with_head=True
 conf.num_recs = 1
 # --------------------Training Config ------------------------
 conf.log_path = conf.work_path / 'log'
