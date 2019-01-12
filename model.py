@@ -183,12 +183,12 @@ class Backbone(Module):
         x = self.output_layer(x)
         x_norm, norm = l2_norm(x, axis=1, need_norm=True)
         if gl_conf.backbone_with_head:
-            return x_norm, self.head(x,labels)
+            return x_norm, self.head(x_norm,labels)
         if normalize:
             if return_norm:
                 return x_norm, norm
             else:
-                return x_norm
+                return x_norm # the default one
         else:
             if return_norm:
                 return x, norm
@@ -343,7 +343,7 @@ class Arcface(Module):
         cond_v = cos_theta - self.threshold
         cond_mask = cond_v <= 0
         if torch.any(cond_mask).item():
-            print('this may be a difficult sample')
+            logging.info('this concatins a difficult sample')
         keep_val = (cos_theta - self.mm)  # when theta not in [0,pi], use cosface instead
         cos_theta_m[cond_mask] = keep_val[cond_mask]
         output = cos_theta * 1.0  # a little bit hacky way to prevent in_place operation on cos_theta

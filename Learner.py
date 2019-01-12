@@ -564,6 +564,7 @@ class RandomIdSampler(Sampler):
     def __len__(self):
         return self.length
     
+    # TODO JIT?
     def get_batch_ids(self):
         pids = []
         dop = gl_conf.dop
@@ -705,6 +706,7 @@ class face_learner(object):
         print(self.class_num, 'classes, load ok ')
         if conf.need_log:
             lz.mkdir_p(conf.log_path, delete=True)
+            lz.set_file_logger(conf.log_path)
         self.writer = SummaryWriter(conf.log_path)
         self.step = 0
         
@@ -770,7 +772,7 @@ class face_learner(object):
             ], lr=conf.lr, momentum=conf.momentum)
         
         print(self.optimizer, 'optimizers generated')
-        self.board_loss_every = 100  # len(self.loader) // 100
+        self.board_loss_every = gl_conf.board_loss_every
         self.evaluate_every = len(self.loader) // 3
         self.save_every = len(self.loader) // 3
         self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
@@ -979,6 +981,7 @@ class face_learner(object):
                         thetas = self.head(embeddings, labels)
                     else:
                         embeddings, thetas = self.model(imgs, labels=labels)
+                    # from IPython import embed;embed()
                     loss = conf.ce_loss(thetas, labels)
                     acc_t = (thetas.argmax(dim=1) == labels)
                     acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
@@ -1041,15 +1044,13 @@ class face_learner(object):
                     raise ValueError(f'{conf.fgg}')
                 self.optimizer.step()
                 
-                if self.step % 100 == 0:
+                if self.step % self.board_loss_every == 0:
                     logging.info(f'epoch {e} step {self.step}: ' +
                                  # f'img {imgs.mean()} {imgs.max()} {imgs.min()} ' +
-                                 f'loss: {loss.item():.3f} ' +
+                                 f'loss: {loss.item():.2e} ' +
                                  f'data time: {data_time.avg:.2f} ' +
-                                 f'loss time: {loss_time.avg:.2f} acc: {acc_meter.avg:.3e} ' +
+                                 f'loss time: {loss_time.avg:.2f} acc: {acc_meter.avg:.2e} ' +
                                  f'speed: {gl_conf.batch_size/(data_time.avg+loss_time.avg):.2f} imgs/s')
-                if self.step % self.board_loss_every == 0 and self.step != 0:
-                    # record lr
                     self.writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     self.writer.add_scalar('loss/ttl',
                                            ((1 - gl_conf.tri_wei) * loss_meter.avg +

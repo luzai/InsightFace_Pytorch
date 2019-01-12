@@ -3,7 +3,7 @@ from PIL import Image
 import argparse
 from pathlib import Path
 import torch
-from config import get_config
+from config import conf
 from mtcnn import MTCNN
 from Learner import face_learner
 from utils import load_facebank, draw_box_name, prepare_facebank
@@ -39,12 +39,11 @@ except:
     df_dump(df_pair, ijbcp, 'pair')
     df_dump(df_name, ijbcp, 'name')
 
-conf = get_config()
 conf.need_log = False
 conf.batch_size *= 2
 learner = face_learner(conf, )
 learner.load_state(conf, 'model.final.pth',
-                   resume_path='work_space/emore.r50.cont/models/',
+                   resume_path='work_space/emore.r50.dop/models/',
                    latest=False,
                    model_only=True, )
 learner.model.eval()
@@ -64,7 +63,6 @@ img_path = '/share/data/loose_crop'
 img_list = open(img_list_path)
 files = img_list.readlines()
 num_imgs = len(files)
-# img_feats = np.ones((df_tm.shape[0], 512)) * np.nan
 img_feats = np.empty((df_tm.shape[0], 512))
 
 

@@ -1,3 +1,6 @@
+import matplotlib
+
+matplotlib.use('Gtk3Agg')
 import matplotlib.pyplot as plt
 
 # dbg = True
@@ -111,7 +114,6 @@ InteractiveShell.ast_node_interactivity = "all"
 # torch.set_default_tensor_type(torch.cuda.DoubleTensor)
 # ori_np_err = np.seterr(all='raise') # 1/100000=0 will be error
 
-
 def set_stream_logger(log_level=logging.DEBUG):
     import colorlog
     sh = colorlog.StreamHandler()
@@ -199,7 +201,6 @@ def occupy(dev=range(8)):
 # if something like Runtime Error : an illegal memory access was encountered occur
 # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
-
 '''
 oldinit = Session.__init__
 
@@ -234,27 +235,15 @@ def allow_growth_keras():
     keras.backend.set_session(allow_growth_sess())
 
 
-def get_gpu_memory_map():
-    """Get the current gpu usage.
-
-    Returns
-    -------
-    usage: dict
-        Keys are device ids as integers.
-        Values are memory usage as integers in MB.
-    """
-    result = subprocess.check_output(
-        [
-            'nvidia-smi', '--query-gpu=memory.used',
-            '--format=csv,nounits,noheader'
-        ])
-    # Convert lines into a dictionary
-    gpu_memory = [int(x) for x in result.strip().split('\n')]
-    gpu_memory_map = dict(zip(range(len(gpu_memory)), gpu_memory))
-    return gpu_memory_map
+def get_mem():
+    import psutil
+    mem = psutil.virtual_memory()
+    free = mem.free / 1024 ** 3
+    available = mem.available / 1024 ** 3
+    return available
 
 
-def get_mem(ind=0):
+def get_gpu_mem(ind=0):
     import gpustat
     gpus = gpustat.GPUStatCollection.new_query().gpus
     return gpus[ind].entry['memory.used'] / gpus[ind].entry['memory.total'] * 100
@@ -269,7 +258,7 @@ def get_utility(ind=0):
 def show_dev(devs=range(4)):
     res = []
     for ind in devs:
-        mem = get_mem(ind)
+        mem = get_gpu_mem(ind)
         print(ind, mem)
         res.append(mem)
     return res
@@ -280,7 +269,7 @@ def get_dev(n=1, ok=range(4), mem_thresh=(0.1, 0.15), sleep=23.3):  # 0.3: now o
         mem_thresh = (mem_thresh,)
     
     def get_poss_dev():
-        mems = [get_mem(ind) for ind in ok]
+        mems = [get_gpu_mem(ind) for ind in ok]
         inds, mems = cosort(ok, mems, return_val=True)
         devs = [ind for ind, mem in zip(inds, mems) if mem < mem_thresh[0] * 100]
         
@@ -1579,7 +1568,8 @@ def face_orientation(frame, landmarks):
                        [0, 0, 500]])
     
     imgpts, jac = cv2.projectPoints(axis, rotation_vector, translation_vector, camera_matrix, dist_coeffs)
-    modelpts, jac2 = cv2.projectPoints(model_points, rotation_vector, translation_vector, camera_matrix, dist_coeffs)
+    modelpts, jac2 = cv2.projectPoints(model_points, rotation_vector, translation_vector, camera_matrix,
+                                       dist_coeffs)
     rvec_matrix = cv2.Rodrigues(rotation_vector)[0]
     
     proj_matrix = np.hstack((rvec_matrix, translation_vector))
@@ -1774,7 +1764,3 @@ class AverageMeter(object):
         # self.sum += val * n
         # self.count += n
         # self.avg = self.sum / self.count
-
-
-if __name__ == '__main__':
-    pass
