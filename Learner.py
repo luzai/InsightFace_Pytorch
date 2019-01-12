@@ -761,7 +761,11 @@ class face_learner(object):
             self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num)
         else:
             raise ValueError(f'{conf.loss}')
-        self.model = torch.nn.DataParallel(self.model).cuda()
+        if conf.local_rank is not None:
+            self.model = torch.nn.DataParallel(self.model).cuda()
+        else:
+            self.model = torch.nn.parallel.DistributedDataParallel(self.model,
+                                                                   device_ids=[conf.local_rank], output_device=conf.local_rank)
         if conf.head_init:
             kernel = lz.msgpack_load(conf.head_init).astype(np.float32).transpose()
             kernel = torch.from_numpy(kernel)

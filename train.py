@@ -4,7 +4,15 @@ from Learner import face_learner
 import argparse
 from pathlib import Path
 
+parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
+parser.add_argument('local-rank', default=None, type=int)
 if __name__ == '__main__':
+    args = parser.parse_args()
+    conf.local_rank=args.local_rank
+    torch.cuda.set_device(conf.local_rank)
+    if conf.local_rank is not None:
+        torch.distributions.init_process_group(backend='nccl',
+                                               init_method="env://")
     learner = face_learner(conf, )
     
     ## for resume or evaluate
@@ -23,10 +31,10 @@ if __name__ == '__main__':
     # best_lr = 10 ** (log_lrs[np.argmin(losses)])
     # print(best_lr)
     # conf.lr = best_lr
-    learner.push2redis()
-    # learner.init_lr()  # todo what if ...
-    # learner.train(conf, conf.epochs)
-
+    # learner.push2redis()
+    learner.init_lr()  # todo what if ...
+    learner.train(conf, conf.epochs)
+    
     # def calc_importance():
     #     steps = learner.list_steps(conf.model_path)
     #     for step in steps[::-1]:

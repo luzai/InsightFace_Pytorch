@@ -5,12 +5,12 @@ from torch.nn import CrossEntropyLoss
 # todo label smooth
 from torchvision import transforms as trans
 
-num_devs = 3
-lz.init_dev((3, 2, 1,))
+# num_devs = 3
+# lz.init_dev((3, 2, 1,))
 # num_devs =2
 # lz.init_dev(lz.get_dev(num_devs))
-# num_devs = 1
-# lz.init_dev((1,))
+num_devs = 1
+lz.init_dev((3,))
 
 conf = edict()
 conf.num_devs = num_devs
@@ -18,6 +18,7 @@ dbg = lz.dbg
 conf.no_eval = False
 conf.loss = 'arcface'  # softmax arcface
 
+conf.local_rank=None
 conf.num_clss = None
 conf.dop = None  # top_imp
 conf.id2range_dop = None  # sub_imp
@@ -73,7 +74,7 @@ conf.test_transform = trans.Compose([
 conf.batch_size = 145 * num_devs if not dbg else 8 * num_devs  # 145 89 xent: 96 92 tri: 112 108
 conf.use_chkpnt = True
 conf.backbone_with_head = True
-conf.use_redis = True
+conf.use_redis = False
 conf.board_loss_every = 100  # 100
 conf.num_recs = 1
 # --------------------Training Config ------------------------
