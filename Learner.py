@@ -370,7 +370,6 @@ class MxnetLoader():
     def __len__(self):
         return len(self.train_loader)
 '''
-import redis
 
 
 class TorchDataset(object):
@@ -387,9 +386,11 @@ class TorchDataset(object):
         self.imgrecs = []
         self.locks = []
         
-        try:
+        if gl_conf.use_redis:
+            import redis
+            
             self.r = redis.StrictRedis()
-        except:
+        else:
             self.r = None
         
         lz.timer.since_last_check('start timer for imgrec')
@@ -761,11 +762,12 @@ class face_learner(object):
             self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num)
         else:
             raise ValueError(f'{conf.loss}')
-        if conf.local_rank is not None:
+        if conf.local_rank is None:
             self.model = torch.nn.DataParallel(self.model).cuda()
         else:
-            self.model = torch.nn.parallel.DistributedDataParallel(self.model,
-                                                                   device_ids=[conf.local_rank], output_device=conf.local_rank)
+            self.model = torch.nn.parallel.DistributedDataParallel(self.model.cuda(),
+                                                                   device_ids=[conf.local_rank],
+                                                                   output_device=conf.local_rank)
         if conf.head_init:
             kernel = lz.msgpack_load(conf.head_init).astype(np.float32).transpose()
             kernel = torch.from_numpy(kernel)
@@ -794,15 +796,15 @@ class face_learner(object):
                 self.optimizer = optim.SGD([
                     {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': gl_conf.weight_decay},
                     {'params': paras_only_bn},
-                
                 ], lr=conf.lr, momentum=conf.momentum)
         else:
-            self.optimizer = optim.SGD([
-                {'params': paras_wo_bn, 'weight_decay': gl_conf.weight_decay},
-                {'params': paras_only_bn},
-            
-            ], lr=conf.lr, momentum=conf.momentum)
-        
+            #self.optimizer = optim.SGD([
+            #    {'params': paras_wo_bn, 'weight_decay': gl_conf.weight_decay},
+            #    {'params': paras_only_bn},
+            #], lr=conf.lr, momentum=conf.momentum)
+            self.optimizer = optim.SGD(self.model.parameters(), lr=conf.lr, momentum=conf.momentum,
+                                        weight_decay=conf.weight_decay)
+        scp
         print(self.optimizer, 'optimizers generated')
         self.board_loss_every = gl_conf.board_loss_every
         self.evaluate_every = len(self.loader) // 3
@@ -1179,6 +1181,10 @@ class face_learner(object):
         return min_idx, minimum
     
     def save_state(self, conf, accuracy, to_save_folder=False, extra=None, model_only=False):
+        if gl_conf.rank is None:
+            return
+        if gl_conf.rank != 0:
+            return
         if to_save_folder:
             save_path = conf.save_path
         else:

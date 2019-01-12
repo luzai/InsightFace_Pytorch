@@ -13,7 +13,7 @@ import cv2
 
 
 def separate_bn_paras(modules):
-    if isinstance(modules, torch.nn.DataParallel):
+    if isinstance(modules,( torch.nn.DataParallel, torch.nn.parallel.DistributedDataParallel)):
         modules = modules.module
     if not isinstance(modules, list):
         modules = [*modules.modules()]

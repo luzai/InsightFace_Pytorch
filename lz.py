@@ -1,6 +1,9 @@
+#!/usr/bin/env python3
+
 import matplotlib
 
-matplotlib.use('Gtk3Agg')
+# matplotlib.use('Gtk3Agg')
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 
 # dbg = True
@@ -54,6 +57,7 @@ if os.environ.get('pytorch', "1") == "1":
     from torch import nn
     import torch.nn.functional as F
     
+    os.environ["NCCL_DEBUG"] = "INFO"
     old_repr = torch.Tensor.__repr__
     torch.Tensor.__repr__ = lambda obj: (f'th {tuple(obj.shape)} {obj.type()} '
                                          f'{old_repr(obj)} '
@@ -1754,7 +1758,7 @@ class AverageMeter(object):
         self.avg = 0
         self.sum = 0
         self.count = 0
-        self.mem = collections.deque(maxlen=10) # todo ?
+        self.mem = collections.deque(maxlen=10)  # todo ?
     
     def reset(self):
         self.val = 0

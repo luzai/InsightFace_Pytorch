@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from lz import *
 from config import conf
 from Learner import face_learner
@@ -5,13 +7,13 @@ import argparse
 from pathlib import Path
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('local-rank', default=None, type=int)
+parser.add_argument('--local_rank', default=None, type=int)
 if __name__ == '__main__':
     args = parser.parse_args()
     conf.local_rank=args.local_rank
-    torch.cuda.set_device(conf.local_rank)
     if conf.local_rank is not None:
-        torch.distributions.init_process_group(backend='nccl',
+        torch.cuda.set_device(conf.local_rank)
+        torch.distributed.init_process_group(backend='nccl',
                                                init_method="env://")
     learner = face_learner(conf, )
     
