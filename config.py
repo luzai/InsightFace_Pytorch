@@ -53,7 +53,7 @@ conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
 conf.tri_wei = 0
 conf.scale = 64.  # 30.
-conf.start_eval = True
+conf.start_eval = False
 conf.instances = 4
 
 conf.input_size = [112, 112]

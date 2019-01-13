@@ -564,9 +564,10 @@ class Dataset_val(torch.utils.data.Dataset):
 
 # improve locality and improve load speed!
 class RandomIdSampler(Sampler):
-    def __init__(self):
+    def __init__(self, imgidx, ids, id2range):
         path_ms1m = gl_conf.use_data_folder
-        self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
+        self.imgidx, self.ids, self.id2range = imgidx, ids, id2range
+        # self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
         # above is the imgidx of .rec file
         # remember -1 to convert to pytorch imgidx
         self.num_instances = gl_conf.instances
@@ -727,7 +728,10 @@ class face_learner(object):
         
         self.loader = DataLoader(
             self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
-            shuffle=False, sampler=RandomIdSampler(), drop_last=True,
+            shuffle=False,
+            sampler=RandomIdSampler(self.dataset.imgidx,
+                                    self.dataset.ids, self.dataset.id2range),
+            drop_last=True,
             pin_memory=True,
         )
         self.class_num = self.dataset.num_classes
@@ -799,8 +803,8 @@ class face_learner(object):
                 ], lr=conf.lr, momentum=conf.momentum)
         else:
             self.optimizer = optim.SGD([
-               {'params': paras_wo_bn, 'weight_decay': gl_conf.weight_decay},
-               {'params': paras_only_bn},
+                {'params': paras_wo_bn, 'weight_decay': gl_conf.weight_decay},
+                {'params': paras_only_bn},
             ], lr=conf.lr, momentum=conf.momentum)
             # self.optimizer = optim.SGD(self.model.parameters(), lr=conf.lr,
             #  momentum=conf.momentum,
@@ -1031,7 +1035,7 @@ class face_learner(object):
                             embeddings = self.model(imgs)
                         thetas = self.head(embeddings, labels)
                     else:
-                        embeddings, thetas = self.model(imgs, labels=labels,return_logits=True)
+                        embeddings, thetas = self.model(imgs, labels=labels, return_logits=True)
                     # from IPython import embed;embed()
                     loss = conf.ce_loss(thetas, labels)
                     acc_t = (thetas.argmax(dim=1) == labels)
@@ -1101,7 +1105,7 @@ class face_learner(object):
                                  f'loss: {loss.item():.2e} ' +
                                  f'data time: {data_time.avg:.2f} ' +
                                  f'loss time: {loss_time.avg:.2f} acc: {acc_meter.avg:.2e} ' +
-                                 f'speed: {gl_conf.batch_size/(data_time.avg+loss_time.avg):.2f} imgs/s')
+                                 f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     self.writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     self.writer.add_scalar('loss/ttl',
                                            ((1 - gl_conf.tri_wei) * loss_meter.avg +
@@ -1321,10 +1325,14 @@ class face_learner(object):
                 idx += conf.batch_size
         
         # tpr/fpr is averaged over various fold division
-        tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
-        buf = gen_plot(fpr, tpr)
-        roc_curve = Image.open(buf)
-        roc_curve_tensor = trans.ToTensor()(roc_curve)
+        try:
+            tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
+            buf = gen_plot(fpr, tpr)
+            roc_curve = Image.open(buf)
+            roc_curve_tensor = trans.ToTensor()(roc_curve)
+        except Exception as e:
+            logging.error(f'{e}')
+            roc_curve_tensor = torch.zeros(3, 100, 100)
         self.model.train()
         logging.info('eval end')
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor

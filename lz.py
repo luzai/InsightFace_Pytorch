@@ -2,8 +2,8 @@
 
 import matplotlib
 
-# matplotlib.use('Gtk3Agg')
-matplotlib.use('TkAgg')
+matplotlib.use('Gtk3Agg')
+# matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 
 # dbg = True
@@ -926,6 +926,8 @@ def msgpack_dumps(obj, **kwargs):
 
 
 def msgpack_load(file, **kwargs):
+    # logging.info(f'load {file}')
+    # however this is not thread safe
     import msgpack, gc, msgpack_numpy as m
     gc.disable()
     kwargs.setdefault('allow_np', True)

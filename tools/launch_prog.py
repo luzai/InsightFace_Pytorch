@@ -36,7 +36,13 @@ for k, v in my_env.items():
     if k in ks:
         export += f"export {k}={v}&&"
 kill_cmd = (
-         export + 'cd ~/prj/InsightFace_Pytorch&&CUDA_VISIBLE_DEVICES=3 python -m torch.distributed.launch --nproc_per_node=1 --nnodes=2 --node_rank=%d --master_addr="10.13.72.84" --master_port=12345 ./train.py'
+         export + 'cd ~/prj/InsightFace_Pytorch&&'
+                  'CUDA_VISIBLE_DEVICES=0,1,2,3 '
+                  'python -m torch.distributed.launch '
+                  '--nproc_per_node=3 '
+                  '--nnodes=2 '
+                  '--node_rank=%d '
+                  '--master_addr="10.13.72.84" --master_port=12345 ./train.py'
 )
 print(kill_cmd)
 
