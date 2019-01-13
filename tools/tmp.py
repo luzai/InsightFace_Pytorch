@@ -1,7 +1,7 @@
 import lz
 from lz import *
 
-from config import get_config
+from config import conf
 from Learner import face_learner
 import argparse
 import mxnet as mx
@@ -29,8 +29,6 @@ def main1():
         data_mode="ms1m",
     )
     args = parser.parse_args()
-    
-    conf = get_config(training=True)
     
     if args.net_mode == 'mobilefacenet':
         conf.use_mobilfacenet = True
@@ -251,3 +249,5 @@ def anaylze_imp(p='glint.bs.cont'):
 if __name__ == '__main__':
     cleanup()
     # anaylze_imp('emore.r50.dop/')
+    # import subprocess
+    # subprocess.check_call("sh test.sh".split())

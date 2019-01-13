@@ -140,6 +140,7 @@ def get_blocks(num_layers):
 
 from torch.utils.checkpoint import checkpoint_sequential
 
+
 class Backbone(Module):
     def __init__(self, num_layers, drop_ratio, mode='ir'):
         super(Backbone, self).__init__()
@@ -174,7 +175,7 @@ class Backbone(Module):
             else:
                 raise ValueError(f'{gl_conf.loss}')
     
-    def forward(self, x, normalize=True, return_norm=False,labels = None):
+    def forward(self, x, normalize=True, return_norm=False, labels=None, return_logits=False):
         x = self.input_layer(x)
         if not gl_conf.use_chkpnt:
             x = self.body(x)
@@ -183,12 +184,15 @@ class Backbone(Module):
         x = self.output_layer(x)
         x_norm, norm = l2_norm(x, axis=1, need_norm=True)
         if gl_conf.backbone_with_head:
-            return x_norm, self.head(x_norm,labels)
+            if not return_logits:
+                return x_norm
+            else:
+                return x_norm, self.head(x_norm, labels)
         if normalize:
             if return_norm:
                 return x_norm, norm
             else:
-                return x_norm # the default one
+                return x_norm  # the default one
         else:
             if return_norm:
                 return x, norm
@@ -299,7 +303,7 @@ class MobileFaceNet(Module):
 from config import conf as gl_conf
 from torch.nn.utils import weight_norm
 
-use_kernel2 = False # kernel2 not work!
+use_kernel2 = False  # kernel2 not work!
 
 
 class Arcface(Module):

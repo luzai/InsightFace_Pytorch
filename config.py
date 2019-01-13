@@ -5,12 +5,12 @@ from torch.nn import CrossEntropyLoss
 # todo label smooth
 from torchvision import transforms as trans
 
-# num_devs = 3
-# lz.init_dev((3, 2, 1,))
+num_devs = 3
+lz.init_dev((3, 2, 1,))
 # num_devs =2
 # lz.init_dev(lz.get_dev(num_devs))
-num_devs = 1
-lz.init_dev((3,))
+# num_devs = 1
+# lz.init_dev((3,))
 
 conf = edict()
 conf.num_devs = num_devs
@@ -53,7 +53,7 @@ conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
 conf.tri_wei = 0
 conf.scale = 64.  # 30.
-conf.start_eval = False
+conf.start_eval = True
 conf.instances = 4
 
 conf.input_size = [112, 112]
@@ -71,8 +71,8 @@ conf.test_transform = trans.Compose([
     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
 
-conf.batch_size = 145 * num_devs if not dbg else 8 * num_devs  # 145 89 xent: 96 92 tri: 112 108
-conf.use_chkpnt = True
+conf.batch_size = 89 * num_devs if not dbg else 8 * num_devs  # 105/135 89 xent: 96 92 tri: 112 108
+conf.use_chkpnt = False
 conf.backbone_with_head = True
 conf.use_redis = False
 conf.board_loss_every = 100  # 100

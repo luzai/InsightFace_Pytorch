@@ -28,7 +28,7 @@ import subprocess
 
 host_file = "./hosts"
 user = "xinglu"
-prog_name = sys.argv[1]
+prog_name = "train.py" # sys.argv[1]
 
 kill_cmd = (
     "ps aux | "

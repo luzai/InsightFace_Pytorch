@@ -798,13 +798,13 @@ class face_learner(object):
                     {'params': paras_only_bn},
                 ], lr=conf.lr, momentum=conf.momentum)
         else:
-            #self.optimizer = optim.SGD([
-            #    {'params': paras_wo_bn, 'weight_decay': gl_conf.weight_decay},
-            #    {'params': paras_only_bn},
-            #], lr=conf.lr, momentum=conf.momentum)
-            self.optimizer = optim.SGD(self.model.parameters(), lr=conf.lr, momentum=conf.momentum,
-                                        weight_decay=conf.weight_decay)
-        scp
+            self.optimizer = optim.SGD([
+               {'params': paras_wo_bn, 'weight_decay': gl_conf.weight_decay},
+               {'params': paras_only_bn},
+            ], lr=conf.lr, momentum=conf.momentum)
+            # self.optimizer = optim.SGD(self.model.parameters(), lr=conf.lr,
+            #  momentum=conf.momentum,
+            #                             weight_decay=conf.weight_decay)
         print(self.optimizer, 'optimizers generated')
         self.board_loss_every = gl_conf.board_loss_every
         self.evaluate_every = len(self.loader) // 3
@@ -1031,7 +1031,7 @@ class face_learner(object):
                             embeddings = self.model(imgs)
                         thetas = self.head(embeddings, labels)
                     else:
-                        embeddings, thetas = self.model(imgs, labels=labels)
+                        embeddings, thetas = self.model(imgs, labels=labels,return_logits=True)
                     # from IPython import embed;embed()
                     loss = conf.ce_loss(thetas, labels)
                     acc_t = (thetas.argmax(dim=1) == labels)
