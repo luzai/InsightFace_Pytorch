@@ -5,8 +5,8 @@ from torch.nn import CrossEntropyLoss
 # todo label smooth
 from torchvision import transforms as trans
 
-num_devs = 3
-lz.init_dev((3, 2, 1,))
+num_devs = 1
+# lz.init_dev((0,1,2,3))
 # num_devs =2
 # lz.init_dev(lz.get_dev(num_devs))
 # num_devs = 1
@@ -63,7 +63,7 @@ conf.drop_ratio = 0.4
 conf.net_mode = 'ir_se'  # 'seresnext101' 'mobilefacenet'  'ir_se'  'ir'
 conf.net_depth = 50
 
-conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # conf.device2 = torch.device("cuda:1")
 
 conf.test_transform = trans.Compose([
@@ -71,7 +71,7 @@ conf.test_transform = trans.Compose([
     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
 
-conf.batch_size = 89 * num_devs if not dbg else 8 * num_devs  # 105/135 89 xent: 96 92 tri: 112 108
+conf.batch_size = 89//2 * num_devs if not dbg else 8 * num_devs  # 105/135 89 xent: 96 92 tri: 112 108
 conf.use_chkpnt = False
 conf.backbone_with_head = True
 conf.use_redis = False

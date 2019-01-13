@@ -737,7 +737,7 @@ class face_learner(object):
         self.class_num = self.dataset.num_classes
         print(self.class_num, 'classes, load ok ')
         if conf.need_log:
-            lz.mkdir_p(conf.log_path, delete=True)
+            lz.mkdir_p(conf.log_path, delete=False)
             lz.set_file_logger(conf.log_path)
             lz.set_file_logger_prt(conf.log_path)
         self.writer = SummaryWriter(conf.log_path)
@@ -777,8 +777,9 @@ class face_learner(object):
             kernel = torch.from_numpy(kernel)
             assert self.head.kernel.shape == kernel.shape
             self.head.kernel.data = kernel
-        self.head = self.head.to(conf.device)
-        self.head_triplet = TripletLoss().to(conf.device)
+        self.head = self.head.cuda()
+        if gl_conf.tri_wei!=0:
+            self.head_triplet = TripletLoss().cuda()
         print('two model heads generated')
         
         paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
@@ -986,8 +987,8 @@ class face_learner(object):
                 # plt.savefig(work_path+'t.png')
                 # plt.close()
                 # logging.info(f'this batch labes {labels} ')
-                imgs = imgs.to(conf.device)
-                labels = labels_cpu.to(conf.device)
+                imgs = imgs.cuda()
+                labels = labels_cpu.cuda()
                 self.optimizer.zero_grad()
                 
                 if not conf.fgg:
