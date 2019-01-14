@@ -5,12 +5,14 @@ from torch.nn import CrossEntropyLoss
 # todo label smooth
 from torchvision import transforms as trans
 
+# todo for dist actual bs large!
+dist = False
 num_devs = 1
-# lz.init_dev((0,1,2,3))
-# num_devs =2
-# lz.init_dev(lz.get_dev(num_devs))
-# num_devs = 1
-# lz.init_dev((3,))
+# lz.init_dev((0, 1, 2))
+lz.init_dev(lz.get_dev(num_devs))
+
+if dist:
+    num_devs=1
 
 conf = edict()
 conf.num_devs = num_devs
@@ -18,14 +20,14 @@ dbg = lz.dbg
 conf.no_eval = False
 conf.loss = 'arcface'  # softmax arcface
 
-conf.local_rank=None
+conf.local_rank = None
 conf.num_clss = None
 conf.dop = None  # top_imp
 conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/')
-conf.work_path = Path('work_space/emore.r50.dop.head.notri.chkpnt')
+conf.work_path = Path('work_space/emore.r50.dop.head.notri.chkpnt.bak')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -64,15 +66,14 @@ conf.net_mode = 'ir_se'  # 'seresnext101' 'mobilefacenet'  'ir_se'  'ir'
 conf.net_depth = 50
 
 # conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-# conf.device2 = torch.device("cuda:1")
 
 conf.test_transform = trans.Compose([
     trans.ToTensor(),
     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
 
-conf.batch_size = 89//2 * num_devs if not dbg else 8 * num_devs  # 105/135 89 xent: 96 92 tri: 112 108
-conf.use_chkpnt = False
+conf.batch_size = 135 * num_devs if not dbg else 8 * num_devs  # 105/135 99 xent: 96 92 tri: 112 108
+conf.use_chkpnt = True
 conf.backbone_with_head = True
 conf.use_redis = False
 conf.board_loss_every = 100  # 100

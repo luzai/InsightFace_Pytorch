@@ -58,6 +58,7 @@ if os.environ.get('pytorch', "1") == "1":
     import torch.nn.functional as F
     
     os.environ["NCCL_DEBUG"] = "INFO"
+    os.environ["NCCL_DEBUG_SUBSYS"] = "ALL"
     old_repr = torch.Tensor.__repr__
     torch.Tensor.__repr__ = lambda obj: (f'th {tuple(obj.shape)} {obj.type()} '
                                          f'{old_repr(obj)} '

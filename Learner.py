@@ -454,7 +454,10 @@ class TorchDataset(object):
         lz.timer.since_last_check('finish cal dataset info')
     
     def __len__(self):
-        return len(self.imgidx)
+        if gl_conf.local_rank is not None:
+            return len(self.imgidx) // torch.distributed.get_world_size()
+        else:
+            return len(self.imgidx)
     
     def __getitem__(self, indices, ):
         # if isinstance(indices, (tuple, list)):
@@ -591,7 +594,10 @@ class RandomIdSampler(Sampler):
             self.length += num - num % self.num_instances
     
     def __len__(self):
-        return self.length
+        if gl_conf.local_rank is not None:
+            return self.length // torch.distributed.get_world_size()
+        else:
+            return self.length
     
     # TODO JIT?
     def get_batch_ids(self):
@@ -603,7 +609,7 @@ class RandomIdSampler(Sampler):
                                     size=int(self.num_pids_per_batch),
                                     p=gl_conf.dop / gl_conf.dop.sum(),
                                     replace=False)
-        # todo dio with no replacement
+        # todo dop with no replacement
         elif gl_conf.mining == 'dop':
             # lz.logging.info(f'dop smapler {np.count_nonzero( dop ==-1)} {dop}')
             nrand_ids = int(self.num_pids_per_batch * gl_conf.rand_ratio)
@@ -702,6 +708,7 @@ class SeqSampler(Sampler):
             self.length += num - num % self.num_instances
     
     def __len__(self):
+        # todo dist
         return self.length
     
     def __iter__(self):
@@ -778,7 +785,7 @@ class face_learner(object):
             assert self.head.kernel.shape == kernel.shape
             self.head.kernel.data = kernel
         self.head = self.head.cuda()
-        if gl_conf.tri_wei!=0:
+        if gl_conf.tri_wei != 0:
             self.head_triplet = TripletLoss().cuda()
         print('two model heads generated')
         
@@ -852,7 +859,7 @@ class face_learner(object):
                 # break
             imgs = data['imgs']
             labels = data['labels'].numpy()
-            imgs = imgs.to(conf.device)
+            imgs = imgs.cuda()
             labels_unique = np.unique(labels)
             with torch.no_grad():
                 embeddings = self.model(imgs, normalize=False).cpu().numpy()
@@ -900,8 +907,8 @@ class face_learner(object):
             imgs = data['imgs']
             labels_cpu = data['labels']
             ind_inds = data['ind_inds']
-            imgs = imgs.to(conf.device)
-            labels = labels_cpu.to(conf.device)
+            imgs = imgs.cuda()
+            labels = labels_cpu.cuda()
             
             with torch.no_grad():
                 embeddings = self.model(imgs)
@@ -942,6 +949,7 @@ class face_learner(object):
         lz.timer.since_last_check('start train')
         data_time = lz.AverageMeter()
         loss_time = lz.AverageMeter()
+        opt_time = lz.AverageMeter()
         loss_meter = lz.AverageMeter()
         loss_tri_meter = lz.AverageMeter()
         acc_meter = lz.AverageMeter()
@@ -967,11 +975,6 @@ class face_learner(object):
                 except StopIteration as e:
                     logging.info(f'one epoch finish {e} {ind_data}')
                     break
-                data_time.update(
-                    lz.timer.since_last_check(f'load data ok ind {ind_data}',
-                                              verbose=False  # if ind_data > 2 else True
-                                              )
-                )
                 imgs = data['imgs']
                 labels_cpu = data['labels']
                 ind_inds = data['ind_inds']
@@ -989,6 +992,9 @@ class face_learner(object):
                 # logging.info(f'this batch labes {labels} ')
                 imgs = imgs.cuda()
                 labels = labels_cpu.cuda()
+                data_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
                 self.optimizer.zero_grad()
                 
                 if not conf.fgg:
@@ -1000,8 +1006,8 @@ class face_learner(object):
                     #         ind_data, data = loader_enum.__next__()
                     #         imgs = data['imgs']
                     #         labels = data['labels']
-                    #         imgs = imgs.to(conf.device)
-                    #         labels = labels.to(conf.device)
+                    #         imgs = imgs.cuda()
+                    #         labels = labels.cuda()
                     #         imgsl.append(imgs)
                     #         labelsl.append(labels)
                     #     imgs = torch.cat(imgsl, dim=0)
@@ -1098,14 +1104,21 @@ class face_learner(object):
                     loss.backward()
                 else:
                     raise ValueError(f'{conf.fgg}')
+                loss_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
                 self.optimizer.step()
-                
+                opt_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
                 if self.step % self.board_loss_every == 0:
                     logging.info(f'epoch {e} step {self.step}: ' +
-                                 # f'img {imgs.mean()} {imgs.max()} {imgs.min()} ' +
+                                 # f'img {imgs.mean()} {imgs.max()} {imgs.min()} '+
                                  f'loss: {loss.item():.2e} ' +
                                  f'data time: {data_time.avg:.2f} ' +
-                                 f'loss time: {loss_time.avg:.2f} acc: {acc_meter.avg:.2e} ' +
+                                 f'loss time: {loss_time.avg:.2f} ' +
+                                 f'opt time: {opt_time.avg:.2f} ' +
+                                 f'acc: {acc_meter.avg:.2e} ' +
                                  f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     self.writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     self.writer.add_scalar('loss/ttl',
@@ -1145,9 +1158,6 @@ class face_learner(object):
                     self.save_state(conf, accuracy)
                 
                 self.step += 1
-                loss_time.update(
-                    lz.timer.since_last_check('loss ok', verbose=False)
-                )
         
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
     
@@ -1172,11 +1182,11 @@ class face_learner(object):
         for img in faces:
             if tta:
                 mirror = trans.functional.hflip(img)
-                emb = self.model(conf.test_transform(img).to(conf.device).unsqueeze(0))
-                emb_mirror = self.model(conf.test_transform(mirror).to(conf.device).unsqueeze(0))
+                emb = self.model(conf.test_transform(img).cuda().unsqueeze(0))
+                emb_mirror = self.model(conf.test_transform(mirror).cuda().unsqueeze(0))
                 embs.append(l2_norm(emb + emb_mirror))
             else:
-                embs.append(self.model(conf.test_transform(img).to(conf.device).unsqueeze(0)))
+                embs.append(self.model(conf.test_transform(img).cuda().unsqueeze(0)))
         source_embs = torch.cat(embs)
         
         diff = source_embs.unsqueeze(-1) - target_embs.transpose(1, 0).unsqueeze(0)
@@ -1186,9 +1196,9 @@ class face_learner(object):
         return min_idx, minimum
     
     def save_state(self, conf, accuracy, to_save_folder=False, extra=None, model_only=False):
-        if gl_conf.rank is None:
+        if gl_conf.local_rank is None:
             return
-        if gl_conf.rank != 0:
+        if gl_conf.local_rank != 0:
             return
         if to_save_folder:
             save_path = conf.save_path
@@ -1315,12 +1325,12 @@ class face_learner(object):
                 issame_batch = data['issame']
                 if tta:
                     fliped = data['fliped_carray']
-                    emb_batch = self.model(carray_batch.to(conf.device)) + self.model(fliped.to(conf.device))
+                    emb_batch = self.model(carray_batch.cuda()) + self.model(fliped.cuda())
                     embeddings[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
                             idx + conf.batch_size)] = l2_norm(emb_batch)
                 else:
                     embeddings[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
-                            idx + conf.batch_size)] = self.model(carray_batch.to(conf.device)).cpu()
+                            idx + conf.batch_size)] = self.model(carray_batch.cuda()).cpu()
                 issame[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
                         idx + conf.batch_size)] = issame_batch
                 idx += conf.batch_size
@@ -1349,19 +1359,19 @@ class face_learner(object):
                 batch = torch.tensor(carray[idx:idx + conf.batch_size])
                 if tta:
                     fliped = hflip_batch(batch)
-                    emb_batch = self.model(batch.to(conf.device)) + self.model(fliped.to(conf.device))
+                    emb_batch = self.model(batch.cuda()) + self.model(fliped.cuda())
                     embeddings[idx:idx + conf.batch_size] = l2_norm(emb_batch)
                 else:
-                    embeddings[idx:idx + conf.batch_size] = self.model(batch.to(conf.device)).cpu()
+                    embeddings[idx:idx + conf.batch_size] = self.model(batch.cuda()).cpu()
                 idx += conf.batch_size
             if idx < len(carray):
                 batch = torch.tensor(carray[idx:])
                 if tta:
                     fliped = hflip_batch(batch)
-                    emb_batch = self.model(batch.to(conf.device)) + self.model(fliped.to(conf.device))
+                    emb_batch = self.model(batch.cuda()) + self.model(fliped.cuda())
                     embeddings[idx:] = l2_norm(emb_batch)
                 else:
-                    embeddings[idx:] = self.model(batch.to(conf.device)).cpu()
+                    embeddings[idx:] = self.model(batch.cuda()).cpu()
         tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
         buf = gen_plot(fpr, tpr)
         roc_curve = Image.open(buf)
@@ -1409,8 +1419,8 @@ class face_learner(object):
             labels = data['labels']
             if i % 100 == 0:
                 logging.info(f'ok {i}')
-            imgs = imgs.to(conf.device)
-            labels = labels.to(conf.device)
+            imgs = imgs.cuda()
+            labels = labels.cuda()
             batch_num += 1
             
             self.optimizer.zero_grad()
@@ -1460,15 +1470,10 @@ class face_learner(object):
 if __name__ == '__main__':
     pass
     # # test thread safe
-    # ds = TorchDataset(lz.share_path2 + '/glint')
-    # print(len(ds))
     
     ds = TorchDataset(lz.share_path2 + '/faces_ms1m_112x112')
     print(len(ds))
     
-    # print(len(ds))
-    #
-    #
     # def read(ds):
     #     ind = random.randint(len(ds) - 10, len(ds) - 1)
     #     # ind = random.randint(1, 2)
