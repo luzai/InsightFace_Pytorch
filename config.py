@@ -7,9 +7,9 @@ from torchvision import transforms as trans
 
 # todo for dist actual bs large!
 dist = False
-num_devs = 1
+num_devs = 3
 # lz.init_dev((0, 1, 2))
-lz.init_dev(lz.get_dev(num_devs))
+lz.init_dev(lz.get_dev(num_devs)) # todo auto! 8
 
 if dist:
     num_devs=1
@@ -27,7 +27,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/')
-conf.work_path = Path('work_space/emore.r50.dop.head.notri.chkpnt.bak')
+conf.work_path = Path('work_space/emore.r50.dop.head.notri.chkpnt.2')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -35,8 +35,10 @@ conf.vgg_folder = conf.data_path / 'faces_vgg_112x112'
 conf.ms1m_folder = conf.data_path / 'faces_ms1m_112x112'
 conf.glint_folder = conf.data_path / 'glint'
 conf.emore_folder = conf.data_path / 'faces_emore'
+conf.alpha_f64 = conf.data_path / 'alpha_f64'
 
-conf.use_data_folder = conf.emore_folder  # conf.emore_folder  # conf.glint_folder #  conf.ms1m_folder
+conf.use_data_folder = conf.emore_folder  # conf.emore_folder  # conf.glint_folder #  conf.ms1m_folder #alpha_f64
+conf.dataset_name=str(conf.use_data_folder).split('/')[-1]
 
 if conf.use_data_folder == conf.ms1m_folder:
     conf.cutoff = 10

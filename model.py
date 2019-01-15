@@ -185,7 +185,7 @@ class Backbone(Module):
         x_norm, norm = l2_norm(x, axis=1, need_norm=True)
         if gl_conf.backbone_with_head:
             if not return_logits:
-                return x_norm
+                return x_norm  # the default one
             else:
                 return x_norm, self.head(x_norm, labels)
         if normalize:
