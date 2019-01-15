@@ -5,14 +5,13 @@ from torch.nn import CrossEntropyLoss
 # todo label smooth
 from torchvision import transforms as trans
 
-# todo for dist actual bs large!
 dist = False
 num_devs = 3
 # lz.init_dev((0, 1, 2))
-lz.init_dev(lz.get_dev(num_devs)) # todo auto! 8
+lz.init_dev(lz.get_dev(num_devs))
 
 if dist:
-    num_devs=1
+    num_devs = 1
 
 conf = edict()
 conf.num_devs = num_devs
@@ -38,7 +37,7 @@ conf.emore_folder = conf.data_path / 'faces_emore'
 conf.alpha_f64 = conf.data_path / 'alpha_f64'
 
 conf.use_data_folder = conf.emore_folder  # conf.emore_folder  # conf.glint_folder #  conf.ms1m_folder #alpha_f64
-conf.dataset_name=str(conf.use_data_folder).split('/')[-1]
+conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 
 if conf.use_data_folder == conf.ms1m_folder:
     conf.cutoff = 10

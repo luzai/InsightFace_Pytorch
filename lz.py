@@ -59,7 +59,7 @@ if os.environ.get('pytorch', "1") == "1":
     import torch.nn.functional as F
     
     os.environ["NCCL_DEBUG"] = "INFO"
-    #os.environ["NCCL_DEBUG_SUBSYS"] = "ALL"
+    # os.environ["NCCL_DEBUG_SUBSYS"] = "ALL"
     old_repr = torch.Tensor.__repr__
     torch.Tensor.__repr__ = lambda obj: (f'th {tuple(obj.shape)} {obj.type()} '
                                          f'{old_repr(obj)} '
@@ -147,8 +147,8 @@ if os.environ.get('log', '0') == '1':
 
 ## ndarray will be pretty
 np.set_string_function(lambda arr: f'np {arr.shape} {arr.dtype} '
-                                   f'{arr.__str__()} '
-                                   f'dtype:{arr.dtype} shape:{arr.shape} np', repr=True)
+f'{arr.__str__()} '
+f'dtype:{arr.dtype} shape:{arr.shape} np', repr=True)
 
 ## print(ndarray) will be pretty (and pycharm dbg)
 # np.set_string_function(lambda arr: f'np {arr.shape} {arr.dtype} \n'
@@ -254,8 +254,12 @@ def get_mem():
     return available
 
 
+import gpustat
+
+ndevs = len(gpustat.GPUStatCollection.new_query().gpus)
+
+
 def get_gpu_mem(ind=0):
-    import gpustat
     gpus = gpustat.GPUStatCollection.new_query().gpus
     return gpus[ind].entry['memory.used'] / gpus[ind].entry['memory.total'] * 100
 
@@ -266,16 +270,16 @@ def get_utility(ind=0):
     return gpus[ind].entry['utilization.gpu']
 
 
-def show_dev(devs=range(4)):
+def show_dev():
     res = []
-    for ind in devs:
+    for ind in range(ndevs):
         mem = get_gpu_mem(ind)
         print(ind, mem)
         res.append(mem)
     return res
 
 
-def get_dev(n=1, ok=range(4), mem_thresh=(0.1, 0.15), sleep=23.3):  # 0.3: now occupy smaller than 0.3
+def get_dev(n=1, ok=range(ndevs), mem_thresh=(0.1, 0.15), sleep=23.3):  # 0.3: now occupy smaller than 0.3
     if not isinstance(mem_thresh, collections.Sequence):
         mem_thresh = (mem_thresh,)
     
@@ -1782,3 +1786,7 @@ class AverageMeter(object):
         # self.sum += val * n
         # self.count += n
         # self.avg = self.sum / self.count
+
+
+if __name__ == '__main__':
+    print(show_dev())
