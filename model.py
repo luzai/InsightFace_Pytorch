@@ -51,6 +51,22 @@ class SEModule(Module):
         return module_input * x
 
 
+from modules.bn import InPlaceABN
+
+
+def bn_act(depth, with_act):
+    if gl_conf.ipabn:
+        if with_act:
+            return [InPlaceABN(depth)]  # todo lk relu
+        else:
+            return [BatchNorm2d(depth)]
+    else:
+        if with_act:
+            return [BatchNorm2d(depth), PReLU(depth), ]
+        else:
+            return [BatchNorm2d(depth)]
+
+
 class bottleneck_IR(Module):
     def __init__(self, in_channel, depth, stride):
         super(bottleneck_IR, self).__init__()
@@ -58,11 +74,14 @@ class bottleneck_IR(Module):
             self.shortcut_layer = MaxPool2d(1, stride)
         else:
             self.shortcut_layer = Sequential(
-                Conv2d(in_channel, depth, (1, 1), stride, bias=False), BatchNorm2d(depth))
+                Conv2d(in_channel, depth, (1, 1), stride, bias=False),
+                BatchNorm2d(depth))
         self.res_layer = Sequential(
-            BatchNorm2d(in_channel),
-            Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False), PReLU(depth),
-            Conv2d(depth, depth, (3, 3), stride, 1, bias=False), BatchNorm2d(depth))
+            *bn_act(in_channel,False),
+            Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
+            *bn_act(depth, True),
+            Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
+            *bn_act(depth, False) )
     
     def forward(self, x):
         shortcut = self.shortcut_layer(x)
@@ -80,18 +99,19 @@ class bottleneck_IR_SE(Module):
         else:
             self.shortcut_layer = Sequential(
                 Conv2d(in_channel, depth, (1, 1), stride, bias=False),
-                BatchNorm2d(depth))
+                *bn_act(depth, False)
+            )
         if upgrade:
             self.res_layer = Sequential(
-                BatchNorm2d(in_channel),
+                *bn_act(in_channel, False),
                 Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
-                BatchNorm2d(depth),
-                PReLU(depth),
+                *bn_act(depth, True),
                 Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
-                BatchNorm2d(depth),
+                *bn_act(depth, False),
                 SEModule(depth, 16)
             )
         else:
+            # todo deprecated
             self.res_layer = Sequential(
                 BatchNorm2d(in_channel),
                 Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
@@ -307,7 +327,8 @@ class MobileFaceNet(Module):
 ##################################  Arcface head #################
 from torch.nn.utils import weight_norm
 
-use_kernel2 = False  # kernel2 not work!
+
+# use_kernel2 = False  # kernel2 not work!
 
 
 class Arcface(Module):
@@ -315,13 +336,13 @@ class Arcface(Module):
     def __init__(self, embedding_size=512, classnum=51332, s=gl_conf.scale, m=0.5):
         super(Arcface, self).__init__()
         self.classnum = classnum
-        if not use_kernel2:
-            self.kernel = Parameter(torch.Tensor(embedding_size, classnum))
-            self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
-        else:
-            self.kernel = weight_norm(nn.Linear(embedding_size, classnum, bias=False))
-            self.kernel.weight_g.data = torch.ones((classnum, 1))
-            self.kernel.weight_v.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
+        # if not use_kernel2:
+        self.kernel = Parameter(torch.Tensor(embedding_size, classnum))
+        self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
+        # else:
+        #     self.kernel = weight_norm(nn.Linear(embedding_size, classnum, bias=False))
+        #     self.kernel.weight_g.data = torch.ones((classnum, 1))
+        #     self.kernel.weight_v.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
         # initial kernel
         self.m = m  # the margin value, default is 0.5
         self.s = s  # scalar value default is 64, see normface https://arxiv.org/abs/1704.06369
@@ -333,12 +354,11 @@ class Arcface(Module):
     def forward(self, embbedings, label):
         # weights norm
         nB = len(embbedings)
-        if not use_kernel2:
-            kernel_norm = l2_norm(self.kernel, axis=0)
-            # cos(theta+m)
-            cos_theta = torch.mm(embbedings, kernel_norm)
-        else:
-            cos_theta = self.kernel(embbedings)
+        # if not use_kernel2:
+        kernel_norm = l2_norm(self.kernel, axis=0)
+        cos_theta = torch.mm(embbedings, kernel_norm)
+        # else:
+        #     cos_theta = self.kernel(embbedings)
         #         output = torch.mm(embbedings,kernel_norm)
         cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability
         cos_theta_2 = torch.pow(cos_theta, 2)

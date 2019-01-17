@@ -4,7 +4,7 @@ import matplotlib
 
 # matplotlib.use('Gtk3Agg')
 # matplotlib.use('TkAgg')
-# matplotlib.use('Agg')
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 # dbg = True
@@ -120,7 +120,7 @@ InteractiveShell.ast_node_interactivity = "all"
 # torch.set_default_tensor_type(torch.cuda.DoubleTensor)
 # ori_np_err = np.seterr(all='raise') # 1/100000=0 will be error
 
-def set_stream_logger(log_level=logging.DEBUG):
+def set_stream_logger(log_level=logging.INFO):
     import colorlog
     sh = colorlog.StreamHandler()
     sh.setLevel(log_level)
@@ -130,7 +130,7 @@ def set_stream_logger(log_level=logging.DEBUG):
     logging.root.addHandler(sh)
 
 
-def set_file_logger(work_dir=None, log_level=logging.DEBUG):
+def set_file_logger(work_dir=None, log_level=logging.INFO):
     work_dir = work_dir or root_path
     fh = logging.FileHandler(os.path.join(work_dir, 'log-ing'))
     fh.setLevel(log_level)
@@ -143,7 +143,7 @@ if os.environ.get('log', '0') == '1':
     logging.root.setLevel(logging.INFO)
     # set_stream_logger(logging.DEBUG)
     set_stream_logger(logging.INFO)
-    set_file_logger(log_level=logging.DEBUG)
+    set_file_logger(log_level=logging.INFO)
 
 ## ndarray will be pretty
 np.set_string_function(lambda arr: f'np {arr.shape} {arr.dtype} '
@@ -552,13 +552,19 @@ def df2md(df1):
     return tabulate.tabulate(df1, headers="keys", tablefmt="pipe")
 
 
-def stat_np(array):
-    array = np.asarray(array)
-    return np.min(array), np.mean(array), np.median(array), np.max(array), np.shape(array)
-
-
-def stat_th(tensor):
-    return torch.min(tensor).item(), torch.mean(tensor).item(), torch.median(tensor).item(), torch.max(tensor).item()
+def stat(arr):
+    def stat_np(array):
+        array = np.asarray(array)
+        return np.min(array), np.mean(array), np.median(array), np.max(array), np.shape(array)
+    
+    def stat_th(tensor):
+        return torch.min(tensor).item(), torch.mean(tensor).item(), torch.median(tensor).item(), torch.max(
+            tensor).item()
+    
+    if type(arr).__module__ == 'numpy':
+        return stat_np(arr)
+    else:
+        return stat_th(arr)
 
 
 def sel_np(A):
@@ -1146,22 +1152,25 @@ def plt_imshow_board(img, ax=None, color=None):
         margin = 2
         ax.set_xlim(-margin, N + margin)
         ax.set_ylim(M + margin, -margin)
+
+
 def plt_imshow_tensor(imgs, ncol=10, limit=None):
     import torchvision
-    if isinstance(imgs,list):
-        imgs=np.asarray(imgs)
-    if imgs.shape[-1]==3:
-        imgs=np.transpose(imgs,(0,3,1,2))
-        
+    if isinstance(imgs, list):
+        imgs = np.asarray(imgs)
+    if imgs.shape[-1] == 3:
+        imgs = np.transpose(imgs, (0, 3, 1, 2))
+    
     imgs_thumb = torchvision.utils.make_grid(
-        to_torch(imgs), normalize=False,scale_each=True,
-        nrow=ncol,).numpy()
+        to_torch(imgs), normalize=False, scale_each=True,
+        nrow=ncol, ).numpy()
     imgs_thumb = to_img(imgs_thumb)
     maxlen = max(imgs_thumb.shape)
     if limit is not None and maxlen > limit:
         imgs_thumb = cvb.resize_keep_ar(imgs_thumb, limit, limit, )
-#     print(imgs_thumb.shape)
-    plt_imshow(imgs_thumb,keep_ori_size=True)
+    #     print(imgs_thumb.shape)
+    plt_imshow(imgs_thumb, keep_ori_size=True)
+
 
 def to_img(img, ):
     img = np.asarray(img)

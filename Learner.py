@@ -401,8 +401,9 @@ def unpack_auto(s, fp):
 
 class TorchDataset(object):
     def __init__(self,
-                 path_ms1m
+                 path_ms1m, flip=True
                  ):
+        self.flip = flip
         self.path_ms1m = path_ms1m
         self.root_path = Path(path_ms1m)
         path_imgrec = str(path_ms1m) + '/train.rec'
@@ -464,18 +465,19 @@ class TorchDataset(object):
         
         gl_conf.num_clss = self.num_classes
         gl_conf.explored = np.zeros(self.ids.max() + 1, dtype=int)
-        if gl_conf.mining == 'dop':
-            gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * gl_conf.mining_init
-            gl_conf.id2range_dop = {str(id_):
-                                        np.ones((range_[1] - range_[0],)) *
-                                        gl_conf.mining_init for id_, range_ in
-                                    self.id2range.items()}
-        elif gl_conf.mining == 'imp' or gl_conf.mining == 'rand.id':
-            gl_conf.id2range_dop = {str(id_):
-                                        np.ones((range_[1] - range_[0],)) *
-                                        gl_conf.mining_init for id_, range_ in
-                                    self.id2range.items()}
-            gl_conf.dop = np.asarray([v.sum() for v in gl_conf.id2range_dop.values()])
+        if gl_conf.dop is None:
+            if gl_conf.mining == 'dop':
+                gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * gl_conf.mining_init
+                gl_conf.id2range_dop = {str(id_):
+                                            np.ones((range_[1] - range_[0],)) *
+                                            gl_conf.mining_init for id_, range_ in
+                                        self.id2range.items()}
+            elif gl_conf.mining == 'imp' or gl_conf.mining == 'rand.id':
+                gl_conf.id2range_dop = {str(id_):
+                                            np.ones((range_[1] - range_[0],)) *
+                                            gl_conf.mining_init for id_, range_ in
+                                        self.id2range.items()}
+                gl_conf.dop = np.asarray([v.sum() for v in gl_conf.id2range_dop.values()])
         logging.info(f'update num_clss {gl_conf.num_clss} ')
         self.cur = 0
         lz.timer.since_last_check('finish cal dataset info')
@@ -524,9 +526,10 @@ class TorchDataset(object):
             if img is not None:
                 # print('hit! ')
                 imgs = self.imdecode(img)
-                _rd = random.randint(0, 1)
-                if _rd == 1:
-                    imgs = mx.ndarray.flip(data=imgs, axis=1)
+                # print('get img')
+                # if self.flip and random.randint(0, 1):
+                #     print('flip')
+                #     imgs = mx.ndarray.flip(data=imgs, axis=1)
                 imgs = imgs.asnumpy()
                 imgs = imgs / 255.
                 # simply use 0.5 as mean
@@ -551,7 +554,7 @@ class TorchDataset(object):
         
         s = self.imgrecs[ind_rec].read_idx(index)  # from [ 1 to 3804846 ]
         rls_succ = self.locks[ind_rec].release()
-        header, img = unpack_auto(s, self.path_imgidx)  # this is BGR format !
+        header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
         imgs = self.imdecode(img)
         assert imgs is not None
         label = header.label
@@ -584,6 +587,7 @@ class TorchDataset(object):
 class Dataset_val(torch.utils.data.Dataset):
     def __init__(self, path, name, transform=None):
         self.carray, self.issame = get_val_pair(path, name)
+        self.carray = self.carray[:, ::-1, :, :]  # BGR 2 RGB!
         self.transform = transform
     
     def __getitem__(self, index):
@@ -607,7 +611,8 @@ class RandomIdSampler(Sampler):
         # remember -1 to convert to pytorch imgidx
         self.num_instances = gl_conf.instances
         self.batch_size = gl_conf.batch_size
-        assert self.batch_size % self.num_instances == 0
+        if gl_conf.tri_wei != 0:
+            assert self.batch_size % self.num_instances == 0
         self.num_pids_per_batch = self.batch_size // self.num_instances
         self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1])))).tolist()
                           for id, idxs in self.id2range.items()}  # it index based on 1
@@ -688,7 +693,7 @@ class RandomIdSampler(Sampler):
                 ind_inds = np.random.choice(
                     len(self.index_dic[pid]),
                     size=(self.num_instances,), replace=replace, )
-                
+            
             for ind_ind in ind_inds:
                 ind = self.index_dic[pid][ind_ind]
                 yield ind, pid, ind_ind
@@ -802,13 +807,14 @@ class face_learner(object):
             raise ValueError(conf.net_mode)
         
         if conf.backbone_with_head:
-            self.head = self.model.head
-        if conf.loss == 'arcface':
-            self.head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num)
-        elif conf.loss == 'softmax':
-            self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num)
+            self.head = None
         else:
-            raise ValueError(f'{conf.loss}')
+            if conf.loss == 'arcface':
+                self.head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num)
+            elif conf.loss == 'softmax':
+                self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num)
+            else:
+                raise ValueError(f'{conf.loss}')
         if conf.local_rank is None:
             self.model = torch.nn.DataParallel(self.model).cuda()
         else:
@@ -820,7 +826,8 @@ class face_learner(object):
             kernel = torch.from_numpy(kernel)
             assert self.head.kernel.shape == kernel.shape
             self.head.kernel.data = kernel
-        self.head = self.head.cuda()
+        if self.head is not None:
+            self.head = self.head.cuda()
         if gl_conf.tri_wei != 0:
             self.head_triplet = TripletLoss().cuda()
         print('two model heads generated')
@@ -1156,7 +1163,7 @@ class face_learner(object):
                     lz.timer.since_last_check(verbose=False)
                 )
                 if self.step % self.board_loss_every == 0:
-                    logging.info(f'epoch {e} step {self.step}: ' +
+                    logging.info(f'epoch {e} step {self.step}/{len(loader)}: ' +
                                  # f'img {imgs.mean()} {imgs.max()} {imgs.min()} '+
                                  f'loss: {loss.item():.2e} ' +
                                  f'data time: {data_time.avg:.2f} ' +
@@ -1248,32 +1255,33 @@ class face_learner(object):
             save_path = conf.model_path
         
         lz.mkdir_p(save_path, delete=False)
-        self.model.cpu()
+        # self.model.cpu()
         torch.save(
-            self.model.state_dict(),
+            self.model.module.state_dict(),
             save_path /
             ('model_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy, self.step,
                                                           extra)))
-        self.model.cuda()
+        # self.model.cuda()
         lz.msgpack_dump({'dop': gl_conf.dop,
                          'id2range_dop': gl_conf.id2range_dop,
                          }, str(save_path) + f'/extra_{get_time()}_accuracy:{accuracy}_step:{self.step}_{extra}.pk')
         if not model_only:
-            self.head.cpu()
-            torch.save(
-                self.head.state_dict(),
-                save_path /
-                ('head_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy, self.step,
-                                                             extra)))
-            self.head.cuda()
+            if self.head is not None:
+                # self.head.cpu()
+                torch.save(
+                    self.head.state_dict(),
+                    save_path /
+                    ('head_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy, self.step,
+                                                                 extra)))
+            # self.head.cuda()
             torch.save(
                 self.optimizer.state_dict(),
                 save_path /
                 ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy,
                                                                   self.step, extra)))
     
-    def save(self, path=work_path + 'twoloss.pth'):
-        torch.save(self.model, path)
+    # def save(self, path=work_path + 'twoloss.pth'):
+    #     torch.save(self.model, path)
     
     def list_steps(self, resume_path):
         from pathlib import Path
@@ -1283,59 +1291,69 @@ class face_learner(object):
         steps = np.asarray(steps, int)
         return steps
     
-    def load_state_by_step(self, resume_path, step, load_model=True, load_head=False, load_opt=False):
-        from pathlib import Path
-        save_path = Path(resume_path)
-        fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
-        steps = self.list_steps(resume_path)
-        chs = np.where(steps == step)[0]
-        chs = int(chs)
-        fixed_str = fixed_strs[chs].replace('model_', '')
-        modelp = save_path / 'model_{}'.format(fixed_str)
-        if load_model:
-            self.model.load_state_dict(torch.load(modelp))
-        if load_head:
-            self.head.load_state_dict(torch.load(save_path / 'head_{}'.format(fixed_str)))
-        if load_opt:
-            self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
+    # def load_state_by_step(self, resume_path, step, load_model=True, load_head=False, load_opt=False):
+    #     # todo deprecated
+    #     from pathlib import Path
+    #     save_path = Path(resume_path)
+    #     fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
+    #     steps = self.list_steps(resume_path)
+    #     chs = np.where(steps == step)[0]
+    #     chs = int(chs)
+    #     fixed_str = fixed_strs[chs].replace('model_', '')
+    #     modelp = save_path / 'model_{}'.format(fixed_str)
+    #     if load_model:
+    #         self.model.load_state_dict(torch.load(modelp))
+    #     if load_head:
+    #         self.head.load_state_dict(torch.load(save_path / 'head_{}'.format(fixed_str)))
+    #     if load_opt:
+    #         self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
     
-    def load_state(self, conf, fixed_str=None, from_save_folder=False,
-                   model_only=False, resume_path=None, load_optimizer=True,
-                   latest=True, load_imp=False,
+    @staticmethod
+    def try_load(model, state_dict):
+        try:
+            model.load_state_dict(state_dict)
+        except Exception as e:
+            # logger.info(f'{e}')
+            pass
+        try:
+            model.load_state_dict(state_dict)
+        except Exception as e:
+            # logger.info(f'{e}')
+            pass
+    def load_state(self, fixed_str=None,
+                   resume_path=None, latest=True,
+                   load_optimizer=True, load_imp=False, load_head=False
                    ):
         from pathlib import Path
-        if resume_path:
-            save_path = Path(resume_path)
-        elif from_save_folder and osp.exists(conf.save_path):
-            save_path = conf.save_path
-        else:
-            save_path = conf.model_path
+        save_path = Path(resume_path)
         modelp = save_path / '{}'.format(fixed_str)
         if not osp.exists(modelp):
             modelp = save_path / 'model_{}'.format(fixed_str)
-        if not os.path.exists(modelp):
+        if not osp.exists(modelp):
             fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
             if latest:
                 step = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
-            else:
-                # best
+            else:  # best
                 step = [fixed_str.split('_')[-3].split(':')[-1] for fixed_str in fixed_strs]
             step = np.asarray(step, dtype=float)
             step_ind = step.argmax()
             fixed_str = fixed_strs[step_ind].replace('model_', '')
             modelp = save_path / 'model_{}'.format(fixed_str)
-        # try:
-        #     # todo fx it
-        #     logging.info(f'load model from {modelp}')
-        #     self.model.module.load_state_dict(torch.load(modelp))
-        # except:
         logging.info(f'you are using gpu, load model, {modelp}')
-        self.model.load_state_dict(torch.load(modelp), strict=False)
-        if not model_only:
-            logging.info(f'load head and optimizer from {modelp}')
-            self.head.load_state_dict(torch.load(save_path / 'head_{}'.format(fixed_str)))
-            if load_optimizer:
-                self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
+        model_state_dict = torch.load(modelp)
+        self.try_load(self.model.module, model_state_dict)  # todo later may upgrade
+        self.try_load(self.model, model_state_dict)
+        
+        if load_head and osp.exists(save_path / 'head_{}'.format(fixed_str)):
+            logging.info(f'load head from {modelp}')
+            head_state_dict = torch.load(save_path / 'head_{}'.format(fixed_str))
+            if self.head is not None:
+                self.try_load(self.head, head_state_dict)
+            else:
+                self.try_load(self.model.module.head, head_state_dict)
+        if load_optimizer:
+            logging.info(f'load opt from {modelp}')
+            self.try_load(self.optimizer, torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
         if load_imp:
             extra = lz.msgpack_load(save_path / f'extra_{fixed_str.replace(".pth", ".pk")}')
             gl_conf.dop = extra['dop'].copy()
@@ -1345,10 +1363,6 @@ class face_learner(object):
         self.writer.add_scalar('{}_accuracy'.format(db_name), accuracy, self.step)
         self.writer.add_scalar('{}_best_threshold'.format(db_name), best_threshold, self.step)
         self.writer.add_image('{}_roc_curve'.format(db_name), roc_curve_tensor, self.step)
-        
-        #         self.writer.add_scalar('{}_val:true accept ratio'.format(db_name), val, self.step)
-        #         self.writer.add_scalar('{}_val_std'.format(db_name), val_std, self.step)
-        #         self.writer.add_scalar('{}_far:False Acceptance Ratio'.format(db_name), far, self.step)
     
     def evaluate_accelerate(self, conf, path, name, nrof_folds=5, tta=False):
         logging.info('start eval')
@@ -1425,8 +1439,8 @@ class face_learner(object):
         logging.info('eval end')
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
     
-    def validate(self, conf, fixed_str, from_save_folder=False, model_only=False):
-        self.load_state(conf, fixed_str, from_save_folder=from_save_folder, model_only=model_only)
+    def validate(self, conf, resume_path):
+        self.load_state(resume_path=resume_path)
         
         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
                                                                               'agedb_30')

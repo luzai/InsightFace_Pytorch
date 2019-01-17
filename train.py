@@ -10,21 +10,23 @@ parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--local_rank', default=None, type=int)
 if __name__ == '__main__':
     args = parser.parse_args()
-    conf.local_rank=args.local_rank
+    conf.local_rank = args.local_rank
     if conf.local_rank is not None:
         torch.cuda.set_device(conf.local_rank)
         torch.distributed.init_process_group(backend='nccl',
-                                               init_method="env://")
+                                             init_method="env://")
     learner = face_learner(conf, )
     
     ## for resume or evaluate
-    learner.load_state(conf,
-                       resume_path=Path('work_space/emore.r50.dop.nohead.notri.chkpnt/models'),
-                       model_only=False,
-                       load_optimizer=True,
-                       latest=True,
-                       load_imp=True,
-                       )
+    learner.load_state(
+        resume_path=Path('work_space/emore.r50.dop.nohead.notri.chkpnt.cont/models/'),
+        load_optimizer=True,
+        load_head=True,
+        load_imp=True,
+        latest=True,
+    )
+    
+    # learner.validate(conf, 'work_space/emore.r50.dop/models/')
     
     # log_lrs, losses = learner.find_lr(conf,
     #                                   # final_value=100,
@@ -34,7 +36,7 @@ if __name__ == '__main__':
     # print(best_lr)
     # conf.lr = best_lr
     # learner.push2redis()
-    learner.init_lr()  # todo what if ...
+    learner.init_lr()  # todo what if miss lr decay? manully must!
     learner.train(conf, conf.epochs)
     
     # def calc_importance():

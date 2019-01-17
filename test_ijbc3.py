@@ -42,10 +42,10 @@ except:
 conf.need_log = False
 conf.batch_size *= 2
 learner = face_learner(conf, )
-learner.load_state(conf, 'model.final.pth',
+learner.load_state(
                    resume_path='work_space/emore.r50.dop/models/',
-                   latest=False,
-                   model_only=True, )
+                   latest=True,
+                   )
 learner.model.eval()
 # logging.info('learner loaded')
 
@@ -79,7 +79,8 @@ class DatasetIJBC2(torch.utils.data.Dataset):
         each_line = files[img_index]
         name_lmk_score = each_line.strip().split(' ')
         img_name = os.path.join(img_path, name_lmk_score[0])
-        img = cvb.read_img(img_name)
+        img = cvb.read_img(img_name) # this is BGR!!
+        img = cvb.bgr2rgb(img)
         assert img is not None, img_name
         lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
         lmk = lmk.reshape((5, 2))
