@@ -4,7 +4,7 @@ import matplotlib
 
 # matplotlib.use('Gtk3Agg')
 # matplotlib.use('TkAgg')
-matplotlib.use('Agg')
+# matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 # dbg = True
@@ -558,7 +558,7 @@ def stat_np(array):
 
 
 def stat_th(tensor):
-    return torch.min(tensor), torch.mean(tensor), torch.median(tensor), torch.max(tensor)
+    return torch.min(tensor).item(), torch.mean(tensor).item(), torch.median(tensor).item(), torch.max(tensor).item()
 
 
 def sel_np(A):
@@ -1146,20 +1146,22 @@ def plt_imshow_board(img, ax=None, color=None):
         margin = 2
         ax.set_xlim(-margin, N + margin)
         ax.set_ylim(M + margin, -margin)
-
-
-def plt_imshow_tensor(imgs, ncol=4, limit=1024):
+def plt_imshow_tensor(imgs, ncol=10, limit=None):
     import torchvision
+    if isinstance(imgs,list):
+        imgs=np.asarray(imgs)
+    if imgs.shape[-1]==3:
+        imgs=np.transpose(imgs,(0,3,1,2))
+        
     imgs_thumb = torchvision.utils.make_grid(
-        to_torch(imgs), normalize=True,
-        nrow=int(np.sqrt(imgs.shape[0])) // ncol * ncol,
-        scale_each=True).numpy()
+        to_torch(imgs), normalize=False,scale_each=True,
+        nrow=ncol,).numpy()
     imgs_thumb = to_img(imgs_thumb)
     maxlen = max(imgs_thumb.shape)
-    if maxlen > limit and limit is not None:
+    if limit is not None and maxlen > limit:
         imgs_thumb = cvb.resize_keep_ar(imgs_thumb, limit, limit, )
-    plt_imshow(imgs_thumb)
-
+#     print(imgs_thumb.shape)
+    plt_imshow(imgs_thumb,keep_ori_size=True)
 
 def to_img(img, ):
     img = np.asarray(img)

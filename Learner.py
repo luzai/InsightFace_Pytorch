@@ -370,27 +370,34 @@ class MxnetLoader():
     def __len__(self):
         return len(self.train_loader)
 '''
+
+
 def unpack_f64(s):
-    from mxnet.recordio import IRHeader, _IR_FORMAT,_IR_SIZE, struct
+    from mxnet.recordio import IRHeader, _IR_FORMAT, _IR_SIZE, struct
     header = IRHeader(*struct.unpack(_IR_FORMAT, s[:_IR_SIZE]))
     s = s[_IR_SIZE:]
     if header.flag > 0:
         header = header._replace(label=np.frombuffer(s, np.float64, header.flag))
-        s = s[header.flag*8:]
+        s = s[header.flag * 8:]
     return header, s
+
+
 def unpack_f32(s):
-    from mxnet.recordio import IRHeader, _IR_FORMAT,_IR_SIZE, struct
+    from mxnet.recordio import IRHeader, _IR_FORMAT, _IR_SIZE, struct
     header = IRHeader(*struct.unpack(_IR_FORMAT, s[:_IR_SIZE]))
     s = s[_IR_SIZE:]
     if header.flag > 0:
         header = header._replace(label=np.frombuffer(s, np.float32, header.flag))
-        s = s[header.flag*4:]
+        s = s[header.flag * 4:]
     return header, s
-def unpack_auto(s,fp):
+
+
+def unpack_auto(s, fp):
     if 'f64' not in fp:
         return unpack_f32(s)
     else:
         return unpack_f64(s)
+
 
 class TorchDataset(object):
     def __init__(self,
@@ -430,7 +437,7 @@ class TorchDataset(object):
         #     self.num_classes = len(self.ids)
         # except:
         s = self.imgrecs[0].read_idx(0)
-        header, _ = unpack_auto(s,self.path_imgidx)
+        header, _ = unpack_auto(s, self.path_imgidx)
         assert header.flag > 0, 'ms1m or glint ...'
         print('header0 label', header.label)
         self.header0 = (int(header.label[0]), int(header.label[1]))
@@ -440,7 +447,7 @@ class TorchDataset(object):
         ids_shif = int(header.label[0])
         for identity in list(range(int(header.label[0]), int(header.label[1]))):
             s = self.imgrecs[0].read_idx(identity)
-            header, _ = unpack_auto(s,self.path_imgidx)
+            header, _ = unpack_auto(s, self.path_imgidx)
             a, b = int(header.label[0]), int(header.label[1])
             if b - a > gl_conf.cutoff:
                 self.id2range[identity] = (a, b)
@@ -480,17 +487,20 @@ class TorchDataset(object):
             return len(self.imgidx)
     
     def __getitem__(self, indices, ):
-        # if isinstance(indices, (tuple, list)):
-        #     return [self._get_single_item(index) for index in indices]
+        # if isinstance(indices, (tuple, list)) and len(indices[0])==3:
+        #    if self.r:
+        #        pass
+        #    else:
+        #        return [self._get_single_item(index) for index in indices]
         res = self._get_single_item(indices)
-        for k, v in res.items():
-            assert (
-                    isinstance(v, np.ndarray) or
-                    isinstance(v, str) or
-                    isinstance(v, int) or
-                    isinstance(v, np.int64) or
-                    torch.is_tensor(v)
-            ), type(v)
+        # for k, v in res.items():
+        #     assert (
+        #             isinstance(v, np.ndarray) or
+        #             isinstance(v, str) or
+        #             isinstance(v, int) or
+        #             isinstance(v, np.int64) or
+        #             torch.is_tensor(v)
+        #     ), type(v)
         return res
     
     def imdecode(self, s):
@@ -541,12 +551,12 @@ class TorchDataset(object):
         
         s = self.imgrecs[ind_rec].read_idx(index)  # from [ 1 to 3804846 ]
         rls_succ = self.locks[ind_rec].release()
-        header, img = unpack_auto(s,self.path_imgidx) # this is BGR format !
+        header, img = unpack_auto(s, self.path_imgidx)  # this is BGR format !
         imgs = self.imdecode(img)
         assert imgs is not None
         label = header.label
         if not isinstance(label, numbers.Number):
-            assert label[-1] == 0. or label[-1] == 1. , f'{label} {index} {imgs.shape}'
+            assert label[-1] == 0. or label[-1] == 1., f'{label} {index} {imgs.shape}'
             label = label[0]
         label = int(label)
         assert label in self.ids_map
@@ -564,8 +574,8 @@ class TorchDataset(object):
         
         if gl_conf.use_redis and self.r and lz.get_mem() >= 20:
             self.r.set(f'{gl_conf.dataset_name}/imgs/{index}', img)
-#             if np.random.rand()<0.001:
-#             print('not hit', index)
+        #             if np.random.rand()<0.001:
+        #             print('not hit', index)
         
         return {'imgs': np.array(imgs, dtype=np.float32), 'labels': label,
                 'ind_inds': ind_ind}
@@ -663,18 +673,22 @@ class RandomIdSampler(Sampler):
         pids = self.get_batch_ids()
         cnt = 0
         for pid in pids:
+            if len(self.index_dic[pid]) < self.num_instances:
+                replace = True
+            else:
+                replace = False
             if gl_conf.mining == 'imp':
                 assert len(self.index_dic[pid]) == gl_conf.id2range_dop[str(pid)].shape[0]
                 ind_inds = np.random.choice(
                     len(self.index_dic[pid]),
-                    size=(self.num_instances,), replace=True,
+                    size=(self.num_instances,), replace=replace,
                     p=gl_conf.id2range_dop[str(pid)] / gl_conf.id2range_dop[str(pid)].sum()
                 )
             else:
                 ind_inds = np.random.choice(
                     len(self.index_dic[pid]),
-                    size=(self.num_instances,), replace=True, )
-            
+                    size=(self.num_instances,), replace=replace, )
+                
             for ind_ind in ind_inds:
                 ind = self.index_dic[pid][ind_ind]
                 yield ind, pid, ind_ind
@@ -766,7 +780,7 @@ class face_learner(object):
         self.class_num = self.dataset.num_classes
         print(self.class_num, 'classes, load ok ')
         if conf.need_log:
-            lz.mkdir_p(conf.log_path, delete=True) # todo delete??
+            lz.mkdir_p(conf.log_path, delete=True)  # todo delete??
             lz.set_file_logger(conf.log_path)
             lz.set_file_logger_prt(conf.log_path)
         self.writer = SummaryWriter(str(conf.log_path))
@@ -1114,7 +1128,8 @@ class face_learner(object):
                         embeddings_o, thetas_o = self.model(imgs, labels=labels, return_logits=True)
                     loss_o = conf.ce_loss(thetas_o, labels)
                     grad = torch.autograd.grad(loss_o, embeddings_o,
-                                               retain_graph=False, create_graph=False,allow_unused=True, # todo unsuse?
+                                               retain_graph=False, create_graph=False, allow_unused=True,
+                                               # todo unsuse?
                                                only_inputs=True)[0].detach()
                     embeddings = embeddings_o + conf.fgg_wei * grad
                     thetas = self.head(embeddings, labels)
@@ -1225,7 +1240,7 @@ class face_learner(object):
         return min_idx, minimum
     
     def save_state(self, conf, accuracy, to_save_folder=False, extra=None, model_only=False):
-        if  gl_conf.local_rank is not None and gl_conf.local_rank != 0:
+        if gl_conf.local_rank is not None and gl_conf.local_rank != 0:
             return
         if to_save_folder:
             save_path = conf.save_path

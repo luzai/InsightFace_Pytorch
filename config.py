@@ -3,10 +3,11 @@ import lz
 from lz import *
 from torch.nn import CrossEntropyLoss
 # todo label smooth
+# todo batch read redis
 from torchvision import transforms as trans
 
 dist = False
-num_devs = 3
+num_devs = 1
 # lz.init_dev((0, 1, 2))
 lz.init_dev(lz.get_dev(num_devs))
 
@@ -26,7 +27,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/')
-conf.work_path = Path('work_space/emore.r50.dop.head.notri.chkpnt.2')
+conf.work_path = Path('work_space/emore.r50.dop.nohead.notri.chkpnt.cont')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -73,9 +74,9 @@ conf.test_transform = trans.Compose([
     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
 
-conf.batch_size = 135 * num_devs if not dbg else 8 * num_devs  # 105/135 99 xent: 96 92 tri: 112 108
-conf.use_chkpnt = True
-conf.backbone_with_head = True
+conf.batch_size = 89 * num_devs if not dbg else 8 * num_devs  # 105/135 99 xent: 96 92 tri: 112 108
+conf.use_chkpnt = False
+conf.backbone_with_head = False
 conf.use_redis = False
 conf.board_loss_every = 100  # 100
 conf.num_recs = 1
@@ -83,7 +84,7 @@ conf.num_recs = 1
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
-conf.start_epoch = 0  # 0
+conf.start_epoch = 3  # 0
 conf.use_opt = 'sgd'
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99

@@ -18,13 +18,13 @@ if __name__ == '__main__':
     learner = face_learner(conf, )
     
     ## for resume or evaluate
-    # learner.load_state(conf,
-    #                    resume_path=Path('work_space/emore.r50.dop.head.notri.chkpnt/models'),
-    #                    model_only=False,
-    #                    load_optimizer=True,
-    #                    latest=True,
-    #                    load_imp=True,
-    #                    )
+    learner.load_state(conf,
+                       resume_path=Path('work_space/emore.r50.dop.nohead.notri.chkpnt/models'),
+                       model_only=False,
+                       load_optimizer=True,
+                       latest=True,
+                       load_imp=True,
+                       )
     
     # log_lrs, losses = learner.find_lr(conf,
     #                                   # final_value=100,

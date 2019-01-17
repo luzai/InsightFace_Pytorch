@@ -5,11 +5,16 @@ import torch.nn.functional as F
 import torch
 from collections import namedtuple
 import math
+from config import conf as gl_conf
+import functools
 
 upgrade = True
+if gl_conf.use_chkpnt:
+    BatchNorm2d = functools.partial(BatchNorm2d, momentum=1 - np.sqrt(0.9))
 
 
 ##################################  Original Arcface Model
+
 
 class Flatten(Module):
     def forward(self, input):
@@ -180,7 +185,7 @@ class Backbone(Module):
         if not gl_conf.use_chkpnt:
             x = self.body(x)
         else:
-            x = checkpoint_sequential(self.body, 4, x)
+            x = checkpoint_sequential(self.body, 2, x)
         x = self.output_layer(x)
         x_norm, norm = l2_norm(x, axis=1, need_norm=True)
         if gl_conf.backbone_with_head:
@@ -300,7 +305,6 @@ class MobileFaceNet(Module):
 
 
 ##################################  Arcface head #################
-from config import conf as gl_conf
 from torch.nn.utils import weight_norm
 
 use_kernel2 = False  # kernel2 not work!
