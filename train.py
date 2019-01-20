@@ -17,9 +17,10 @@ if __name__ == '__main__':
                                              init_method="env://")
     learner = face_learner(conf, )
     
-    ## for resume or evaluate
+    # for resume or evaluate
     learner.load_state(
-        resume_path=Path('work_space/emore.r50.dop.nohead.notri.chkpnt.cont/models/'),
+        # resume_path=Path('work_space/emore.r50.dop.nohead.notri.chkpnt.cont/models/'),
+        resume_path=Path('work_space/emore.r50.dop.headon0.notri.5.cont/models/'),
         load_optimizer=True,
         load_head=True,
         load_imp=True,

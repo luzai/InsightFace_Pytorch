@@ -10,18 +10,15 @@ msgpack-numpy
 msgpack
 colorlog
 cvbase
-youtube-dl
-scrapy
 keras
 trash-cli
 scikit-image
 opencv-python
 lmdb
-tensorboardX
+# tensorboardX
 tabulate
-tensorflow-gpu
-tensorboard
+# tensorflow-gpu
+# tensorboard
 tqdm
-fuel
-mxnet-cu90mkl
-torch
+# mxnet-cu90mkl
+# torch

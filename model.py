@@ -57,16 +57,19 @@ from modules.bn import InPlaceABN
 def bn_act(depth, with_act):
     if gl_conf.ipabn:
         if with_act:
-            return [InPlaceABN(depth)]  # todo lk relu
+            return [InPlaceABN(depth, activation='none'),
+                    PReLU(depth, ), ]  # [InPlaceABN(depth)]  # [InPlaceABN(depth, activation='none'), PReLU(depth, ),]
         else:
-            return [BatchNorm2d(depth)]
+            return [
+                InPlaceABN(depth, activation='none')]  # [BatchNorm2d(depth)]  # [InPlaceABN(depth, activation='none')]
     else:
         if with_act:
-            return [BatchNorm2d(depth), PReLU(depth), ]
+            return [BatchNorm2d(depth), PReLU(depth, ), ]
         else:
             return [BatchNorm2d(depth)]
 
 
+# @deprecated
 class bottleneck_IR(Module):
     def __init__(self, in_channel, depth, stride):
         super(bottleneck_IR, self).__init__()
@@ -77,11 +80,11 @@ class bottleneck_IR(Module):
                 Conv2d(in_channel, depth, (1, 1), stride, bias=False),
                 BatchNorm2d(depth))
         self.res_layer = Sequential(
-            *bn_act(in_channel,False),
+            *bn_act(in_channel, False),
             Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
             *bn_act(depth, True),
             Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
-            *bn_act(depth, False) )
+            *bn_act(depth, False))
     
     def forward(self, x):
         shortcut = self.shortcut_layer(x)
@@ -123,11 +126,18 @@ class bottleneck_IR_SE(Module):
     
     def forward(self, x):
         if self.shortcut_layer is not None:
-            shortcut = self.shortcut_layer(x)
+            if gl_conf.ipabn:
+                shortcut = self.shortcut_layer(x.clone())
+            else:
+                shortcut = self.shortcut_layer(x)
         else:
-            shortcut = x
+            if gl_conf.ipabn:
+                shortcut = x.clone()
+            else:
+                shortcut = x
         res = self.res_layer(x)
-        return res + shortcut
+        res.add_(shortcut)
+        return res
 
 
 class Bottleneck(namedtuple('Block', ['in_channel', 'depth', 'stride'])):

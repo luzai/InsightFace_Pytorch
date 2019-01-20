@@ -417,7 +417,7 @@ class TorchDataset(object):
         if gl_conf.use_redis:
             import redis
             
-            self.r = redis.StrictRedis()
+            self.r = redis.Redis()
         else:
             self.r = None
         
@@ -526,10 +526,8 @@ class TorchDataset(object):
             if img is not None:
                 # print('hit! ')
                 imgs = self.imdecode(img)
-                # print('get img')
-                # if self.flip and random.randint(0, 1):
-                #     print('flip')
-                #     imgs = mx.ndarray.flip(data=imgs, axis=1)
+                if self.flip and random.randint(0, 1):
+                    imgs = mx.ndarray.flip(data=imgs, axis=1)
                 imgs = imgs.asnumpy()
                 imgs = imgs / 255.
                 # simply use 0.5 as mean
@@ -785,7 +783,7 @@ class face_learner(object):
         self.class_num = self.dataset.num_classes
         print(self.class_num, 'classes, load ok ')
         if conf.need_log:
-            lz.mkdir_p(conf.log_path, delete=True)  # todo delete??
+            lz.mkdir_p(conf.log_path, delete=True)  # todo delete?
             lz.set_file_logger(conf.log_path)
             lz.set_file_logger_prt(conf.log_path)
         self.writer = SummaryWriter(str(conf.log_path))
@@ -1253,31 +1251,31 @@ class face_learner(object):
             save_path = conf.save_path
         else:
             save_path = conf.model_path
-        
+        time_now = get_time()
         lz.mkdir_p(save_path, delete=False)
         # self.model.cpu()
         torch.save(
             self.model.module.state_dict(),
             save_path /
-            ('model_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy, self.step,
+            ('model_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
                                                           extra)))
         # self.model.cuda()
         lz.msgpack_dump({'dop': gl_conf.dop,
                          'id2range_dop': gl_conf.id2range_dop,
-                         }, str(save_path) + f'/extra_{get_time()}_accuracy:{accuracy}_step:{self.step}_{extra}.pk')
+                         }, str(save_path) + f'/extra_{time_now}_accuracy:{accuracy}_step:{self.step}_{extra}.pk')
         if not model_only:
             if self.head is not None:
                 # self.head.cpu()
                 torch.save(
                     self.head.state_dict(),
                     save_path /
-                    ('head_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy, self.step,
+                    ('head_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
                                                                  extra)))
             # self.head.cuda()
             torch.save(
                 self.optimizer.state_dict(),
                 save_path /
-                ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(get_time(), accuracy,
+                ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy,
                                                                   self.step, extra)))
     
     # def save(self, path=work_path + 'twoloss.pth'):

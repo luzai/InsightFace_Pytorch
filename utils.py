@@ -2,18 +2,16 @@ from datetime import datetime
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
-
 import io
 from torchvision import transforms as trans
 from data.data_pipe import de_preprocess
 import torch
 from model import l2_norm
-import pdb
 import cv2
 
 
 def separate_bn_paras(modules):
-    if isinstance(modules,( torch.nn.DataParallel, torch.nn.parallel.DistributedDataParallel)):
+    if isinstance(modules, (torch.nn.DataParallel, torch.nn.parallel.DistributedDataParallel)):
         modules = modules.module
     if not isinstance(modules, list):
         modules = [*modules.modules()]
@@ -136,17 +134,15 @@ def face_reader(conf, conn, flag, boxes_arr, result_arr, learner, mtcnn, targets
         print('result_arr ： {}'.format(result_arr[:4]))
         flag.value = 0
 
-
 hflip = trans.Compose([
-    de_preprocess,
-    trans.ToPILImage(),
-    trans.functional.hflip,
-    trans.ToTensor(),
-    trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
-])
-
-
+        de_preprocess,
+        trans.ToPILImage(),
+        trans.functional.hflip,
+        trans.ToTensor(),
+        trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+    ])
 def hflip_batch(imgs_tensor):
+  
     hfliped_imgs = torch.empty_like(imgs_tensor)
     for i, img_ten in enumerate(imgs_tensor):
         hfliped_imgs[i] = hflip(img_ten)
@@ -154,7 +150,8 @@ def hflip_batch(imgs_tensor):
 
 
 def get_time():
-    return (str(datetime.now())[:-10]).replace(' ', '-').replace(':', '-')
+    # return (str(datetime.now())[:-10]).replace(' ', '-').replace(':', '-')
+    return (str(datetime.now())[:-13]).replace(' ', '-').replace(':', '-')
 
 
 def gen_plot(fpr, tpr):
