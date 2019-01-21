@@ -21,7 +21,16 @@ class Flatten(Module):
         return input.view(input.size(0), -1)
 
 
-def l2_norm(input, axis=1, need_norm=False):
+# def l2_norm(input, axis=1, need_norm=False, ):
+#     output = F.normalize(input, dim=axis)
+#     if need_norm:
+#         norm = torch.norm(input, 2, axis, True)
+#         return output, norm
+#     else:
+#         return output
+
+
+def l2_norm(input, axis=1, need_norm=False, ):
     norm = torch.norm(input, 2, axis, True)
     output = torch.div(input, norm)
     if need_norm:
@@ -58,10 +67,10 @@ def bn_act(depth, with_act):
     if gl_conf.ipabn:
         if with_act:
             return [InPlaceABN(depth, activation='none'),
-                    PReLU(depth, ), ]  # [InPlaceABN(depth)]  # [InPlaceABN(depth, activation='none'), PReLU(depth, ),]
+                    PReLU(depth, ), ]
         else:
             return [
-                InPlaceABN(depth, activation='none')]  # [BatchNorm2d(depth)]  # [InPlaceABN(depth, activation='none')]
+                InPlaceABN(depth, activation='none')]
     else:
         if with_act:
             return [BatchNorm2d(depth), PReLU(depth, ), ]
@@ -337,8 +346,9 @@ class MobileFaceNet(Module):
 ##################################  Arcface head #################
 from torch.nn.utils import weight_norm
 
-
 # use_kernel2 = False  # kernel2 not work!
+nB = gl_conf.batch_size
+idx_ = torch.arange(0, nB, dtype=torch.long)
 
 
 class Arcface(Module):
@@ -361,34 +371,65 @@ class Arcface(Module):
         self.mm = self.sin_m * m  # issue 1
         self.threshold = math.cos(math.pi - m)
     
-    def forward(self, embbedings, label):
-        # weights norm
-        nB = len(embbedings)
+    def forward_eff(self, embbedings, label):
+        kernel_norm = l2_norm(self.kernel, axis=0)
+        cos_theta = torch.mm(embbedings, kernel_norm)
+        cos_theta = cos_theta.clamp(-1, 1)
+        output = cos_theta.clone()
+        cos_theta_need = cos_theta[idx_, label]
+        cos_theta_2 = torch.pow(cos_theta_need, 2)
+        sin_theta_2 = 1 - cos_theta_2
+        sin_theta = torch.sqrt(sin_theta_2)
+        cos_theta_m = (cos_theta_need * self.cos_m - sin_theta * self.sin_m)
+        cond_mask = (cos_theta_need - self.threshold) <= 0
+        
+        if torch.any(cond_mask).item():
+            logging.info('this concatins a difficult sample')
+        keep_val = (cos_theta_need - self.mm)  # when theta not in [0,pi], use cosface instead
+        cos_theta_m[cond_mask] = keep_val[cond_mask]
+        
+        output[idx_, label] = cos_theta_m
+        output *= self.s  # scale up in order to make softmax work, first introduced in normface
+        # with torch.no_grad():
+        #     o2 = self.forward_neff(embbedings, label)
+        return output
+    
+    def forward_neff(self, embbedings, label):
+        ## weights norm
         # if not use_kernel2:
         kernel_norm = l2_norm(self.kernel, axis=0)
         cos_theta = torch.mm(embbedings, kernel_norm)
         # else:
         #     cos_theta = self.kernel(embbedings)
         #         output = torch.mm(embbedings,kernel_norm)
+        
+        # cos_theta.clamp_(-1, 1)  # for numerical stability
+        # cos_theta_m = (cos_theta * self.cos_m - torch.sqrt((1 - torch.pow(cos_theta, 2))) * self.sin_m)
+        
         cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability
         cos_theta_2 = torch.pow(cos_theta, 2)
         sin_theta_2 = 1 - cos_theta_2
         sin_theta = torch.sqrt(sin_theta_2)
         cos_theta_m = (cos_theta * self.cos_m - sin_theta * self.sin_m)
-        # this condition controls the theta+m should in range [0, pi]
-        #      0<=theta+m<=pi
-        #     -m<=theta<=pi-m
-        cond_v = cos_theta - self.threshold
-        cond_mask = cond_v <= 0
+        
+        ## this condition controls the theta+m should in range [0, pi]
+        ##      0<=theta+m<=pi
+        ##     -m<=theta<=pi-m
+        
+        cond_mask = (cos_theta - self.threshold) <= 0
+        
         if torch.any(cond_mask).item():
             logging.info('this concatins a difficult sample')
         keep_val = (cos_theta - self.mm)  # when theta not in [0,pi], use cosface instead
         cos_theta_m[cond_mask] = keep_val[cond_mask]
+        
         output = cos_theta * 1.0  # a little bit hacky way to prevent in_place operation on cos_theta
-        idx_ = torch.arange(0, nB, dtype=torch.long)
         output[idx_, label] = cos_theta_m[idx_, label]
         output *= self.s  # scale up in order to make softmax work, first introduced in normface
         return output
+    
+    forward = forward_eff
+    # forward = forward_neff
 
 
 ##################################  Cosface head #################

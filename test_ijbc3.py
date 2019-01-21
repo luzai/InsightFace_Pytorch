@@ -10,21 +10,7 @@ from utils import load_facebank, draw_box_name, prepare_facebank
 from lz import *
 from pathlib import Path
 
-# ijb_path = '/data2/share/ijbc/'
-# test1_path = ijb_path + '/IJB-C/protocols/test1/'
-# img_path = ijb_path + 'IJB/IJB-C/images/'
-# df_enroll = pd.read_csv(test1_path + '/enroll_templates.csv')
-# df_verif = pd.read_csv(test1_path + '/verif_templates.csv')
-# df_match = pd.read_csv(test1_path + '/match.csv')
-# dst = ijb_path + '/ijb.test1.proc/'
-#
-# df1 = df_enroll[['TEMPLATE_ID', 'SUBJECT_ID']].groupby('TEMPLATE_ID').mean()
-# df2 = df_verif[['TEMPLATE_ID', 'SUBJECT_ID']].groupby('TEMPLATE_ID').mean()
-# df = pd.concat((df1, df2))
-# t2s = dict(zip(df.index, df.SUBJECT_ID))
-# all_tids = list(t2s.keys())
-
-IJBC_path = '/data1/share/IJB_release/'
+IJBC_path = '/data1/share/IJB_release/' if 'amax' in hostname() else '/home/zl/zl_data/IJB_release/'
 ijbcp = IJBC_path + 'ijbc.info.h5'
 try:
     df_tm, df_pair, df_name = df_load(ijbcp, 'tm'), df_load(ijbcp, 'pair'), df_load(ijbcp, 'name')
@@ -39,14 +25,28 @@ except:
     df_dump(df_pair, ijbcp, 'pair')
     df_dump(df_name, ijbcp, 'name')
 
-conf.need_log = False
-conf.batch_size *= 2
-learner = face_learner(conf, )
-learner.load_state(
-                   resume_path='work_space/emore.r50.dop/models/',
-                   latest=True,
-                   )
-learner.model.eval()
+use_mxnet = True
+if use_mxnet:
+    from recognition.embedding import Embedding
+    
+    # learner = Embedding(
+    #     prefix='/home/zl/prj/models/r100_se_base+mhyset_0602-0724_ft_bninit_pk/r100_se_base+mhyset_0602-0724_ft_bninit_pk',
+    #     epoch=45, ctx_id=7)
+    # learner = Embedding(prefix='/data1/xinglu/prj/insightface/logs/model-r50-comb.r50.ms1m/model', epoch=105, ctx_id=1)
+    learner = Embedding(prefix='/data1/xinglu/prj/insightface/logs/MS1MV2-ResNet100-Arcface/model', epoch=0, ctx_id=2)
+else:
+    from Learner import face_learner
+    from config import conf
+    
+    conf.need_log = False
+    conf.batch_size *= 2
+    learner = face_learner(conf, )
+    learner.load_state(
+        resume_path='work_space/emore.r50.dop/models/',
+        latest=True,
+    )
+    learner.model.eval()
+
 # logging.info('learner loaded')
 
 # use_topk = 999
@@ -58,18 +58,26 @@ import torch.utils.data, torchvision.transforms.functional
 refrence = get_reference_facial_points(default_square=True)
 ## way 1: speed up
 img_list_path = IJBC_path + './IJBC/meta/ijbc_name_5pts_score.txt'
-# img_path = IJBC_path + './IJBC/loose_crop'
 img_path = '/share/data/loose_crop'
+if not osp.exists(img_path):
+    img_path = IJBC_path + './IJBC/loose_crop'
+
 img_list = open(img_list_path)
 files = img_list.readlines()
 num_imgs = len(files)
 img_feats = np.empty((df_tm.shape[0], 512))
+
+from torchvision import transforms as trans
 
 
 class DatasetIJBC2(torch.utils.data.Dataset):
     def __init__(self, flip=False):
         self.flip = flip
         self.lock = torch.multiprocessing.Lock()
+        self.test_transform = trans.Compose([
+            trans.ToTensor(),
+            trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+        ])
     
     def __len__(self):
         return len(files)
@@ -79,7 +87,7 @@ class DatasetIJBC2(torch.utils.data.Dataset):
         each_line = files[img_index]
         name_lmk_score = each_line.strip().split(' ')
         img_name = os.path.join(img_path, name_lmk_score[0])
-        img = cvb.read_img(img_name) # this is BGR!!
+        img = cvb.read_img(img_name)  # this is BGR!!
         img = cvb.bgr2rgb(img)
         assert img is not None, img_name
         lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
@@ -90,13 +98,13 @@ class DatasetIJBC2(torch.utils.data.Dataset):
         if self.flip:
             import torchvision
             warp_img = torchvision.transforms.functional.hflip(warp_img)
-        img = conf.test_transform(warp_img)
+        img = self.test_transform(warp_img)
         return img, faceness_score, item, name_lmk_score[0]
 
 
 ds = DatasetIJBC2(flip=False)
 
-bs = 513
+bs = 64
 loader = torch.utils.data.DataLoader(ds, batch_size=bs,
                                      num_workers=12,
                                      shuffle=False,
@@ -106,38 +114,23 @@ for ind, data in enumerate((loader)):
     (img, faceness_score, items, names) = data
     if ind % 9 == 0:
         logging.info(f'ok {ind} {len(loader)}')
-    with torch.no_grad():
-        img_feat = learner.model(img)
-        img_featf = learner.model(img.flip((3,)))
-        fea = (img_feat + img_featf) / 2.
-        fea = fea.cpu().numpy()
+    if not use_mxnet:
+        with torch.no_grad():
+            img_feat = learner.model(img)
+            img_featf = learner.model(img.flip((3,)))
+            fea = (img_feat + img_featf) / 2.
+            fea = fea.cpu().numpy()
+            fea = fea * faceness_score.numpy().reshape(-1, 1)
+    else:
+        img = img.numpy()
+        img = img * 0.5 + 0.5
+        img = img * 255
+        img_feat = learner.gets(img)
+        img_featf = learner.gets(img[:, :, :, ::-1])  # todo
+        # from IPython import embed;  embed()
+        fea = (img_feat + img_featf)
         fea = fea * faceness_score.numpy().reshape(-1, 1)
     img_feats[ind * bs: (ind + 1) * bs, :] = fea
-
-## way 2 original
-# for ind, row in df_name.iterrows():
-#     if ind % 1000 == 0:
-#         logging.info(f'extract {ind}/{df_name.shape[0]}')
-#     tid = df_tm.iloc[ind, 1]
-#     if not tid in unique_tid: continue
-#     imgfn = row.iloc[0]
-#     lmks = row.iloc[1:11]
-#     lmks = np.asarray(lmks, np.float32).reshape((5, 2))
-#     score = row.iloc[-1]
-#     score = float(score)
-#     imgfn = '/data1/share/IJB_release/IJBC/loose_crop/' + imgfn
-#     img = cvb.read_img(imgfn)
-#     warp_img_ori = warp_and_crop_face(img, lmks, refrence, crop_size=(112, 112))
-#     warp_img = conf.test_transform(warp_img_ori).cuda()
-#     flip_img = conf.test_transform(warp_img_ori[:, ::-1, :].copy()).cuda()
-#     inp_img = torch.stack([warp_img, flip_img])
-#     with torch.no_grad():
-#         fea = learner.model(inp_img, normalize=False, return_norm=False)
-#         fea = (fea[0, :] + fea[1, :]) / 2.
-#         fea = fea.cpu().numpy().flatten()
-#         # fea = sklearn.preprocessing.normalize(fea )
-#     fea *= score
-#     img_feats[ind, :] = fea
 
 templates, medias = df_tm.values[:, 1], df_tm.values[:, 2]
 p1, p2, label = df_pair.values[:, 0], df_pair.values[:, 1], df_pair.values[:, 2]
@@ -188,13 +181,13 @@ print(score.max(), score.min())
 _ = plt.hist(score)
 fpr, tpr, _ = roc_curve(label, score)
 
-plt.figure()
-plt.plot(fpr, tpr, '.-')
-plt.show()
-
-plt.figure()
-plt.semilogx(fpr, tpr, '.-')
-plt.show()
+# plt.figure()
+# plt.plot(fpr, tpr, '.-')
+# plt.show()
+#
+# plt.figure()
+# plt.semilogx(fpr, tpr, '.-')
+# plt.show()
 
 fpr = np.flipud(fpr)
 tpr = np.flipud(tpr)  # select largest tpr at same fpr
@@ -203,10 +196,10 @@ x_labels = [10 ** -6, 10 ** -5, 10 ** -4, 10 ** -3, 10 ** -2, 10 ** -1]
 for fpr_iter in np.arange(len(x_labels)):
     _, min_index = min(list(zip(abs(fpr - x_labels[fpr_iter]), range(len(fpr)))))
     print(x_labels[fpr_iter], tpr[min_index])
-plt.plot(fpr, tpr, '.-')
-plt.show()
-plt.semilogx(fpr, tpr, '.-')
-plt.show()
+# plt.plot(fpr, tpr, '.-')
+# plt.show()
+# plt.semilogx(fpr, tpr, '.-')
+# plt.show()
 from sklearn.metrics import auc
 
 roc_auc = auc(fpr, tpr)

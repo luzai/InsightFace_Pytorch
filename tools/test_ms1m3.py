@@ -64,14 +64,14 @@ def img2db():
     learner.load_state(conf, None, True, True)
     learner.model.eval()
     logging.info('learner loaded')
-
+    
     from Learner import l2_norm
     from PIL import Image
-
+    
     class DatasetMS1M3(torch.utils.data.Dataset):
         def __init__(self):
             pass
-
+        
         def __getitem__(self, item):
             data = lmks[item]
             imgfn = data[0]
@@ -89,10 +89,10 @@ def img2db():
             return {'img': warp_img,
                     'flip_img': flip_img,
                     }
-
+        
         def __len__(self):
             return len(lmks)
-
+    
     ds = DatasetMS1M3()
     bs = 128 * 4 * 2
     loader = torch.utils.data.DataLoader(ds, batch_size=bs, num_workers=0, shuffle=False, pin_memory=True)
@@ -105,7 +105,7 @@ def img2db():
         with torch.no_grad():
             fea = l2_norm(learner.model(warp_img) + learner.model(flip_img)).cpu().numpy()
         db[f'{ind}'] = fea
-
+    
     db.close()
 
 
@@ -117,33 +117,38 @@ def db2np():
         iind = int(ind)
         res[iind * bs: iind * bs + bs, :] = db[ind]
     db.close()
-
+    
     save_mat(work_path + 'sfttri.bin', res)
     msgpack_dump(res, work_path + 'sfttri.pk', )
+
 
 def read_mat(f):
     """
     Reads an OpenCV mat from the given file opened in binary mode
     """
-    rows, cols, stride, type_ = struct.unpack('iiii', f.read(4*4))
-    mat = np.fromstring(f.read(rows*stride),dtype=cv_type_to_dtype[type_])
-    return mat.reshape(rows,cols)
+    rows, cols, stride, type_ = struct.unpack('iiii', f.read(4 * 4))
+    mat = np.fromstring(f.read(rows * stride), dtype=cv_type_to_dtype[type_])
+    return mat.reshape(rows, cols)
 
 
 def load_mat(filename):
     """
     Reads a OpenCV Mat from the given filename
     """
-    return read_mat(open(filename,'rb'))
+    return read_mat(open(filename, 'rb'))
+
 
 def chknp():
-    mat = load_mat(work_path+'sfttri.bin')
+    mat = load_mat(work_path + 'sfttri.bin')
     print(mat.shape, mat.dtype)
+
 
 def rand2np():
     res = np.random.rand(1862120, 2).astype(np.float32)
     res = l2_normalize_np(res)
     save_mat(work_path + 'test3.bin', res)
+
+
 if __name__ == '__main__':
     img2db()
     db2np()

@@ -22,7 +22,7 @@ import os, sys, time, \
     collections, \
     functools, signal
 from os import path as osp
-
+from IPython import  embed
 from easydict import EasyDict as edict
 import cv2, cvbase as cvb, copy, pandas as pd, math
 import collections
@@ -1009,6 +1009,9 @@ class AsyncDumper(mp.Process):
 def aria(url, dir_, fn):
     return shell(f'aria2c -c -s16 -k1M -x16 "{url}" -o "{fn}" -d "{dir_}"', )
 
+def hostname():
+    msg = shell('hostname')[0]
+    return msg.strip('\n')
 
 def shell(cmd, block=True, return_msg=True, verbose=True, timeout=None):
     import os

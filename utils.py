@@ -134,15 +134,17 @@ def face_reader(conf, conn, flag, boxes_arr, result_arr, learner, mtcnn, targets
         print('result_arr ： {}'.format(result_arr[:4]))
         flag.value = 0
 
+
 hflip = trans.Compose([
-        de_preprocess,
-        trans.ToPILImage(),
-        trans.functional.hflip,
-        trans.ToTensor(),
-        trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
-    ])
+    de_preprocess,
+    trans.ToPILImage(),
+    trans.functional.hflip,
+    trans.ToTensor(),
+    trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+])
+
+
 def hflip_batch(imgs_tensor):
-  
     hfliped_imgs = torch.empty_like(imgs_tensor)
     for i, img_ten in enumerate(imgs_tensor):
         hfliped_imgs[i] = hflip(img_ten)
