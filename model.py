@@ -375,7 +375,7 @@ class Arcface(Module):
         kernel_norm = l2_norm(self.kernel, axis=0)
         cos_theta = torch.mm(embbedings, kernel_norm)
         cos_theta = cos_theta.clamp(-1, 1)
-        output = cos_theta.clone()
+        output = cos_theta.clone() # todo avoid copy ttl
         cos_theta_need = cos_theta[idx_, label]
         cos_theta_2 = torch.pow(cos_theta_need, 2)
         sin_theta_2 = 1 - cos_theta_2

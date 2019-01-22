@@ -25,7 +25,7 @@ except:
     df_dump(df_pair, ijbcp, 'pair')
     df_dump(df_name, ijbcp, 'name')
 
-use_mxnet = True
+use_mxnet = False
 if use_mxnet:
     from recognition.embedding import Embedding
     
@@ -42,7 +42,7 @@ else:
     conf.batch_size *= 2
     learner = face_learner(conf, )
     learner.load_state(
-        resume_path='work_space/emore.r50.dop/models/',
+        resume_path='work_space/emore.r50.dop.headon0.notri.5.cont.3/models/',
         latest=True,
     )
     learner.model.eval()
@@ -104,7 +104,7 @@ class DatasetIJBC2(torch.utils.data.Dataset):
 
 ds = DatasetIJBC2(flip=False)
 
-bs = 64
+bs = 512
 loader = torch.utils.data.DataLoader(ds, batch_size=bs,
                                      num_workers=12,
                                      shuffle=False,

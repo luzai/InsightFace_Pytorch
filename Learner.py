@@ -818,7 +818,7 @@ class face_learner(object):
                     lz.timer.since_last_check(verbose=False)
                 )
                 if self.step % self.board_loss_every == 0:
-                    logging.info(f'epoch {e} step {self.step}/{len(loader)}: ' +
+                    logging.info(f'epoch {e}/{epochs} step {self.step}/{len(loader)}: ' +
                                  # f'img {imgs.mean()} {imgs.max()} {imgs.min()} '+
                                  f'loss: {loss.item():.2e} ' +
                                  f'data time: {data_time.avg:.2f} ' +

@@ -4,7 +4,7 @@ import matplotlib
 
 # matplotlib.use('Gtk3Agg')
 # matplotlib.use('TkAgg')
-matplotlib.use('Agg')
+# matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 # dbg = True

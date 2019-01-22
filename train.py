@@ -19,7 +19,7 @@ if __name__ == '__main__':
     
     # for resume or evaluate
     learner.load_state(
-        resume_path=Path('work_space/emore.r50.dop.headon0.notri.5.cont.2/models/'),
+        resume_path=Path('work_space/emore.mobilefacenet/models/'),
         load_optimizer=True,
         load_head=True,
         load_imp=True,
