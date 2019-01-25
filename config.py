@@ -39,6 +39,7 @@ conf.ms1m_folder = conf.data_path / 'faces_ms1m_112x112'
 conf.glint_folder = conf.data_path / 'glint'
 conf.emore_folder = conf.data_path / 'faces_emore'
 conf.alpha_f64 = conf.data_path / 'alpha_f64'
+conf.alpha_jk = conf.data_path / 'alpha_jk'
 
 conf.use_data_folder = conf.emore_folder  # conf.emore_folder  # conf.glint_folder #  conf.ms1m_folder #alpha_f64
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
@@ -53,14 +54,14 @@ else:
     conf.cutoff = 0
 conf.mining = 'dop'  # 'dop' 'imp' rand.img(slow) rand.id # todo imp.grad imp.loss
 conf.mining_init = -1  # imp 1.6; rand.id 1; dop -1
-conf.eps_greed = .3  # todo
+# conf.eps_greed = .3  # todo
 conf.rand_ratio = 9 / 27
 
 conf.margin = 0.4
 conf.fgg = ''  # g gg ''
-conf.fgg_wei = 0  # 1S
+conf.fgg_wei = 0  # 1
 conf.tri_wei = 0
-conf.scale = 64.  # 30.
+conf.scale = 64.
 conf.start_eval = False
 conf.instances = 4
 
@@ -69,7 +70,7 @@ conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
 conf.net_mode = 'csmobilefacenet'  # 'seresnext101' 'mobilefacenet'  'ir_se'  'ir' resnext
-conf.net_depth = 50  # 50
+conf.net_depth = 50  # 100
 
 # conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -81,9 +82,9 @@ conf.test_transform = trans.Compose([
 conf.batch_size = 180 * num_devs if not dbg else 8 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
 conf.use_chkpnt = False
 conf.ipabn = True
-conf.backbone_with_head = False  # should always false
 conf.use_redis = False
-conf.board_loss_every = 100  # 100  #10
+conf.chs_first = False
+conf.board_loss_every = 100  # 100
 conf.num_recs = 1
 # --------------------Training Config ------------------------
 conf.log_path = conf.work_path / 'log'
@@ -98,14 +99,13 @@ conf.lr_gamma = 0.1
 # conf.epochs = 25
 # conf.milestones = [14, 19, 22]
 conf.epochs = 18
-conf.milestones = [9, 15, 16]
+conf.milestones = [6, 12, 16]
 conf.momentum = 0.9
 conf.pin_memory = True
 conf.num_workers = 24 if "amax" in hostname() else 44  # 4
 conf.ce_loss = CrossEntropyLoss()
-conf.finetune = False
 training = True  # False means test
-if not training or conf.finetune:
+if not training:
     conf.batch_size *= 2
 if not training:
     conf.need_log = False

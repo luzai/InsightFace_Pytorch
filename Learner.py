@@ -352,12 +352,12 @@ class RandomIdSampler(Sampler):
                     size=(self.num_instances,), replace=replace, )
             if gl_conf.chs_first:
                 if gl_conf.dataset_name == 'alpha_jk':
-                    ind_inds = np.concatenate(([0],ind_inds))
-                    ind_inds = np.unique(ind_inds)[:self.num_instances] # 0 must be chsn
+                    ind_inds = np.concatenate(([0], ind_inds))
+                    ind_inds = np.unique(ind_inds)[:self.num_instances]  # 0 must be chsn
                 elif gl_conf.dataset_name == 'alpha_f64':
-                    if pid>=112145: #112145 开始是证件-监控
-                        ind_inds = np.concatenate(([0],ind_inds))
-                        ind_inds = np.unique(ind_inds)[:self.num_instances] # 0 must be chsn
+                    if pid >= 112145:  # 112145 开始是证件-监控
+                        ind_inds = np.concatenate(([0], ind_inds))
+                        ind_inds = np.unique(ind_inds)[:self.num_instances]  # 0 must be chsn
             for ind_ind in ind_inds:
                 ind = self.index_dic[pid][ind_ind]
                 yield ind, pid, ind_ind
@@ -429,9 +429,13 @@ def update_dop_cls(thetas, labels, dop):
         bs = thetas.shape[0]
         thetas[torch.arange(0, bs, dtype=torch.long), labels] = thetas.min()
         dop[labels.cpu().numpy()] = torch.argmax(thetas, dim=1).cpu().numpy()
+
+
 import pdb
+
+
 class FaceInfer():
-    def __init__(self,conf,gpuid=0):
+    def __init__(self, conf, gpuid=0):
         if conf.net_mode == 'mobilefacenet':
             self.model = MobileFaceNet(conf.embedding_size)
             print('MobileFaceNet model generated')
@@ -445,13 +449,13 @@ class FaceInfer():
             self.model = Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)
         else:
             raise ValueError(conf.net_mode)
-#         embed()
-#         pdb.set_trace()
+        #         embed()
+        #         pdb.set_trace()
         self.model = self.model.eval()
         dev = torch.device(f'cuda:{gpuid}')
         self.model = torch.nn.DataParallel(self.model,
-                                           device_ids=[        dev     ], output_device=dev).to(dev)
-
+                                           device_ids=[dev], output_device=dev).to(dev)
+    
     def load_state(self, fixed_str=None,
                    resume_path=None, latest=True,
                    ):
@@ -471,22 +475,22 @@ class FaceInfer():
             fixed_str = fixed_strs[step_ind].replace('model_', '')
             modelp = save_path / 'model_{}'.format(fixed_str)
         logging.info(f'you are using gpu, load model, {modelp}')
-        model_state_dict = torch.load(modelp,  map_location=lambda storage , loc:storage )
-#         embed()
-        model_state_dict = {k:v for k,v in model_state_dict.items() if 'num_batches_tracked' not in k}
+        model_state_dict = torch.load(modelp, map_location=lambda storage, loc: storage)
+        #         embed()
+        model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
         if list(model_state_dict.keys())[0].startswith('module'):
-            self.model.load_state_dict(model_state_dict,strict=True, )  # todo later may upgrade
+            self.model.load_state_dict(model_state_dict, strict=True, )  # todo later may upgrade
         else:
-            self.model.module.load_state_dict(model_state_dict, strict=True,  )
-        
-            
+            self.model.module.load_state_dict(model_state_dict, strict=True, )
+
+
 class face_learner(object):
     def __init__(self, conf, ):
         logging.info(f'face learner use {conf}')
         self.milestones = conf.milestones
         ## torch reader
         self.dataset = TorchDataset(gl_conf.use_data_folder)
-        self.val_loader_cache={}
+        self.val_loader_cache = {}
         self.loader = DataLoader(
             self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
             shuffle=False,
@@ -525,15 +529,12 @@ class face_learner(object):
         else:
             raise ValueError(conf.net_mode)
         
-        if conf.backbone_with_head:
-            self.head = None
+        if conf.loss == 'arcface':
+            self.head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num)
+        elif conf.loss == 'softmax':
+            self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num)
         else:
-            if conf.loss == 'arcface':
-                self.head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num)
-            elif conf.loss == 'softmax':
-                self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num)
-            else:
-                raise ValueError(f'{conf.loss}')
+            raise ValueError(f'{conf.loss}')
         if conf.local_rank is None:
             self.model = torch.nn.DataParallel(self.model).cuda()
         else:
@@ -552,34 +553,26 @@ class face_learner(object):
         print('two model heads generated')
         
         paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
-        if not gl_conf.backbone_with_head:
-            if conf.use_opt == 'adam':
-                self.optimizer = optim.Adam([{'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': 0},
-                                             {'params': paras_only_bn}, ],
-                                            betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
-                                            amsgrad=True,
-                                            lr=conf.lr,
-                                            )
-            elif conf.net_mode == 'mobilefacenet' or 'csmobilefacenet':
-                self.optimizer = optim.SGD([
-                    {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
-                    {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
-                    {'params': paras_only_bn}
-                ], lr=conf.lr, momentum=conf.momentum)
-            else:
-                self.optimizer = optim.SGD([
-                    {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': gl_conf.weight_decay},
-                    {'params': paras_only_bn},
-                ], lr=conf.lr, momentum=conf.momentum)
+        if conf.use_opt == 'adam':
+            self.optimizer = optim.Adam([{'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': 0},
+                                         {'params': paras_only_bn}, ],
+                                        betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
+                                        amsgrad=True,
+                                        lr=conf.lr,
+                                        )
+        elif conf.net_mode == 'mobilefacenet' or 'csmobilefacenet':
+            self.optimizer = optim.SGD([
+                {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
+                {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
+                {'params': paras_only_bn}
+            ], lr=conf.lr, momentum=conf.momentum)
         else:
             self.optimizer = optim.SGD([
-                {'params': paras_wo_bn, 'weight_decay': gl_conf.weight_decay},
+                {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': gl_conf.weight_decay},
                 {'params': paras_only_bn},
             ], lr=conf.lr, momentum=conf.momentum)
-            # self.optimizer = optim.SGD(self.model.parameters(), lr=conf.lr,
-            #  momentum=conf.momentum,
-            #                             weight_decay=conf.weight_decay)
-        print(self.optimizer, 'optimizers generated')
+ 
+        logging.info(self.optimizer, 'optimizers generated')
         self.board_loss_every = gl_conf.board_loss_every
         self.evaluate_every = len(self.loader) // 3
         self.save_every = len(self.loader) // 3
@@ -696,7 +689,7 @@ class face_learner(object):
                          }, out)
     
     def finetune(self, conf, epochs):
-        self.writer_ft = SummaryWriter(str(conf.log_path)+'/ft')
+        self.writer_ft = SummaryWriter(str(conf.log_path) + '/ft')
         self.model.train()
         loader = self.loader
         
@@ -731,14 +724,11 @@ class face_learner(object):
                 )
                 self.optimizer.zero_grad()
                 
-                if not gl_conf.backbone_with_head:
-                    # todo mode for nas resnext .. only
-#                         embeddings = self.model(imgs, mode='finetune')
-                    with torch.no_grad():
-                        embeddings = self.model(imgs,)
-                    thetas = self.head(embeddings, labels)
-                else:
-                    embeddings, thetas = self.model(imgs, labels=labels, return_logits=True)
+                # todo mode for nas resnext .. only
+                # embeddings = self.model(imgs, mode='finetune')
+                with torch.no_grad():
+                    embeddings = self.model(imgs, )
+                thetas = self.head(embeddings, labels)
                 # from IPython import embed;embed()
                 loss = conf.ce_loss(thetas, labels)
                 acc_t = (thetas.argmax(dim=1) == labels)
@@ -769,7 +759,7 @@ class face_learner(object):
                         gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].sum()  # todo should be sum?
                 if gl_conf.mining == 'rand.id':
                     gl_conf.dop[labels_cpu.numpy()] = 1
-                 
+                
                 loss_time.update(
                     lz.timer.since_last_check(verbose=False)
                 )
@@ -788,21 +778,21 @@ class face_learner(object):
                                  f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     self.writer_ft.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     self.writer_ft.add_scalar('loss/ttl',
-                                           ((1 - gl_conf.tri_wei) * loss_meter.avg +
-                                            gl_conf.tri_wei * loss_tri_meter.avg) / (1 - gl_conf.tri_wei),
-                                           self.step)
+                                              ((1 - gl_conf.tri_wei) * loss_meter.avg +
+                                               gl_conf.tri_wei * loss_tri_meter.avg) / (1 - gl_conf.tri_wei),
+                                              self.step)
                     self.writer_ft.add_scalar('loss/xent', loss_meter.avg, self.step)
                     self.writer_ft.add_scalar('loss/triplet', loss_tri_meter.avg, self.step)
                     self.writer_ft.add_scalar('info/acc', acc_meter.avg, self.step)
                     self.writer_ft.add_scalar('info/speed',
-                                           gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                                              gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
                     self.writer_ft.add_scalar('info/datatime', data_time.avg, self.step)
                     self.writer_ft.add_scalar('info/losstime', loss_time.avg, self.step)
                     self.writer_ft.add_scalar('info/epoch', e, self.step)
                     dop = gl_conf.dop
                     self.writer_ft.add_histogram('top_imp', dop, self.step)
                     self.writer_ft.add_scalar('info/doprat',
-                                           np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
+                                              np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
                 
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
@@ -833,12 +823,12 @@ class face_learner(object):
         
         if conf.start_eval:
             accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.agedb_30,
-                                                                       self.agedb_30_issame)
+                                                                                  self.agedb_30_issame)
             self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor)
             accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.lfw, self.lfw_issame)
             self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor)
             accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.cfp_fp,
-                                                                       self.cfp_fp_issame)
+                                                                                  self.cfp_fp_issame)
             self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor)
         lz.timer.since_last_check('start train')
         data_time = lz.AverageMeter()
@@ -848,7 +838,7 @@ class face_learner(object):
         loss_tri_meter = lz.AverageMeter()
         acc_meter = lz.AverageMeter()
         accuracy = 0
-
+        
         # tau = 0
         # B_multi = 4  # todo monitor time
         # Batch_size = gl_conf.batch_size * B_multi
@@ -926,11 +916,10 @@ class face_learner(object):
                     #     loss_meter.update(loss.item())
                     #     loss.backward()
                     # else:
-                    if conf.finetune:
-                        # todo mode for nas resnext .. only
-                        embeddings = self.model(imgs, mode='finetune')
-                    else:
-                        embeddings = self.model(imgs)
+                    
+                    #     # todo mode for nas resnext .. only
+                    #     embeddings = self.model(imgs, mode='finetune')
+                    embeddings = self.model(imgs)
                     thetas = self.head(embeddings, labels)
                     loss = conf.ce_loss(thetas, labels)
                     acc_t = (thetas.argmax(dim=1) == labels)
@@ -969,15 +958,12 @@ class face_learner(object):
                     #         (torch.norm(gi - 1 / len(gi), dim=0) ** 2).item()
                     # ) ** (-1 / 2)
                 elif conf.fgg == 'g':
-                    if not gl_conf.backbone_with_head:
-                        if conf.finetune:
-                            # todo mode for nas resnext .. only
-                            embeddings_o = self.model(imgs, mode='finetune')
-                        else:
-                            embeddings_o = self.model(imgs)
-                        thetas_o = self.head(embeddings, labels)
-                    else:
-                        embeddings_o, thetas_o = self.model(imgs, labels=labels, return_logits=True)
+                    # if conf.finetune:
+                    #     # todo mode for nas resnext .. only
+                    #     embeddings_o = self.model(imgs, mode='finetune')
+                    # else:
+                    embeddings_o = self.model(imgs)
+                    thetas_o = self.head(embeddings, labels)
                     loss_o = conf.ce_loss(thetas_o, labels)
                     grad = torch.autograd.grad(loss_o, embeddings_o,
                                                retain_graph=False, create_graph=False, allow_unused=True,
@@ -1057,7 +1043,7 @@ class face_learner(object):
         
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
     
-    def schedule_lr(self,e=0):
+    def schedule_lr(self, e=0):
         from bisect import bisect_right
         
         e2lr = {epoch: gl_conf.lr * gl_conf.lr_gamma ** bisect_right(self.milestones, epoch) for epoch in
@@ -1137,7 +1123,7 @@ class face_learner(object):
         steps = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
         steps = np.asarray(steps, int)
         return steps
-   
+    
     @staticmethod
     def try_load(model, state_dict):
         try:
@@ -1172,20 +1158,17 @@ class face_learner(object):
             modelp = save_path / 'model_{}'.format(fixed_str)
         logging.info(f'you are using gpu, load model, {modelp}')
         model_state_dict = torch.load(modelp)
-#         embed()
-        model_state_dict = {k:v for k,v in model_state_dict.items() if 'num_batches_tracked' not in k}
+        #         embed()
+        model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
         if list(model_state_dict.keys())[0].startswith('module'):
-            self.model.load_state_dict(model_state_dict,strict=True)  # todo later may upgrade
+            self.model.load_state_dict(model_state_dict, strict=True)  # todo later may upgrade
         else:
             self.model.module.load_state_dict(model_state_dict, strict=True)
         
         if load_head and osp.exists(save_path / 'head_{}'.format(fixed_str)):
             logging.info(f'load head from {modelp}')
             head_state_dict = torch.load(save_path / 'head_{}'.format(fixed_str))
-            if self.head is not None:
-                self.try_load(self.head, head_state_dict)
-            else:
-                self.try_load(self.model.module.head, head_state_dict)
+            self.try_load(self.head, head_state_dict)
         if load_optimizer:
             logging.info(f'load opt from {modelp}')
             self.try_load(self.optimizer, torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
@@ -1203,8 +1186,8 @@ class face_learner(object):
         logging.info('start eval')
         self.model.eval()  # set the module in evaluation mode
         idx = 0
-        if name in self.val_loader_cache :
-            loader =  self.val_loader_cache[name]
+        if name in self.val_loader_cache:
+            loader = self.val_loader_cache[name]
         else:
             if tta:
                 dataset = Dataset_val(path, name, transform=hflip)
@@ -1212,7 +1195,7 @@ class face_learner(object):
                 dataset = Dataset_val(path, name)
             loader = DataLoader(dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
                                 shuffle=False, pin_memory=True)  # todo why shuffle must false
-            self.val_loader_cache[name]=loader
+            self.val_loader_cache[name] = loader
         length = len(loader.dataset)
         embeddings = np.zeros([length, conf.embedding_size])
         issame = np.zeros(length)
@@ -1293,7 +1276,7 @@ class face_learner(object):
                                                                               'cfp_fp')
         logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
         self.model.train()
-        
+    
     def find_lr(self,
                 conf,
                 init_value=1e-5,

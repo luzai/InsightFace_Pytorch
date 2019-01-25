@@ -17,16 +17,20 @@ if __name__ == '__main__':
                                              init_method="env://")
     learner = face_learner(conf, )
     
-    # for resume or evaluate
-    # learner.load_state(
-    #     resume_path=Path('work_space/emore.csmobilefacenet/models/'),
-    #     load_optimizer=True,
-    #     load_head=True,
-    #     load_imp=True,
-    #     latest=True,
-    # )
-    
-    # learner.validate(conf, 'work_space/emore.r50.dop/models/')
+    ## for resume or evaluate
+    #     learner.load_state(
+    # #         resume_path=Path('work_space/emore.r100.bs.head.notri.nochkpnt/save/'),
+    #          resume_path=Path('work_space/emore.r100.bs.ft.tri.dop/save/'),
+    #         load_optimizer=False,
+    #         load_head=True,
+    #         load_imp=True,
+    #         latest=True,
+    #     )
+    learner.init_lr()  # todo what if miss lr decay? manully must!
+    conf.tri_wei = 0
+    learner.train(conf, 4)
+    #     learner.finetune(conf, conf.fix_base)
+    #     learner.validate(conf, 'work_space/emore.r100.bs.head.notri.nochkpnt/save/')
     
     # log_lrs, losses = learner.find_lr(conf,
     #                                   # final_value=100,
@@ -37,6 +41,7 @@ if __name__ == '__main__':
     # conf.lr = best_lr
     # learner.push2redis()
     learner.init_lr()  # todo what if miss lr decay? manully must!
+    conf.tri_wei = .5
     learner.train(conf, conf.epochs)
     
     # def calc_importance():

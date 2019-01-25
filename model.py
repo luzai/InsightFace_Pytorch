@@ -211,15 +211,8 @@ class Backbone(Module):
                                 bottleneck.depth,
                                 bottleneck.stride))
         self.body = Sequential(*modules)
-        if gl_conf.backbone_with_head:
-            if gl_conf.loss == 'arcface':
-                self.head = Arcface(embedding_size=gl_conf.embedding_size, classnum=gl_conf.num_clss)
-            elif gl_conf.loss == 'softmax':
-                self.head = MySoftmax(embedding_size=gl_conf.embedding_size, classnum=gl_conf.num_clss)
-            else:
-                raise ValueError(f'{gl_conf.loss}')
-    
-    def forward(self, x, normalize=True, return_norm=False, labels=None, return_logits=False):
+      
+    def forward(self, x, normalize=True, return_norm=False, labels=None,):
         x = self.input_layer(x)
         if not gl_conf.use_chkpnt:
             x = self.body(x)
@@ -227,11 +220,6 @@ class Backbone(Module):
             x = checkpoint_sequential(self.body, 2, x)
         x = self.output_layer(x)
         x_norm, norm = l2_norm(x, axis=1, need_norm=True)
-        if gl_conf.backbone_with_head:
-            if not return_logits:
-                return x_norm  # the default one
-            else:
-                return x_norm, self.head(x_norm, labels)
         if normalize:
             if return_norm:
                 return x_norm, norm
