@@ -2,14 +2,15 @@ import cv2
 from PIL import Image
 import argparse
 from pathlib import Path
-import torch
 from config import conf
 from mtcnn import MTCNN
 from Learner import face_learner
-from utils import load_facebank, draw_box_name, prepare_facebank
 from lz import *
 from pathlib import Path
-
+import lz
+from torchvision import transforms as trans
+import redis
+use_redis=False
 IJBC_path = '/data1/share/IJB_release/' if 'amax' in hostname() else '/home/zl/zl_data/IJB_release/'
 ijbcp = IJBC_path + 'ijbc.info.h5'
 try:
@@ -28,12 +29,9 @@ except:
 use_mxnet = False
 if use_mxnet:
     from recognition.embedding import Embedding
-    
-    # learner = Embedding(
-    #     prefix='/home/zl/prj/models/r100_se_base+mhyset_0602-0724_ft_bninit_pk/r100_se_base+mhyset_0602-0724_ft_bninit_pk',
-    #     epoch=45, ctx_id=7)
-    # learner = Embedding(prefix='/data1/xinglu/prj/insightface/logs/model-r50-comb.r50.ms1m/model', epoch=105, ctx_id=1)
-    learner = Embedding(prefix='/data1/xinglu/prj/insightface/logs/MS1MV2-ResNet100-Arcface/model', epoch=0, ctx_id=2)
+#     learner = Embedding( prefix='/home/zl/prj/models/r100_se_base+mhyset_0602-0724_ft_bninit_pk/r100_se_base+mhyset_0602-0724_ft_bninit_pk', epoch=45, ctx_id=7)
+#     learner = Embedding( prefix='/home/zl/prj/models/r100_loss4_mxnet/r100_loss4_mxnet', epoch=13, ctx_id=7)
+    learner = Embedding( prefix='/home/zl/prj/models/MS1MV2-ResNet100-Arcface/MS1MV2-ResNet100-Arcface', epoch=22, ctx_id=7)
 else:
     from Learner import face_learner
     from config import conf
@@ -56,7 +54,6 @@ from mtcnn import get_reference_facial_points, warp_and_crop_face
 import torch.utils.data, torchvision.transforms.functional
 
 refrence = get_reference_facial_points(default_square=True)
-## way 1: speed up
 img_list_path = IJBC_path + './IJBC/meta/ijbc_name_5pts_score.txt'
 img_path = '/share/data/loose_crop'
 if not osp.exists(img_path):
@@ -67,18 +64,17 @@ files = img_list.readlines()
 num_imgs = len(files)
 img_feats = np.empty((df_tm.shape[0], 512))
 
-from torchvision import transforms as trans
-
-
 class DatasetIJBC2(torch.utils.data.Dataset):
     def __init__(self, flip=False):
         self.flip = flip
-        self.lock = torch.multiprocessing.Lock()
         self.test_transform = trans.Compose([
             trans.ToTensor(),
             trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
-        ])
-    
+            ])
+        if use_redis:
+            self.r = redis.Redis()
+        else:
+            self.r=None
     def __len__(self):
         return len(files)
     
@@ -87,8 +83,16 @@ class DatasetIJBC2(torch.utils.data.Dataset):
         each_line = files[img_index]
         name_lmk_score = each_line.strip().split(' ')
         img_name = os.path.join(img_path, name_lmk_score[0])
-        img = cvb.read_img(img_name)  # this is BGR!!
-        img = cvb.bgr2rgb(img)
+        if use_redis and f'ijbc/imgs/{name_lmk_score[0]}' in self.r:
+            bb = self.r.get(f'ijbc/imgs/{name_lmk_score[0]}')
+        else:
+            with open(img_name,'rb') as f:
+                bb = f.read()
+            if use_redis:
+                self.r.set(f'ijbc/imgs/{name_lmk_score[0]}',bb)
+        img = cvb.img_from_bytes(bb) # also RGB!!
+#         img = cvb.read_img(img_name)
+        img = cvb.bgr2rgb(img) # this is BGR!!
         assert img is not None, img_name
         lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
         lmk = lmk.reshape((5, 2))
@@ -98,7 +102,12 @@ class DatasetIJBC2(torch.utils.data.Dataset):
         if self.flip:
             import torchvision
             warp_img = torchvision.transforms.functional.hflip(warp_img)
-        img = self.test_transform(warp_img)
+#         from IPython import embed; embed()
+        if not use_mxnet:
+            img = self.test_transform(warp_img)
+        else:
+            img = np.array(  np.transpose(warp_img, (2,0,1) ) )
+            img = lz.to_torch(img).float()
         return img, faceness_score, item, name_lmk_score[0]
 
 
@@ -106,7 +115,7 @@ ds = DatasetIJBC2(flip=False)
 
 bs = 512
 loader = torch.utils.data.DataLoader(ds, batch_size=bs,
-                                     num_workers=12,
+                                     num_workers=12 if 'amax' in hostname() else 44,
                                      shuffle=False,
                                      pin_memory=True, )
 
@@ -123,12 +132,9 @@ for ind, data in enumerate((loader)):
             fea = fea * faceness_score.numpy().reshape(-1, 1)
     else:
         img = img.numpy()
-        img = img * 0.5 + 0.5
-        img = img * 255
         img_feat = learner.gets(img)
-        img_featf = learner.gets(img[:, :, :, ::-1])  # todo
-        # from IPython import embed;  embed()
-        fea = (img_feat + img_featf)
+        img_featf = learner.gets(img[:,:,:,::-1].copy())
+        fea = (img_feat + img_featf) / 2.
         fea = fea * faceness_score.numpy().reshape(-1, 1)
     img_feats[ind * bs: (ind + 1) * bs, :] = fea
 
@@ -207,5 +213,4 @@ print(roc_auc)
 logging.info('finish ')
 
 from IPython import embed
-
 embed()

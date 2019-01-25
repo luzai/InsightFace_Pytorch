@@ -7,7 +7,6 @@ from scipy import spatial
 import re
 import multiprocessing as mp
 import sklearn.preprocessing
-import cPickle as pickle
 import argparse
 import tensorflow as tf
 import mxnet as mx
@@ -72,7 +71,7 @@ def tf_build_graph(sess):
             query_feature = tf.placeholder(tf.float32, shape=(None, feature_len))
             similarity = tf.matmul(query_feature, tf.transpose(disv_feature))
             similarity = tf.squeeze(similarity)
-            print similarity.get_shape()
+            print((similarity.get_shape()))
             query_results = tf.nn.top_k(similarity, k=100)
             ret_list.append((query_results, query_feature))
     sess.run(tf.global_variables_initializer(), feed_dict=feed_dict)
@@ -158,9 +157,9 @@ def result_generator(pairs, test_set_dict, sess, query_results, label_list, q):
             q.append(ret_str)
             return
         search_feature = test_set_dict[pair[0]]
-        # print search_feature.shape
+        # print( search_feature.shape)
         searched_feature = test_set_dict[pair[1]]
-        # print searched_feature.shape
+        # print( searched_feature.shape)
         
         similarity = np.dot(search_feature, searched_feature)
         ret_str += ',%.3g;'%(similarity)
@@ -189,7 +188,7 @@ def result_generator(pairs, test_set_dict, sess, query_results, label_list, q):
             write_result(ids, similarities, pair)
             count += 1
             if count % 1000 == 0:
-                print 'process: %d'%count
+                print( 'process: %d'%count)
     idx = 2
     count = 0
     #jk2zj
@@ -198,17 +197,17 @@ def result_generator(pairs, test_set_dict, sess, query_results, label_list, q):
         for item in opair[1]:
             search_features.append(test_set_dict[item])
         search_features = np.array(search_features)
-        # print search_features.shape
+        # print( search_features.shape)
         # pdb.set_trace()
         idss, similaritiess = tf_query(sess, search_features, query_results)
-        # print idss.shape, similaritiess.shape
+        # print( idss.shape, similaritiess.shape)
         assert len(idss) == len(opair[1]) and len(idss)==len(similaritiess)
         for ids, similarities, item in zip(idss, similaritiess, opair[1]):
             pair = [item, opair[0]]
             write_result(ids, similarities, pair)
             count += 1
             if count % 1000 == 0:
-                print 'process: %d'%count
+                print( 'process: %d'%count)
     
     
 def comsumer(q, fw):
@@ -226,7 +225,7 @@ def get_final_result(test_cache_root, jk_list, zj_list, dist_list_path, result_f
     fw = open(result_file_path,'w')
     q = []
     result_generator(zj2jk_pairs, test_set_dict, sess, query_results_pairs, dist_list, q)
-    print len(q)
+    print( len(q))
     comsumer(q,fw)
     fw.close()
 
@@ -276,7 +275,7 @@ for im_name in os.listdir(dist):
         dis_feature_len += st.st_size/feature_len/4
 dis_features = np.zeros((dis_feature_len, feature_len))
 idx = 0
-print 'loading dis set: %d'%dis_feature_len
+print( 'loading dis set: %d'%dis_feature_len)
 for im_name in os.listdir(dist):
     if 'bin' in im_name:
         with open(os.path.join(dist, im_name),'rb') as fr:
@@ -288,7 +287,7 @@ for im_name in os.listdir(dist):
                 dis_features[idx,:] = feature
                 idx+=1
 assert idx == dis_feature_len
-print 'total dis feature length:%d'%idx
+print( 'total dis feature length:%d'%idx)
 
 config = tf.ConfigProto(allow_soft_placement=True)
 config.gpu_options.allow_growth=True

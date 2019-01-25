@@ -18,13 +18,13 @@ if __name__ == '__main__':
     learner = face_learner(conf, )
     
     # for resume or evaluate
-    learner.load_state(
-        resume_path=Path('work_space/emore.mobilefacenet/models/'),
-        load_optimizer=True,
-        load_head=True,
-        load_imp=True,
-        latest=True,
-    )
+    # learner.load_state(
+    #     resume_path=Path('work_space/emore.csmobilefacenet/models/'),
+    #     load_optimizer=True,
+    #     load_head=True,
+    #     load_imp=True,
+    #     latest=True,
+    # )
     
     # learner.validate(conf, 'work_space/emore.r50.dop/models/')
     

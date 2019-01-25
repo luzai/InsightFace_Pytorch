@@ -10,45 +10,50 @@ import cv2
 import argparse
 import multiprocessing as mp
 import time
+from IPython import embed
+import pdb 
 
 pca = False
 output_name = 'fc1' if not pca else 'feature'
-use_torch = True
+use_torch = False 
 
 
 def get_mod(gpuid):
-    if not use_torch:
-      ctx = mx.gpu(gpuid)
-      batch_size= args.batch_size
-      model_prefix, epoch = args.model.split(',')
-      epoch = int(epoch)
-      print( 'loading %s %d'%(model_prefix, epoch))
-      sym, arg_params, aux_params = mx.model.load_checkpoint(model_prefix, epoch)
-      sym = sym.get_internals()['fc1_output']
-      mod = mx.mod.Module(symbol=sym, context=ctx, label_names = None)
-      mod.bind(for_training=False, data_shapes=[('data', (batch_size, 3, 112, 112))])
-      mod.set_params(arg_params, aux_params)
-      return mod
+    if not use_torch:  
+        import mxnet as mx
+        ctx = mx.gpu(gpuid)
+        batch_size= args.batch_size
+        model_prefix, epoch = args.model.split(',')
+        epoch = int(epoch)
+        print( 'loading %s %d'%(model_prefix, epoch))
+        sym, arg_params, aux_params = mx.model.load_checkpoint(model_prefix, epoch)
+        sym = sym.get_internals()['fc1_output']
+        mod = mx.mod.Module(symbol=sym, context=ctx, label_names = None)
+        mod.bind(for_training=False, data_shapes=[('data', (batch_size, 3, 112, 112))])
+        mod.set_params(arg_params, aux_params)
+        return mod
     else:
-      sys.path.insert(0, '/home/zl/prj/InsightFace_Pytorch.3/')
-      from config import conf
-      conf.ipabn = False
-      conf.need_log=False
-      from Learner import face_learner
-      
-      learner = face_learner(conf)
-      learner.load_state(
-        resume_path=('/home/zl/prj/InsightFace_Pytorch.3/work_space/emore.r100.dop.head.notri.nochkpnt.3/models/'),
-        load_optimizer=True,
-        load_head=True,
-        load_imp=True,
-        latest=True,
-      )
-      return learner
+        sys.path.insert(0, '/home/zl/prj/InsightFace_Pytorch.3/') 
+        from config import conf
+        conf.ipabn = False 
+        conf.need_log=False 
+        from Learner import face_learner, FaceInfer       
+        learner = FaceInfer(conf, gpuid)       
+        learner.load_state(
+        resume_path=('/home/zl/prj/InsightFace_Pytorch.3/work_space/emore.r100.bs.ft.tri.dop/save/'),        
+        )
+    return learner 
       
 
 def embedding_generator(gpu_id, q_in, q_out):
+    gpuid = gpu_id
+    #from IPython import embed; embed()
     mod = get_mod(gpu_id)
+    #from torchvision import transforms as trans 
+    #test_transform = trans.Compose([
+    #  trans.ToTensor(),
+    #  trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]) 
+    #  ])
     while True:
         data = q_in.get(block=True)
         if data is None:
@@ -60,31 +65,41 @@ def embedding_generator(gpu_id, q_in, q_out):
             if preprocess_img:
                 im = im-127.5
                 im = im/128.
-            imlist.append(im[:,:,::-1])
+            imlist.append(im[:,:,::-1]) #RGB
             imnamelist.append(impath.replace(args.prefix, ''))
-        batch = np.array(imlist).transpose((0,3,1,2))
-        data = mx.nd.array(batch)
-        db = mx.io.DataBatch(data=(data,))
+        batch = np.array(imlist).transpose((0,3,1,2)) #RGB
+        
         if not use_torch:
+            data = mx.nd.array(batch)
+            db = mx.io.DataBatch(data=(data,))
           #from IPython import embed; embed()
-          mod.forward(db, is_train=False)
-          embs = mod.get_outputs()[0].asnumpy()
-          if flip_test:
-              batch = batch[:,:,:,::-1]
-              data = mx.nd.array(batch)
-              db = mx.io.DataBatch(data=(data,))
-              mod.forward(db, is_train=False)
-              embs += mod.get_outputs()[0].asnumpy()
+            mod.forward(db, is_train=False)
+            embs = mod.get_outputs()[0].asnumpy()
+            if flip_test:
+                batch = batch[:,:,:,::-1]
+                data = mx.nd.array(batch)
+                db = mx.io.DataBatch(data=(data,))
+                mod.forward(db, is_train=False)
+                embs += mod.get_outputs()[0].asnumpy()
         else:
-          import lz ,torch
-          with torch.no_grad():
-            embs=mod.model(lz.to_torch(batch))
-            #if flip_test:
-            embs+=  mod.model(lz.to_torch(batch[...,::-1]))
+            import lz ,torch
+            #batch = test_transform(batch)
+            #           embed()
+            batch = batch - 127.5 
+            batch = batch / 127.5
+            dev = torch.device(f'cuda:{gpuid}')
+#             lz.plt_imshow(batch[0])
+#             lz.plt.savefig('/tmp/t.png')
+            with torch.no_grad():
+                embs=mod.model(lz.to_torch(batch).to(dev) ).cpu().numpy()
+                if flip_test:
+                    embs+= mod.model(lz.to_torch( batch[...,::-1].copy()  ).to(dev) ).cpu().numpy()
         
         
-        for j in range(embs.shape[0]):
-            embs[j] = embs[j]/np.sqrt(np.sum(embs[j]**2))
+#         for j in range(embs.shape[0]):
+#             embs[j] = embs[j]/np.sqrt(np.sum(embs[j]**2))
+        import sklearn ,sklearn.preprocessing
+        embs = sklearn.preprocessing.normalize(embs) 
         
         q_out.put((embs, imnamelist))
 
@@ -116,7 +131,7 @@ def main():
     batch_size= args.batch_size
     print('#####',args.model, args.output_root)
     model_prefix, epoch = args.model.split(',')
-    imagelist = open(args.images_list).read().split('\n')[:-1]
+    imagelist = open(args.images_list, 'rt', encoding='utf-8').read().split('\n')[:-1]
     
     for i in range(len(imagelist)):
         imagelist[i] = args.prefix+imagelist[i].strip().split(' ')[0]
@@ -178,22 +193,22 @@ def parse_arguments():
     parser.add_argument('--model', type=str, help='model_prefix,epoch')
     
     parser.set_defaults(
-    images_list='../data/lists/dis/dis_list.txt',
-    output_root='../output',
-    model='/home/zl/prj/insightface/logs/model-r100-comb.r100.ms1m/model,192',
-    epoch='0192',
-    gpu_num=1,
-    prefix='../data/',
-    batch_size=16
+        images_list='../data/lists/dis/dis_list.txt', 
+        output_root='../output', 
+         model='/home/zl/prj/models/MS1MV2-ResNet100-Arcface/MS1MV2-ResNet100-Arcface,0' ,
+        gpu_num=0,
+        prefix='../data/', 
+        batch_size=256
     )
 
     return parser.parse_args()
+
 # python embeddings_dis.py --prefix ../data/ --gpu_num $3 --model $MODEL','$EPOCH ../data/lists/dis/dis_list.txt "$OUTPUT_ROOT"
 
 args = parse_arguments()
 flip_test = False
 preprocess_img = True if 'pca' in args.model else False
-gpus = [7,]
-num_process = 1
+gpus = [0,1,2,3,4,5,6,7]
+num_process = 8
 if __name__ == '__main__':
     main()

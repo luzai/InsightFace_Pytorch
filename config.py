@@ -28,9 +28,9 @@ conf.dop = None  # top_imp
 conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
-conf.data_path = Path('/data2/share/') if "amax" in hostname() else conf.data_path = Path('/home/zl/zl_data/')
+conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
 # conf.data_path = Path('/ssd/ssd0/zl_data/')
-conf.work_path = Path('work_space/emore.mobilefacenet.cont')
+conf.work_path = Path('work_space/emore.csmobilefacenet')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -68,8 +68,8 @@ conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
-conf.net_mode = 'ir_se'  # 'seresnext101' 'mobilefacenet'  'ir_se'  'ir'
-conf.net_depth = 100 # 50
+conf.net_mode = 'csmobilefacenet'  # 'seresnext101' 'mobilefacenet'  'ir_se'  'ir' resnext
+conf.net_depth = 50  # 50
 
 # conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -78,12 +78,12 @@ conf.test_transform = trans.Compose([
     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
 
-conf.batch_size = 180 * num_devs if not dbg else 8 * num_devs  # 135 99 xent: 96 92 tri: 112 108
+conf.batch_size = 180 * num_devs if not dbg else 8 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
 conf.use_chkpnt = False
 conf.ipabn = True
 conf.backbone_with_head = False  # should always false
 conf.use_redis = False
-conf.board_loss_every = 100  # 100
+conf.board_loss_every = 100  # 100  #10
 conf.num_recs = 1
 # --------------------Training Config ------------------------
 conf.log_path = conf.work_path / 'log'
@@ -101,7 +101,7 @@ conf.epochs = 18
 conf.milestones = [9, 15, 16]
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.num_workers = 24 if "amax" in hostname() else 44
+conf.num_workers = 24 if "amax" in hostname() else 44  # 4
 conf.ce_loss = CrossEntropyLoss()
 conf.finetune = False
 training = True  # False means test
