@@ -22,7 +22,7 @@ import os, sys, time, \
     collections, \
     functools, signal
 from os import path as osp
-from IPython import  embed
+from IPython import embed
 from easydict import EasyDict as edict
 import cv2, cvbase as cvb, copy, pandas as pd, math
 import collections
@@ -33,11 +33,49 @@ import collections
 # shutil, itertools,pathlib,
 # from IPython import embed
 # from tensorboardX import SummaryWriter
+
+
+root_path = osp.normpath(
+    osp.join(osp.abspath(osp.dirname(__file__)), )
+) + '/'
+home_path = os.environ['HOME'] + '/'
+work_path = home_path + '/work/'
+share_path = '/data1/share/'
+share_path3 = '/home/share/'
+share_path2 = '/data2/share/'
+
+sys.path.insert(0, root_path)
+
 os.environ.setdefault('log', '1')
 os.environ.setdefault('pytorch', '1')
 os.environ.setdefault('tensorflow', '0')
 os.environ.setdefault('chainer', '0')
 timer = cvb.Timer()
+
+def set_stream_logger(log_level=logging.INFO):
+    import colorlog
+    sh = colorlog.StreamHandler()
+    sh.setLevel(log_level)
+    sh.setFormatter(
+        colorlog.ColoredFormatter(
+            ' %(asctime)s %(filename)s [line:%(lineno)d] %(log_color)s%(levelname)s%(reset)s %(message)s'))
+    logging.root.addHandler(sh)
+
+
+def set_file_logger(work_dir=None, log_level=logging.INFO):
+    work_dir = work_dir or root_path
+    fh = logging.FileHandler(os.path.join(work_dir, 'log-ing'))
+    fh.setLevel(log_level)
+    fh.setFormatter(
+        logging.Formatter('%(asctime)s %(filename)s [line:%(lineno)d] %(levelname)s %(message)s'))
+    logging.root.addHandler(fh)
+
+
+if os.environ.get('log', '0') == '1':
+    logging.root.setLevel(logging.INFO)
+    set_stream_logger(logging.INFO)
+    set_file_logger(log_level=logging.INFO)
+
 if os.environ.get('chainer', "1") == "1":
     import chainer
     from chainer import cuda
@@ -94,17 +132,6 @@ if os.environ.get('tensorflow', '0') == '1':
     oldinit = allow_growth()
     print('import tf', time.time() - tic)
 
-root_path = osp.normpath(
-    osp.join(osp.abspath(osp.dirname(__file__)), )
-) + '/'
-home_path = os.environ['HOME'] + '/'
-work_path = home_path + '/work/'
-share_path = '/data1/share/'
-share_path3 = '/home/share/'
-share_path2 = '/data2/share/'
-
-sys.path.insert(0, root_path)
-
 '''
 %load_ext autoreload
 %autoreload 2
@@ -116,34 +143,8 @@ from IPython.core.interactiveshell import InteractiveShell
 InteractiveShell.ast_node_interactivity = "all"
 '''
 
-
 # torch.set_default_tensor_type(torch.cuda.DoubleTensor)
 # ori_np_err = np.seterr(all='raise') # 1/100000=0 will be error
-
-def set_stream_logger(log_level=logging.INFO):
-    import colorlog
-    sh = colorlog.StreamHandler()
-    sh.setLevel(log_level)
-    sh.setFormatter(
-        colorlog.ColoredFormatter(
-            ' %(asctime)s %(filename)s [line:%(lineno)d] %(log_color)s%(levelname)s%(reset)s %(message)s'))
-    logging.root.addHandler(sh)
-
-
-def set_file_logger(work_dir=None, log_level=logging.INFO):
-    work_dir = work_dir or root_path
-    fh = logging.FileHandler(os.path.join(work_dir, 'log-ing'))
-    fh.setLevel(log_level)
-    fh.setFormatter(
-        logging.Formatter('%(asctime)s %(filename)s [line:%(lineno)d] %(levelname)s %(message)s'))
-    logging.root.addHandler(fh)
-
-
-if os.environ.get('log', '0') == '1':
-    logging.root.setLevel(logging.INFO)
-    # set_stream_logger(logging.DEBUG)
-    set_stream_logger(logging.INFO)
-    set_file_logger(log_level=logging.INFO)
 
 ## ndarray will be pretty
 np.set_string_function(lambda arr: f'np {arr.shape} {arr.dtype} '
@@ -1009,9 +1010,11 @@ class AsyncDumper(mp.Process):
 def aria(url, dir_, fn):
     return shell(f'aria2c -c -s16 -k1M -x16 "{url}" -o "{fn}" -d "{dir_}"', )
 
+
 def hostname():
     msg = shell('hostname')[0]
     return msg.strip('\n')
+
 
 def shell(cmd, block=True, return_msg=True, verbose=True, timeout=None):
     import os
