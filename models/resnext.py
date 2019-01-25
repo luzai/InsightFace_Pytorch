@@ -3,9 +3,10 @@ from collections import OrderedDict
 from functools import partial
 
 import torch.nn as nn
-
+import torch
 from modules import IdentityResidualBlock, ABN, GlobalAvgPool2d
-from ._util import try_index
+from models._util import try_index
+from model import Linear_block, Flatten, l2_norm
 
 
 class ResNeXt(nn.Module):
@@ -40,12 +41,12 @@ class ResNeXt(nn.Module):
         """
         super(ResNeXt, self).__init__()
         self.structure = structure
-
+        
         if len(structure) != 4:
             raise ValueError("Expected a structure with four values")
         if dilation != 1 and len(dilation) != 4:
             raise ValueError("If dilation is not 1 it must contain four values")
-
+        
         # Initial layers
         if input_3x3:
             layers = [
@@ -62,7 +63,7 @@ class ResNeXt(nn.Module):
                 ("pool", nn.MaxPool2d(3, stride=2, padding=1))
             ]
         self.mod1 = nn.Sequential(OrderedDict(layers))
-
+        
         # Groups of residual blocks
         in_channels = 64
         channels = base_channels
@@ -75,35 +76,47 @@ class ResNeXt(nn.Module):
                     "block%d" % (block_id + 1),
                     IdentityResidualBlock(in_channels, channels, stride=s, norm_act=norm_act, groups=groups, dilation=d)
                 ))
-
+                
                 # Update channels
                 in_channels = channels[-1]
-
+            
             # Create and add module
             self.add_module("mod%d" % (mod_id + 2), nn.Sequential(OrderedDict(blocks)))
             channels = [c * 2 for c in channels]
-
+        
         # Pooling and predictor
         self.bn_out = norm_act(in_channels)
+        
+        self.output_layer = nn.Sequential(
+            Linear_block(in_channels, in_channels, groups=in_channels, kernel=(7, 7), stride=(1, 1), padding=(0, 0)),
+            Flatten(),
+            nn.Linear(in_channels, 512),
+            nn.BatchNorm1d(512),
+        )
+        
         if classes != 0:
             self.classifier = nn.Sequential(OrderedDict([
                 ("avg_pool", GlobalAvgPool2d()),
                 ("fc", nn.Linear(in_channels, classes))
             ]))
-
+    
     def forward(self, img):
+        if img.shape[-1] == 112:
+            with torch.no_grad():
+                img = nn.Upsample(scale_factor=2, mode='bilinear')(img)
+        
         out = self.mod1(img)
         out = self.mod2(out)
         out = self.mod3(out)
         out = self.mod4(out)
         out = self.mod5(out)
         out = self.bn_out(out)
-
+        out = self.output_layer(out)
         if hasattr(self, "classifier"):
             out = self.classifier(out)
-
+        
         return out
-
+    
     @staticmethod
     def _stride_dilation(mod_id, block_id, dilation):
         if dilation == 1:
@@ -125,8 +138,10 @@ _NETS = {
     "152": {"structure": [3, 8, 36, 3]},
 }
 
-__all__ = []
+__all__ = ["ResNeXt"]
 for name, params in _NETS.items():
     net_name = "net_resnext" + name
     setattr(sys.modules[__name__], net_name, partial(ResNeXt, **params))
     __all__.append(net_name)
+if __name__ == '__main__':
+    print(__all__)

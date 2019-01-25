@@ -343,6 +343,150 @@ class MobileFaceNet(Module):
         return l2_norm(out)
 
 
+##########################################################
+class CSMobileFaceNet(Module):
+    def __init__(self, embedding_size):
+        super(CSMobileFaceNet, self).__init__()
+        self.conv1 = Conv_block(3, 66, kernel=(3, 3), stride=(2, 2), padding=(1, 1))
+        self.conv2_dw = Conv_block(66, 66, kernel=(3, 3), stride=(1, 1), padding=(1, 1), groups=66)
+        self.conv_23 = Depth_Wise_2(66, 66, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=132)
+        self.conv_3 = Residual_2(66, num_block=4, groups=132, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
+        self.conv_34 = Depth_Wise_2(66, 132, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=264)
+        self.conv_4 = Residual_2(132, num_block=6, groups=264, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
+        self.conv_45 = Depth_Wise_2(132, 132, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=528)
+        self.conv_5 = Residual_2(132, num_block=2, groups=264, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
+        self.conv_6_sep = Conv_block(132, 512, kernel=(1, 1), stride=(1, 1), padding=(0, 0))
+        self.conv_6_dw = Linear_block(512, 512, groups=512, kernel=(7, 7), stride=(1, 1), padding=(0, 0))
+        self.conv_6_flatten = Flatten()
+        self.linear = Linear(512, embedding_size, bias=False)
+        self.bn = BatchNorm1d(embedding_size)
+    
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.conv2_dw(out)
+        out = self.conv_23(out)
+        out = self.conv_3(out)
+        out = self.conv_34(out)
+        out = self.conv_4(out)
+        out = self.conv_45(out)
+        out = self.conv_5(out)
+        out = self.conv_6_sep(out)
+        out = self.conv_6_dw(out)
+        out = self.conv_6_flatten(out)
+        out = self.linear(out)
+        out = self.bn(out)
+        return l2_norm(out)
+
+
+class Depth_Wise_2(Module):
+    def __init__(self, in_c, out_c, residual=False, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=1):
+        super(Depth_Wise_2, self).__init__()
+        self.residual = residual
+        self.reduction = 6
+
+        if self.residual:
+            out_c = out_c // 3
+            in_c = in_c // 3
+        else:
+            out_c = out_c // 2
+        self.out_c = out_c
+        
+        self.branch1 = nn.Sequential(
+            Conv_block(in_c, out_c=groups, kernel=(1, 1), padding=(0, 0), stride=(1, 1)),
+            Conv_block(groups, groups, groups=groups, kernel=kernel, padding=padding, stride=stride),
+            Linear_block(groups, out_c, kernel=(1, 1), padding=(0, 0), stride=(1, 1))
+        )
+        
+        if self.residual:
+            self.branch2 = nn.Sequential(
+                Conv_block(in_c, out_c=in_c, kernel=(1, 1), padding=(0, 0), stride=(1, 1)),
+                Linear_block(in_c, in_c, groups=in_c, kernel=kernel, padding=padding, stride=stride),
+                Conv_block(in_c, out_c, kernel=(1, 1), padding=(0, 0), stride=(1, 1))
+            )
+        else:
+            self.branch3 = nn.Sequential(
+                Linear_block(in_c, in_c, kernel=kernel, groups=in_c, padding=padding, stride=stride),
+                Conv_block(in_c, out_c, kernel=(1, 1), padding=(0, 0), stride=(1, 1))
+            )
+        if out_c >= self.reduction:
+            self.se = SEBlock(out_c, self.reduction)
+        
+    def forward(self, x):
+        if self.residual:
+            x_first_part = x[:, :(x.shape[1] // 3), :, :]
+            x_second_part = x[:, (x.shape[1] // 3):(x.shape[1] // 3)*2, :, :]
+            x_last_part = x[:, (x.shape[1]//3)*2:, :, :]
+            x_first_part = self.branch2(x_first_part)
+            x_second_part = self.branch1(x_second_part)
+            if self.out_c >= self.reduction:
+                x_first_part = self.se(x_first_part)
+                x_second_part = self.se(x_second_part)
+            out = channel_concatenate(x_first_part, x_second_part)
+            out = channel_concatenate(out, x_last_part)
+            out = channel_shuffle(out, 3)
+        else:
+            x1 = self.branch1(x)
+            x2 = self.branch3(x)
+            if self.out_c >= self.reduction:
+                x1 = self.se(x1)
+                x2 = self.se(x2)
+            out = channel_concatenate(x1, x2)
+            out = channel_shuffle(out, 2)
+        return out
+
+
+def channel_concatenate(x, out):
+    return torch.cat((x, out), 1)
+
+
+def channel_shuffle(x, groups):
+    batch_size, channels, height, width = x.data.size()
+    channels_per_group = channels // groups
+
+    #reshape
+    x = x.view(batch_size, groups, channels_per_group, height, width)
+
+    #transpose
+    torch.transpose(x, 1, 2).contiguous()
+
+    #flatten
+    x = x.view(batch_size, -1, height, width)
+
+    return x
+
+
+class Residual_2(Module):
+    def __init__(self, c, num_block, groups, kernel=(3, 3), stride=(1, 1), padding=(1, 1)):
+        super(Residual_2, self).__init__()
+        modules = []
+        for _ in range(num_block):
+            modules.append(
+                Depth_Wise_2(c, c, residual=True, kernel=kernel, padding=padding, stride=stride, groups=groups))
+        self.model = Sequential(*modules)
+    
+    def forward(self, x):
+        return self.model(x)
+
+
+class SEBlock(nn.Module):
+    def __init__(self, in_c, reduction=16):
+        super(SEBlock, self).__init__()
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(in_c, in_c // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(in_c // reduction, in_c, bias=False),
+            nn.Sigmoid()
+        )
+    
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avgpool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        
+        return x * y.expand_as(x)
+##########################################################
+
 ##################################  Arcface head #################
 from torch.nn.utils import weight_norm
 
