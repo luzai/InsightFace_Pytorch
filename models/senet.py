@@ -205,7 +205,7 @@ class SEResNeXtBottleneck(Bottleneck):
         self.stride = stride
 
 
-from model import Linear_block, Flatten
+from models.model import Linear_block, Flatten
 
 
 class SENet(nn.Module):

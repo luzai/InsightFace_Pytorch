@@ -2,18 +2,14 @@
 An example to show the interface.
 '''
 from skimage import io
-import cv2, logging, torchvision, numpy as np
+import logging, torchvision, numpy as np
 from PIL import Image
-import argparse
 from pathlib import Path
 import torch
-from config import get_config
+from config import conf
 from mtcnn import MTCNN
 from Learner import face_learner
-from utils import load_facebank, draw_box_name, prepare_facebank
-from mtcnn import MTCNN
-from Learner import face_learner
-from model import l2_norm
+from models.model import l2_norm
 
 # Note to load your model outside of `FaceVerification` function,
 # otherwise, model will be loaded every comparison, which is too time-consuming.
@@ -22,7 +18,6 @@ mtcnn = MTCNN()
 logging.info('mtcnn ok')
 chkpnt_path = Path('work_space/arcsft.bs2')
 model_path = chkpnt_path / 'save'
-conf = get_config(training=False, work_path=chkpnt_path)
 learner = face_learner(conf, inference=True)
 assert conf.device.type != 'cpu'
 learner.load_state(conf, None, True, True)

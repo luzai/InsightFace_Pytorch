@@ -7,7 +7,7 @@ from torch.nn import CrossEntropyLoss
 from torchvision import transforms as trans
 
 dist = False
-num_devs = 3
+num_devs = 1
 # lz.init_dev((0, 1, 2,3))
 # lz.init_dev((4,5,6,7))
 lz.init_dev(lz.get_dev(num_devs))
@@ -34,21 +34,21 @@ conf.work_path = Path('work_space/emore.csmobilefacenet')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
-conf.vgg_folder = conf.data_path / 'faces_vgg_112x112'
-conf.ms1m_folder = conf.data_path / 'faces_ms1m_112x112'
-conf.glint_folder = conf.data_path / 'glint'
-conf.emore_folder = conf.data_path / 'faces_emore'
-conf.alpha_f64 = conf.data_path / 'alpha_f64'
-conf.alpha_jk = conf.data_path / 'alpha_jk'
+vgg_folder = conf.data_path / 'faces_vgg_112x112'
+ms1m_folder = conf.data_path / 'faces_ms1m_112x112'
+glint_folder = conf.data_path / 'glint'
+emore_folder = conf.data_path / 'faces_emore'
+alpha_f64 = conf.data_path / 'alpha_f64'
+alpha_jk = conf.data_path / 'alpha_jk'
 
-conf.use_data_folder = conf.emore_folder  # conf.emore_folder  # conf.glint_folder #  conf.ms1m_folder #alpha_f64
+conf.use_data_folder = emore_folder  # conf.emore_folder  # conf.glint_folder #  conf.ms1m_folder #alpha_f64
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 
-if conf.use_data_folder == conf.ms1m_folder:
+if conf.use_data_folder == ms1m_folder:
     conf.cutoff = 10
-elif conf.use_data_folder == conf.glint_folder:
+elif conf.use_data_folder == glint_folder:
     conf.cutoff = 15
-elif conf.use_data_folder == conf.emore_folder:
+elif conf.use_data_folder == emore_folder:
     conf.cutoff = 0
 else:
     conf.cutoff = 0
@@ -69,22 +69,22 @@ conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
-conf.net_mode = 'csmobilefacenet'  # 'seresnext101' 'mobilefacenet'  'ir_se'  'ir' resnext
-conf.net_depth = 50  # 100
+conf.net_mode = 'densenet' # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
+conf.net_depth = 264  # 100
 
 # conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# conf.test_transform = trans.Compose([
+#     trans.ToTensor(),
+#     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+# ])
 
-conf.test_transform = trans.Compose([
-    trans.ToTensor(),
-    trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
-])
-
-conf.batch_size = 180 * num_devs if not dbg else 8 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
+conf.batch_size = 64 * num_devs if not dbg else 8 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
 conf.use_chkpnt = False
 conf.ipabn = True
 conf.use_redis = False
 conf.chs_first = False
-conf.board_loss_every = 100  # 100
+conf.board_loss_every = 10  # 100
+conf.other_every = None
 conf.num_recs = 1
 # --------------------Training Config ------------------------
 conf.log_path = conf.work_path / 'log'

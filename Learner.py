@@ -1,32 +1,27 @@
 import lz
-from data.data_pipe import de_preprocess, get_train_loader, get_val_data, get_val_pair
-from model import *
+from data.data_pipe import get_val_data, get_val_pair
+from models import Backbone, MobileFaceNet, CSMobileFaceNet, l2_norm, Arcface, MySoftmax, TripletLoss
+import models
+import numpy as np
 from verifacation import evaluate
 from torch import optim
-import numpy as np
 from tensorboardX import SummaryWriter
 from matplotlib import pyplot as plt
 from utils import get_time, gen_plot, hflip_batch, separate_bn_paras, hflip
 from PIL import Image
 from torchvision import transforms as trans
-import os
-import random
-import logging
-import numbers
-import math
+import os, random, logging, numbers, math
 import mxnet as mx
 from mxnet import ndarray as nd
-from mxnet import io
 from mxnet import recordio
-import torch
+import torch, os.path as osp
 from pathlib import Path
 from torch.utils.data import DataLoader
 from config import conf as gl_conf
 import torch.autograd
+from torch import nn
 import torch.multiprocessing as mp
-from models import *
 from torch.utils.data.sampler import Sampler
-from collections import defaultdict
 
 logger = logging.getLogger()
 
@@ -431,16 +426,13 @@ def update_dop_cls(thetas, labels, dop):
         dop[labels.cpu().numpy()] = torch.argmax(thetas, dim=1).cpu().numpy()
 
 
-import pdb
-
-
 class FaceInfer():
     def __init__(self, conf, gpuid=0):
         if conf.net_mode == 'mobilefacenet':
             self.model = MobileFaceNet(conf.embedding_size)
             print('MobileFaceNet model generated')
-        elif conf.net_mode == 'nasnetamobile':
-            self.model = nasnetamobile(512)
+        # elif conf.net_mode == 'nasnetamobile':
+        #     self.model = nasnetamobile(512)
         # elif conf.net_mode == 'seresnext50':
         #     self.model = se_resnext50_32x4d(512, )
         # elif conf.net_mode == 'seresnext101':
@@ -454,7 +446,7 @@ class FaceInfer():
         self.model = self.model.eval()
         dev = torch.device(f'cuda:{gpuid}')
         self.model = torch.nn.DataParallel(self.model,
-                                           device_ids=[dev], output_device=dev).to(dev)
+                                           device_ids=[gpuid], output_device=dev).to(dev)
     
     def load_state(self, fixed_str=None,
                    resume_path=None, latest=True,
@@ -486,7 +478,6 @@ class FaceInfer():
 
 class face_learner(object):
     def __init__(self, conf, ):
-        logging.info(f'face learner use {conf}')
         self.milestones = conf.milestones
         ## torch reader
         self.dataset = TorchDataset(gl_conf.use_data_folder)
@@ -512,13 +503,17 @@ class face_learner(object):
             self.model = MobileFaceNet(conf.embedding_size)
             print('MobileFaceNet model generated')
         elif conf.net_mode == 'nasnetamobile':
-            self.model = nasnetamobile(512)
+            self.model = models.nasnetamobile(512)
         elif conf.net_mode == 'resnext':
-            self.model = ResNeXt(**{"structure": [3, 4, 6, 3]})
+            self.model = models.ResNeXt(**models.resnext._NETS[str(conf.net_depth)])
         elif conf.net_mode == 'csmobilefacenet':
             self.model = CSMobileFaceNet(conf.embedding_size)
             print('CSMobileFaceNet model generated')
-            # self.model = net_resnext50()
+        elif conf.net_mode == 'densenet':
+            self.model = models.DenseNet(**models.densenet._NETS[str(conf.net_depth)])
+        elif conf.net_mode == 'widerresnet':
+            self.model = models.WiderResNet(**models.wider_resnet._NETS[str(conf.net_depth)])
+            # self.model = models.WiderResNetA2(**models.wider_resnet._NETS[str(conf.net_depth)])
         # elif conf.net_mode == 'seresnext50':
         #     self.model = se_resnext50_32x4d(512, )
         # elif conf.net_mode == 'seresnext101':
@@ -560,22 +555,26 @@ class face_learner(object):
                                         amsgrad=True,
                                         lr=conf.lr,
                                         )
-        elif conf.net_mode == 'mobilefacenet' or 'csmobilefacenet':
+        elif conf.net_mode == 'mobilefacenet' or conf.net_mode == 'csmobilefacenet':
             self.optimizer = optim.SGD([
                 {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
                 {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
                 {'params': paras_only_bn}
             ], lr=conf.lr, momentum=conf.momentum)
         else:
-            self.optimizer = optim.SGD([
-                {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': gl_conf.weight_decay},
-                {'params': paras_only_bn},
-            ], lr=conf.lr, momentum=conf.momentum)
- 
-        logging.info(self.optimizer, 'optimizers generated')
+            # self.optimizer = optim.SGD([
+            #     {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': gl_conf.weight_decay},
+            #     {'params': paras_only_bn},
+            # ], lr=conf.lr, momentum=conf.momentum)
+            self.optimizer = optim.SGD(
+                [*self.model.parameters()] + [*self.head.parameters()],
+                weight_decay=conf.weight_decay,
+                lr=conf.lr, momentum=conf.momentum
+            )
+        logging.info(f'optimizers generated {self.optimizer}')
         self.board_loss_every = gl_conf.board_loss_every
-        self.evaluate_every = len(self.loader) // 3
-        self.save_every = len(self.loader) // 3
+        self.evaluate_every = gl_conf.other_every or len(self.loader) // 3
+        self.save_every = gl_conf.other_every or len(self.loader) // 3
         self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
             self.loader.dataset.root_path)  # todo postpone load eval
     
@@ -1113,9 +1112,6 @@ class face_learner(object):
                 ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy,
                                                                   self.step, extra)))
     
-    # def save(self, path=work_path + 'twoloss.pth'):
-    #     torch.save(self.model, path)
-    
     def list_steps(self, resume_path):
         from pathlib import Path
         save_path = Path(resume_path)
@@ -1183,7 +1179,7 @@ class face_learner(object):
         self.writer.add_image('{}_roc_curve'.format(db_name), roc_curve_tensor, self.step)
     
     def evaluate_accelerate(self, conf, path, name, nrof_folds=5, tta=False):
-        logging.info('start eval')
+        lz.timer.since_last_check('start eval')
         self.model.eval()  # set the module in evaluation mode
         idx = 0
         if name in self.val_loader_cache:
@@ -1226,7 +1222,7 @@ class face_learner(object):
             logging.error(f'{e}')
             roc_curve_tensor = torch.zeros(3, 100, 100)
         self.model.train()
-        logging.info('eval end')
+        lz.timer.since_last_check('eval end')
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
     
     def evaluate(self, conf, carray, issame, nrof_folds=5, tta=False):
@@ -1320,7 +1316,7 @@ class face_learner(object):
             self.writer.add_scalar('smoothed_loss', smoothed_loss, batch_num)
             # Stop if the loss is exploding
             if batch_num > 1 and smoothed_loss > bloding_scale * best_loss:
-                print('exited with best_loss at {}'.format(best_loss))
+                logging.info('exited with best_loss at {}'.format(best_loss))
                 plt.plot(log_lrs[10:-5], losses[10:-5])
                 return log_lrs, losses
             # Record the best loss

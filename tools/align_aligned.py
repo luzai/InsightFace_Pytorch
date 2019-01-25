@@ -1,9 +1,5 @@
-import os, sys, pandas as pd, logging, os.path as osp, numpy as np
-from skimage import io
-import cv2
+import sys, pandas as pd
 from PIL import Image
-import argparse
-from pathlib import Path
 
 sys.path.insert(0, '/home/xinglu/prj/InsightFace_Pytorch/')
 ijb_path = '/data2/share/ijbc/'
@@ -14,21 +10,14 @@ df_verif = pd.read_csv(test1_path + '/verif_templates.csv')
 df_match = pd.read_csv(test1_path + '/match.csv')
 src = '/share/data/loose_crop/'
 dst = '/share/data/loose_crop.2/'
-from torch.multiprocessing import Pool, Process, set_start_method
+from torch.multiprocessing import set_start_method
 
 set_start_method('spawn')
 
 from lz import *
-import lz
-from Learner import face_learner
-from utils import load_facebank, draw_box_name, prepare_facebank
 from mtcnn import MTCNN
-from Learner import face_learner
-from model import l2_norm
 
-from config import get_config
-
-conf = get_config(training=False, )
+from config import conf
 
 mtcnn = MTCNN()
 mtcnn.share_memory()

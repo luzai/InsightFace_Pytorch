@@ -4,17 +4,17 @@ from functools import partial
 
 import torch.nn as nn
 import torch
-from modules import IdentityResidualBlock, ABN, GlobalAvgPool2d
+from modules import IdentityResidualBlock, GlobalAvgPool2d, InPlaceABN
 from models._util import try_index
-from model import Linear_block, Flatten, l2_norm
+from models.model import Linear_block, Flatten, l2_norm
 
 
 class ResNeXt(nn.Module):
     def __init__(self,
                  structure,
                  groups=64,
-                 norm_act=ABN,
-                 input_3x3=False,
+                 norm_act=InPlaceABN,
+                 input_3x3=True,
                  classes=0,
                  dilation=1,
                  base_channels=(128, 128, 256)):
@@ -100,10 +100,10 @@ class ResNeXt(nn.Module):
                 ("fc", nn.Linear(in_channels, classes))
             ]))
     
-    def forward(self, img):
+    def forward(self, img, normalize=True, return_norm=False, ):
         if img.shape[-1] == 112:
             with torch.no_grad():
-                img = nn.Upsample(scale_factor=2, mode='bilinear')(img)
+                img = nn.functional.interpolate(img, scale_factor=2, mode='bilinear', align_corners=True)
         
         out = self.mod1(img)
         out = self.mod2(out)
@@ -114,8 +114,18 @@ class ResNeXt(nn.Module):
         out = self.output_layer(out)
         if hasattr(self, "classifier"):
             out = self.classifier(out)
-        
-        return out
+        x = out
+        x_norm, norm = l2_norm(x, axis=1, need_norm=True)
+        if normalize:
+            if return_norm:
+                return x_norm, norm
+            else:
+                return x_norm  # the default one
+        else:
+            if return_norm:
+                return x, norm
+            else:
+                return x
     
     @staticmethod
     def _stride_dilation(mod_id, block_id, dilation):
@@ -138,10 +148,13 @@ _NETS = {
     "152": {"structure": [3, 8, 36, 3]},
 }
 
+_NETS["100"] = _NETS["101"]
+
 __all__ = ["ResNeXt"]
 for name, params in _NETS.items():
     net_name = "net_resnext" + name
     setattr(sys.modules[__name__], net_name, partial(ResNeXt, **params))
     __all__.append(net_name)
+
 if __name__ == '__main__':
     print(__all__)

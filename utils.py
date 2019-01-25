@@ -6,7 +6,7 @@ import io
 from torchvision import transforms as trans
 from data.data_pipe import de_preprocess
 import torch
-from model import l2_norm
+from models.model import l2_norm
 import cv2
 
 

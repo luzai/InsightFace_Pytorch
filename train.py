@@ -5,6 +5,13 @@ from config import conf
 from Learner import face_learner
 import argparse
 from pathlib import Path
+import lz
+
+
+def log_conf(conf):
+    conf2 = {k: v for k, v in conf.items() if not isinstance(v, (dict, np.ndarray))}
+    logging.info(f'training conf is {conf2}')
+
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--local_rank', default=None, type=int)
@@ -15,9 +22,10 @@ if __name__ == '__main__':
         torch.cuda.set_device(conf.local_rank)
         torch.distributed.init_process_group(backend='nccl',
                                              init_method="env://")
+    
     learner = face_learner(conf, )
     
-    ## for resume or evaluate
+    ## for pretrain resume or evaluate
     #     learner.load_state(
     # #         resume_path=Path('work_space/emore.r100.bs.head.notri.nochkpnt/save/'),
     #          resume_path=Path('work_space/emore.r100.bs.ft.tri.dop/save/'),
@@ -26,9 +34,13 @@ if __name__ == '__main__':
     #         load_imp=True,
     #         latest=True,
     #     )
+    # sd = torch.load(lz.home_path + '.torch/models/resnext101_ipabn_lr_512.pth.tar')['state_dict']
+    # lz.load_state_dict(learner.model, sd,)
+    
     learner.init_lr()  # todo what if miss lr decay? manully must!
-    conf.tri_wei = 0
-    learner.train(conf, 4)
+    # conf.tri_wei = 0
+    log_conf(conf)
+    # learner.train(conf, 4)
     #     learner.finetune(conf, conf.fix_base)
     #     learner.validate(conf, 'work_space/emore.r100.bs.head.notri.nochkpnt/save/')
     
@@ -40,8 +52,8 @@ if __name__ == '__main__':
     # print(best_lr)
     # conf.lr = best_lr
     # learner.push2redis()
-    learner.init_lr()  # todo what if miss lr decay? manully must!
-    conf.tri_wei = .5
+    # learner.init_lr()
+    # conf.tri_wei = .5
     learner.train(conf, conf.epochs)
     
     # def calc_importance():

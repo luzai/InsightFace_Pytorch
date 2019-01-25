@@ -4,15 +4,17 @@ from functools import partial
 
 import torch.nn as nn
 
-from modules import ABN, GlobalAvgPool2d, DenseModule
+from modules import GlobalAvgPool2d, DenseModule, InPlaceABN
 from ._util import try_index
+import torch
+from models.model import Linear_block, Flatten, l2_norm
 
 
 class DenseNet(nn.Module):
     def __init__(self,
                  structure,
-                 norm_act=ABN,
-                 input_3x3=False,
+                 norm_act=InPlaceABN,
+                 input_3x3=True,
                  growth=32,
                  theta=0.5,
                  classes=0,
@@ -42,7 +44,7 @@ class DenseNet(nn.Module):
         self.structure = structure
         if len(structure) != 4:
             raise ValueError("Expected a structure with four values")
-
+        
         # Initial layers
         if input_3x3:
             layers = [
@@ -59,12 +61,12 @@ class DenseNet(nn.Module):
                 ("pool", nn.MaxPool2d(3, stride=2, padding=1))
             ]
         self.mod1 = nn.Sequential(OrderedDict(layers))
-
+        
         in_channels = growth * 2
         for mod_id in range(4):
             d = try_index(dilation, mod_id)
             s = 2 if d == 1 and mod_id > 0 else 1
-
+            
             # Create transition module
             if mod_id > 0:
                 out_channels = int(in_channels * theta)
@@ -76,12 +78,12 @@ class DenseNet(nn.Module):
                     layers.append(("pool", nn.AvgPool2d(2, 2)))
                 self.add_module("tra%d" % (mod_id + 1), nn.Sequential(OrderedDict(layers)))
                 in_channels = out_channels
-
+            
             # Create dense module
             mod = DenseModule(in_channels, growth, structure[mod_id], norm_act=norm_act, dilation=d)
             self.add_module("mod%d" % (mod_id + 2), mod)
             in_channels = mod.out_channels
-
+        
         # Pooling and predictor
         self.bn_out = norm_act(in_channels)
         if classes != 0:
@@ -89,8 +91,17 @@ class DenseNet(nn.Module):
                 ("avg_pool", GlobalAvgPool2d()),
                 ("fc", nn.Linear(in_channels, classes))
             ]))
-
-    def forward(self, x):
+        self.output_layer = nn.Sequential(
+            Linear_block(in_channels, in_channels, groups=in_channels, kernel=(7, 7), stride=(1, 1), padding=(0, 0)),
+            Flatten(),
+            nn.Linear(in_channels, 512),
+            nn.BatchNorm1d(512),
+        )
+    
+    def forward(self, x , normalize=True, return_norm=False, ):
+        if x.shape[-1] == 112:
+            with torch.no_grad():
+                x = nn.functional.interpolate(x, scale_factor=2, mode='bilinear', align_corners=True)
         x = self.mod1(x)
         x = self.mod2(x)
         x = self.tra2(x)
@@ -100,10 +111,20 @@ class DenseNet(nn.Module):
         x = self.tra4(x)
         x = self.mod5(x)
         x = self.bn_out(x)
-
+        x = self.output_layer(x)
         if hasattr(self, "classifier"):
             x = self.classifier(x)
-        return x
+        x_norm, norm = l2_norm(x, axis=1, need_norm=True)
+        if normalize:
+            if return_norm:
+                return x_norm, norm
+            else:
+                return x_norm  # the default one
+        else:
+            if return_norm:
+                return x, norm
+            else:
+                return x
 
 
 _NETS = {
@@ -113,7 +134,7 @@ _NETS = {
     "264": {"structure": [6, 12, 64, 48]},
 }
 
-__all__ = []
+__all__ = ["DenseNet"]
 for name, params in _NETS.items():
     net_name = "net_densenet" + name
     setattr(sys.modules[__name__], net_name, partial(DenseNet, **params))

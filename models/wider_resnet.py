@@ -3,14 +3,15 @@ from collections import OrderedDict
 from functools import partial
 
 import torch.nn as nn
-
-from modules import IdentityResidualBlock, ABN, GlobalAvgPool2d
+import torch
+from modules import IdentityResidualBlock, ABN, GlobalAvgPool2d, InPlaceABN
+from models.model import Linear_block, Flatten, l2_norm
 
 
 class WiderResNet(nn.Module):
     def __init__(self,
                  structure,
-                 norm_act=ABN,
+                 norm_act=InPlaceABN,
                  classes=0):
         """Wider ResNet with pre-activation (identity mapping) blocks
 
@@ -26,15 +27,15 @@ class WiderResNet(nn.Module):
         """
         super(WiderResNet, self).__init__()
         self.structure = structure
-
+        
         if len(structure) != 6:
             raise ValueError("Expected a structure with six values")
-
+        
         # Initial layers
         self.mod1 = nn.Sequential(OrderedDict([
             ("conv1", nn.Conv2d(3, 64, 3, stride=1, padding=1, bias=False))
         ]))
-
+        
         # Groups of residual blocks
         in_channels = 64
         channels = [(128, 128), (256, 256), (512, 512), (512, 1024), (512, 1024, 2048), (1024, 2048, 4096)]
@@ -46,15 +47,15 @@ class WiderResNet(nn.Module):
                     "block%d" % (block_id + 1),
                     IdentityResidualBlock(in_channels, channels[mod_id], norm_act=norm_act)
                 ))
-
+                
                 # Update channels and p_keep
                 in_channels = channels[mod_id][-1]
-
+            
             # Create module
             if mod_id <= 4:
                 self.add_module("pool%d" % (mod_id + 2), nn.MaxPool2d(3, stride=2, padding=1))
             self.add_module("mod%d" % (mod_id + 2), nn.Sequential(OrderedDict(blocks)))
-
+        
         # Pooling and predictor
         self.bn_out = norm_act(in_channels)
         if classes != 0:
@@ -62,8 +63,18 @@ class WiderResNet(nn.Module):
                 ("avg_pool", GlobalAvgPool2d()),
                 ("fc", nn.Linear(in_channels, classes))
             ]))
-
-    def forward(self, img):
+        
+        self.output_layer = nn.Sequential(
+            Linear_block(in_channels, in_channels, groups=in_channels, kernel=(7, 7), stride=(1, 1), padding=(0, 0)),
+            Flatten(),
+            nn.Linear(in_channels, 512),
+            nn.BatchNorm1d(512),
+        )
+    
+    def forward(self, img, normalize=True, return_norm=False, ):
+        if img.shape[-1] == 112:
+            with torch.no_grad():
+                img = nn.functional.interpolate(img, scale_factor=2, mode='bilinear', align_corners=True)
         out = self.mod1(img)
         out = self.mod2(self.pool2(out))
         out = self.mod3(self.pool3(out))
@@ -72,11 +83,21 @@ class WiderResNet(nn.Module):
         out = self.mod6(self.pool6(out))
         out = self.mod7(out)
         out = self.bn_out(out)
-
+        out = self.output_layer(out)
         if hasattr(self, "classifier"):
             out = self.classifier(out)
-
-        return out
+        x = out
+        x_norm, norm = l2_norm(x, axis=1, need_norm=True)
+        if normalize:
+            if return_norm:
+                return x_norm, norm
+            else:
+                return x_norm  # the default one
+        else:
+            if return_norm:
+                return x, norm
+            else:
+                return x
 
 
 class WiderResNetA2(nn.Module):
@@ -104,15 +125,15 @@ class WiderResNetA2(nn.Module):
         super(WiderResNetA2, self).__init__()
         self.structure = structure
         self.dilation = dilation
-
+        
         if len(structure) != 6:
             raise ValueError("Expected a structure with six values")
-
+        
         # Initial layers
         self.mod1 = nn.Sequential(OrderedDict([
             ("conv1", nn.Conv2d(3, 64, 3, stride=1, padding=1, bias=False))
         ]))
-
+        
         # Groups of residual blocks
         in_channels = 64
         channels = [(128, 128), (256, 256), (512, 512), (512, 1024), (512, 1024, 2048), (1024, 2048, 4096)]
@@ -131,28 +152,28 @@ class WiderResNetA2(nn.Module):
                     else:
                         dil = 1
                     stride = 2 if block_id == 0 and mod_id == 2 else 1
-
+                
                 if mod_id == 4:
                     drop = partial(nn.Dropout2d, p=0.3)
                 elif mod_id == 5:
                     drop = partial(nn.Dropout2d, p=0.5)
                 else:
                     drop = None
-
+                
                 blocks.append((
                     "block%d" % (block_id + 1),
                     IdentityResidualBlock(in_channels, channels[mod_id], norm_act=norm_act, stride=stride, dilation=dil,
                                           dropout=drop)
                 ))
-
+                
                 # Update channels and p_keep
                 in_channels = channels[mod_id][-1]
-
+            
             # Create module
             if mod_id < 2:
                 self.add_module("pool%d" % (mod_id + 2), nn.MaxPool2d(3, stride=2, padding=1))
             self.add_module("mod%d" % (mod_id + 2), nn.Sequential(OrderedDict(blocks)))
-
+        
         # Pooling and predictor
         self.bn_out = norm_act(in_channels)
         if classes != 0:
@@ -160,8 +181,8 @@ class WiderResNetA2(nn.Module):
                 ("avg_pool", GlobalAvgPool2d()),
                 ("fc", nn.Linear(in_channels, classes))
             ]))
-
-    def forward(self, img):
+    
+    def forward(self, img, normalize=True, return_norm=False, ):
         out = self.mod1(img)
         out = self.mod2(self.pool2(out))
         out = self.mod3(self.pool3(out))
@@ -170,11 +191,21 @@ class WiderResNetA2(nn.Module):
         out = self.mod6(out)
         out = self.mod7(out)
         out = self.bn_out(out)
-
+        
         if hasattr(self, "classifier"):
-            return self.classifier(out)
+            out = self.classifier(out)
+        x = out
+        x_norm, norm = l2_norm(x, axis=1, need_norm=True)
+        if normalize:
+            if return_norm:
+                return x_norm, norm
+            else:
+                return x_norm  # the default one
         else:
-            return out
+            if return_norm:
+                return x, norm
+            else:
+                return x
 
 
 _NETS = {
@@ -183,7 +214,7 @@ _NETS = {
     "38": {"structure": [3, 3, 6, 3, 1, 1]},
 }
 
-__all__ = []
+__all__ = ["WiderResNet", "WiderResNetA2"]
 for name, params in _NETS.items():
     net_name = "net_wider_resnet" + name
     setattr(sys.modules[__name__], net_name, partial(WiderResNet, **params))

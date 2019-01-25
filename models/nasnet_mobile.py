@@ -15,13 +15,11 @@ Thanks to Anastasiia (https://github.com/DagnyT) for the great help, support and
 from __future__ import print_function, division, absolute_import
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.utils.model_zoo as model_zoo
 from torch.autograd import Variable
-import numpy as np
 
 from config import conf as gl_conf
-from model import Linear_block, Flatten, l2_norm
+from models.model import Linear_block, Flatten, l2_norm
 import lz
 
 pretrained_settings = {

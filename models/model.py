@@ -1,4 +1,3 @@
-from lz import *
 from torch.nn import Linear, Conv2d, BatchNorm1d, BatchNorm2d, PReLU, ReLU, Sigmoid, Dropout2d, Dropout, AvgPool2d, \
     MaxPool2d, AdaptiveAvgPool2d, Sequential, Module, Parameter
 import torch.nn.functional as F
@@ -6,8 +5,9 @@ import torch
 from collections import namedtuple
 import math
 from config import conf as gl_conf
-import functools
-
+import functools, logging
+from torch import nn
+import numpy as np
 upgrade = True
 if gl_conf.use_chkpnt:
     BatchNorm2d = functools.partial(BatchNorm2d, momentum=1 - np.sqrt(0.9))
@@ -19,15 +19,6 @@ if gl_conf.use_chkpnt:
 class Flatten(Module):
     def forward(self, input):
         return input.view(input.size(0), -1)
-
-
-# def l2_norm(input, axis=1, need_norm=False, ):
-#     output = F.normalize(input, dim=axis)
-#     if need_norm:
-#         norm = torch.norm(input, 2, axis, True)
-#         return output, norm
-#     else:
-#         return output
 
 
 def l2_norm(input, axis=1, need_norm=False, ):
@@ -78,7 +69,7 @@ def bn_act(depth, with_act):
             return [BatchNorm2d(depth)]
 
 
-# @deprecated
+# todo @deprecated
 class bottleneck_IR(Module):
     def __init__(self, in_channel, depth, stride):
         super(bottleneck_IR, self).__init__()
@@ -198,11 +189,21 @@ class Backbone(Module):
         self.input_layer = Sequential(Conv2d(3, 64, (3, 3), 1, 1, bias=False),
                                       BatchNorm2d(64),
                                       PReLU(64))
+        
         self.output_layer = Sequential(BatchNorm2d(512),
                                        Dropout(drop_ratio),
                                        Flatten(),
                                        Linear(512 * 7 * 7, 512),
                                        BatchNorm1d(512))
+        
+        # in_channels = 512
+        # self.output_layer = nn.Sequential(
+        #     Linear_block(in_channels, in_channels, groups=in_channels, kernel=(7, 7), stride=(1, 1), padding=(0, 0)),
+        #     Flatten(),
+        #     nn.Linear(in_channels, 512),
+        #     nn.BatchNorm1d(512),
+        # )
+        
         modules = []
         for block in blocks:
             for bottleneck in block:
@@ -211,8 +212,8 @@ class Backbone(Module):
                                 bottleneck.depth,
                                 bottleneck.stride))
         self.body = Sequential(*modules)
-      
-    def forward(self, x, normalize=True, return_norm=False, labels=None,):
+    
+    def forward(self, x, normalize=True, return_norm=False,  ):
         x = self.input_layer(x)
         if not gl_conf.use_chkpnt:
             x = self.body(x)
@@ -371,7 +372,7 @@ class Depth_Wise_2(Module):
         super(Depth_Wise_2, self).__init__()
         self.residual = residual
         self.reduction = 6
-
+        
         if self.residual:
             out_c = out_c // 3
             in_c = in_c // 3
@@ -398,12 +399,12 @@ class Depth_Wise_2(Module):
             )
         if out_c >= self.reduction:
             self.se = SEBlock(out_c, self.reduction)
-        
+    
     def forward(self, x):
         if self.residual:
             x_first_part = x[:, :(x.shape[1] // 3), :, :]
-            x_second_part = x[:, (x.shape[1] // 3):(x.shape[1] // 3)*2, :, :]
-            x_last_part = x[:, (x.shape[1]//3)*2:, :, :]
+            x_second_part = x[:, (x.shape[1] // 3):(x.shape[1] // 3) * 2, :, :]
+            x_last_part = x[:, (x.shape[1] // 3) * 2:, :, :]
             x_first_part = self.branch2(x_first_part)
             x_second_part = self.branch1(x_second_part)
             if self.out_c >= self.reduction:
@@ -430,16 +431,16 @@ def channel_concatenate(x, out):
 def channel_shuffle(x, groups):
     batch_size, channels, height, width = x.data.size()
     channels_per_group = channels // groups
-
-    #reshape
+    
+    # reshape
     x = x.view(batch_size, groups, channels_per_group, height, width)
-
-    #transpose
+    
+    # transpose
     torch.transpose(x, 1, 2).contiguous()
-
-    #flatten
+    
+    # flatten
     x = x.view(batch_size, -1, height, width)
-
+    
     return x
 
 
@@ -473,6 +474,8 @@ class SEBlock(nn.Module):
         y = self.fc(y).view(b, c, 1, 1)
         
         return x * y.expand_as(x)
+
+
 ##########################################################
 
 ##################################  Arcface head #################
@@ -507,7 +510,7 @@ class Arcface(Module):
         kernel_norm = l2_norm(self.kernel, axis=0)
         cos_theta = torch.mm(embbedings, kernel_norm)
         cos_theta = cos_theta.clamp(-1, 1)
-        output = cos_theta.clone() # todo avoid copy ttl
+        output = cos_theta.clone()  # todo avoid copy ttl
         cos_theta_need = cos_theta[idx_, label]
         cos_theta_2 = torch.pow(cos_theta_need, 2)
         sin_theta_2 = 1 - cos_theta_2

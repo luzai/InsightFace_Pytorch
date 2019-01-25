@@ -1,17 +1,12 @@
-import cv2
 from PIL import Image
 import argparse
-from pathlib import Path
-import torch
 from config import get_config
-from mtcnn import MTCNN
 from Learner import face_learner
-from utils import load_facebank, draw_box_name, prepare_facebank
 import lz
 from torchvision import transforms
-from model import l2_norm
+from models.model import l2_norm
 
-import pims, cvbase as cvb
+import pims
 from lz import *
 
 if __name__ == '__main__':
