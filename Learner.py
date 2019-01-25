@@ -562,15 +562,15 @@ class face_learner(object):
                 {'params': paras_only_bn}
             ], lr=conf.lr, momentum=conf.momentum)
         else:
-            # self.optimizer = optim.SGD([
-            #     {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': gl_conf.weight_decay},
-            #     {'params': paras_only_bn},
-            # ], lr=conf.lr, momentum=conf.momentum)
-            self.optimizer = optim.SGD(
-                [*self.model.parameters()] + [*self.head.parameters()],
-                weight_decay=conf.weight_decay,
-                lr=conf.lr, momentum=conf.momentum
-            )
+            self.optimizer = optim.SGD([
+                {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': gl_conf.weight_decay},
+                {'params': paras_only_bn},
+            ], lr=conf.lr, momentum=conf.momentum)
+            # self.optimizer = optim.SGD(
+            #     [*self.model.parameters()] + [*self.head.parameters()],
+            #     weight_decay=conf.weight_decay,
+            #     lr=conf.lr, momentum=conf.momentum
+            # )
         logging.info(f'optimizers generated {self.optimizer}')
         self.board_loss_every = gl_conf.board_loss_every
         self.evaluate_every = gl_conf.other_every or len(self.loader) // 3
@@ -688,7 +688,8 @@ class face_learner(object):
                          }, out)
     
     def finetune(self, conf, epochs):
-        self.writer_ft = SummaryWriter(str(conf.log_path) + '/ft')
+        # self.writer_ft = SummaryWriter(str(conf.log_path) + '/ft')
+        self.writer_ft = self.writer
         self.model.train()
         loader = self.loader
         
@@ -716,17 +717,17 @@ class face_learner(object):
                 imgs = data['imgs']
                 labels_cpu = data['labels']
                 ind_inds = data['ind_inds']
-                imgs = imgs.cuda()
-                labels = labels_cpu.cuda()
+                imgs = imgs.cuda(non_blocking=True)
+                labels = labels_cpu.cuda(non_blocking=True)
                 data_time.update(
                     lz.timer.since_last_check(verbose=False)
                 )
                 self.optimizer.zero_grad()
                 
-                # todo mode for nas resnext .. only
-                # embeddings = self.model(imgs, mode='finetune')
-                with torch.no_grad():
-                    embeddings = self.model(imgs, )
+                # todo mode for nas desnet now
+                embeddings = self.model(imgs, mode='finetune')
+                # with torch.no_grad():
+                #     embeddings = self.model(imgs, )
                 thetas = self.head(embeddings, labels)
                 # from IPython import embed;embed()
                 loss = conf.ce_loss(thetas, labels)
@@ -871,8 +872,8 @@ class face_learner(object):
                 # plt.savefig(work_path+'t.png')
                 # plt.close()
                 # logging.info(f'this batch labes {labels} ')
-                imgs = imgs.cuda()
-                labels = labels_cpu.cuda()
+                imgs = imgs.cuda(non_blocking=True)
+                labels = labels_cpu.cuda(non_blocking=True)
                 data_time.update(
                     lz.timer.since_last_check(verbose=False)
                 )

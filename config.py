@@ -30,7 +30,7 @@ conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
 # conf.data_path = Path('/ssd/ssd0/zl_data/')
-conf.work_path = Path('work_space/emore.csmobilefacenet')
+conf.work_path = Path('work_space/emore.dsnet')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -60,7 +60,7 @@ conf.rand_ratio = 9 / 27
 conf.margin = 0.4
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
-conf.tri_wei = 0
+conf.tri_wei = 0.5
 conf.scale = 64.
 conf.start_eval = False
 conf.instances = 4
@@ -69,7 +69,7 @@ conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
-conf.net_mode = 'densenet' # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
+conf.net_mode = 'densenet'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
 conf.net_depth = 264  # 100
 
 # conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -78,7 +78,7 @@ conf.net_depth = 264  # 100
 #     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 # ])
 
-conf.batch_size = 64 * num_devs if not dbg else 8 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
+conf.batch_size = 45 * num_devs if not dbg else 8 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
 conf.use_chkpnt = False
 conf.ipabn = True
 conf.use_redis = False

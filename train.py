@@ -35,25 +35,25 @@ if __name__ == '__main__':
     #         latest=True,
     #     )
     # sd = torch.load(lz.home_path + '.torch/models/resnext101_ipabn_lr_512.pth.tar')['state_dict']
-    # lz.load_state_dict(learner.model, sd,)
+    sd = torch.load(lz.home_path + '.torch/models/densenet264_ipabn_lr_256.tar')['state_dict']
+    lz.load_state_dict(learner.model, sd, )
     
-    learner.init_lr()  # todo what if miss lr decay? manully must!
-    # conf.tri_wei = 0
+    learner.init_lr()
+    conf.tri_wei = 0
+    conf.batch_size *= 2
     log_conf(conf)
-    # learner.train(conf, 4)
-    #     learner.finetune(conf, conf.fix_base)
-    #     learner.validate(conf, 'work_space/emore.r100.bs.head.notri.nochkpnt/save/')
+    learner.finetune(conf, 4)
+    # learner.validate(conf, 'work_space/emore.r100.bs.head.notri.nochkpnt/save/')
     
-    # log_lrs, losses = learner.find_lr(conf,
-    #                                   # final_value=100,
-    #                                   num=200,
-    #                                   bloding_scale=1000)
-    # best_lr = 10 ** (log_lrs[np.argmin(losses)])
-    # print(best_lr)
-    # conf.lr = best_lr
-    # learner.push2redis()
-    # learner.init_lr()
-    # conf.tri_wei = .5
+    learner.init_lr()
+    conf.tri_wei = 0
+    conf.batch_size //= 2
+    log_conf(conf)
+    learner.train(conf, 4)
+    
+    learner.init_lr()
+    conf.tri_wei = .5
+    log_conf(conf)
     learner.train(conf, conf.epochs)
     
     # def calc_importance():
@@ -72,3 +72,12 @@ if __name__ == '__main__':
     # calc_importance()
     
     # learner.calc_feature(out='work_space/ms1m.rv1.fc7.pk')
+    
+    # log_lrs, losses = learner.find_lr(conf,
+    #                                   # final_value=100,
+    #                                   num=200,
+    #                                   bloding_scale=1000)
+    # best_lr = 10 ** (log_lrs[np.argmin(losses)])
+    # print(best_lr)
+    # conf.lr = best_lr
+    # learner.push2redis()

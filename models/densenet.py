@@ -98,19 +98,32 @@ class DenseNet(nn.Module):
             nn.BatchNorm1d(512),
         )
     
-    def forward(self, x , normalize=True, return_norm=False, ):
+    def forward(self, x, normalize=True, return_norm=False, mode='train'):
         if x.shape[-1] == 112:
             with torch.no_grad():
                 x = nn.functional.interpolate(x, scale_factor=2, mode='bilinear', align_corners=True)
-        x = self.mod1(x)
-        x = self.mod2(x)
-        x = self.tra2(x)
-        x = self.mod3(x)
-        x = self.tra3(x)
-        x = self.mod4(x)
-        x = self.tra4(x)
-        x = self.mod5(x)
-        x = self.bn_out(x)
+        
+        if mode == 'finetune':
+            with torch.no_grad():
+                x = self.mod1(x)
+                x = self.mod2(x)
+                x = self.tra2(x)
+                x = self.mod3(x)
+                x = self.tra3(x)
+                x = self.mod4(x)
+                x = self.tra4(x)
+                x = self.mod5(x)
+                x = self.bn_out(x)
+        else:
+            x = self.mod1(x)
+            x = self.mod2(x)
+            x = self.tra2(x)
+            x = self.mod3(x)
+            x = self.tra3(x)
+            x = self.mod4(x)
+            x = self.tra4(x)
+            x = self.mod5(x)
+            x = self.bn_out(x)
         x = self.output_layer(x)
         if hasattr(self, "classifier"):
             x = self.classifier(x)
