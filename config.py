@@ -7,7 +7,7 @@ from torch.nn import CrossEntropyLoss
 from torchvision import transforms as trans
 
 dist = False
-num_devs = 1
+num_devs = 3
 # lz.init_dev((0, 1, 2,3))
 # lz.init_dev((4,5,6,7))
 lz.init_dev(lz.get_dev(num_devs))
@@ -30,7 +30,7 @@ conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
 # conf.data_path = Path('/ssd/ssd0/zl_data/')
-conf.work_path = Path('work_space/emore.dsnet')
+conf.work_path = Path('work_space/emore.rsnext')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -69,8 +69,8 @@ conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
-conf.net_mode = 'densenet'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
-conf.net_depth = 264  # 100
+conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
+conf.net_depth = 50  # 100
 
 # conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # conf.test_transform = trans.Compose([
@@ -78,7 +78,10 @@ conf.net_depth = 264  # 100
 #     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 # ])
 
-conf.batch_size = 45 * num_devs if not dbg else 8 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
+conf.fp16 = True
+conf.ftbs_mult=3
+conf.online_imp=False
+conf.batch_size = 120 * num_devs if not dbg else 8 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
 conf.use_chkpnt = False
 conf.ipabn = True
 conf.use_redis = False
@@ -102,7 +105,7 @@ conf.epochs = 18
 conf.milestones = [6, 12, 16]
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.num_workers = 24 if "amax" in hostname() else 44  # 4
+conf.num_workers = 24 if "amax" in hostname() else 66  # 4
 conf.ce_loss = CrossEntropyLoss()
 training = True  # False means test
 if not training:

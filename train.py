@@ -6,7 +6,8 @@ from Learner import face_learner
 import argparse
 from pathlib import Path
 import lz
-
+if  not conf.online_imp:
+    torch.backends.cudnn.benchmark = True
 
 def log_conf(conf):
     conf2 = {k: v for k, v in conf.items() if not isinstance(v, (dict, np.ndarray))}
@@ -26,36 +27,29 @@ if __name__ == '__main__':
     learner = face_learner(conf, )
     
     ## for pretrain resume or evaluate
-    #     learner.load_state(
-    # #         resume_path=Path('work_space/emore.r100.bs.head.notri.nochkpnt/save/'),
-    #          resume_path=Path('work_space/emore.r100.bs.ft.tri.dop/save/'),
-    #         load_optimizer=False,
-    #         load_head=True,
-    #         load_imp=True,
-    #         latest=True,
-    #     )
-    # sd = torch.load(lz.home_path + '.torch/models/resnext101_ipabn_lr_512.pth.tar')['state_dict']
-    sd = torch.load(lz.home_path + '.torch/models/densenet264_ipabn_lr_256.tar')['state_dict']
-    lz.load_state_dict(learner.model, sd, )
+    learner.load_state(
+            resume_path=Path('work_space/emore.alphaf64.dop.tri/save1/'),
+            load_optimizer=False,
+            load_head=True,
+            load_imp=True,
+            latest=True,
+        )
+
+#     sd = torch.load(lz.home_path + 'zl_data/resnext101_ipabn_lr_512.pth.tar')['state_dict']
+#     sd = torch.load(lz.home_path + 'zl_data/densenet264_ipabn_lr_256.tar')['state_dict']
+#     lz.load_state_dict(learner.model, sd, )
     
     learner.init_lr()
-    conf.tri_wei = 0
-    conf.batch_size *= 2
-    log_conf(conf)
-    learner.finetune(conf, 4)
-    # learner.validate(conf, 'work_space/emore.r100.bs.head.notri.nochkpnt/save/')
-    
-    learner.init_lr()
-    conf.tri_wei = 0
-    conf.batch_size //= 2
-    log_conf(conf)
-    learner.train(conf, 4)
-    
-    learner.init_lr()
+#     conf.tri_wei = 0
+#     log_conf(conf)
+#     learner.finetune(conf, 1)
+
+#     learner.init_lr()
     conf.tri_wei = .5
     log_conf(conf)
     learner.train(conf, conf.epochs)
-    
+
+    # learner.validate(conf, 'work_space/emore.r100.bs.head.notri.nochkpnt/save/')
     # def calc_importance():
     #     steps = learner.list_steps(conf.model_path)
     #     for step in steps[::-1]:

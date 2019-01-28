@@ -100,16 +100,23 @@ class ResNeXt(nn.Module):
                 ("fc", nn.Linear(in_channels, classes))
             ]))
     
-    def forward(self, img, normalize=True, return_norm=False, ):
+    def forward(self, img, normalize=True, return_norm=False,   mode='train'  ):
         if img.shape[-1] == 112:
             with torch.no_grad():
                 img = nn.functional.interpolate(img, scale_factor=2, mode='bilinear', align_corners=True)
-        
-        out = self.mod1(img)
-        out = self.mod2(out)
-        out = self.mod3(out)
-        out = self.mod4(out)
-        out = self.mod5(out)
+        if mode == 'finetune':
+            with torch.no_grad():
+                out = self.mod1(img)
+                out = self.mod2(out)
+                out = self.mod3(out)
+                out = self.mod4(out)
+                out = self.mod5(out)
+        else:
+            out = self.mod1(img)
+            out = self.mod2(out)
+            out = self.mod3(out)
+            out = self.mod4(out)
+            out = self.mod5(out)
         out = self.bn_out(out)
         out = self.output_layer(out)
         if hasattr(self, "classifier"):

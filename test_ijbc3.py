@@ -40,7 +40,7 @@ else:
     conf.batch_size *= 2
     learner = face_learner(conf, )
     learner.load_state(
-        resume_path='work_space/emore.r50.dop.headon0.notri.5.cont.3/models/',
+        resume_path='work_space/emore.mobilefacenet.cont/models/',
         latest=True,
     )
     learner.model.eval()

@@ -213,12 +213,17 @@ class Backbone(Module):
                                 bottleneck.stride))
         self.body = Sequential(*modules)
     
-    def forward(self, x, normalize=True, return_norm=False,  ):
-        x = self.input_layer(x)
-        if not gl_conf.use_chkpnt:
-            x = self.body(x)
+    def forward(self, x, normalize=True, return_norm=False,  mode='train' ):
+        if mode == 'finetune':
+            with torch.no_grad():
+                x = self.input_layer(x)
+                x = self.body(x)
         else:
-            x = checkpoint_sequential(self.body, 2, x)
+            x = self.input_layer(x)
+            if not gl_conf.use_chkpnt:
+                x = self.body(x)
+            else:
+                x = checkpoint_sequential(self.body, 2, x)
         x = self.output_layer(x)
         x_norm, norm = l2_norm(x, axis=1, need_norm=True)
         if normalize:
@@ -482,8 +487,8 @@ class SEBlock(nn.Module):
 from torch.nn.utils import weight_norm
 
 # use_kernel2 = False  # kernel2 not work!
-nB = gl_conf.batch_size
-idx_ = torch.arange(0, nB, dtype=torch.long)
+# nB = gl_conf.batch_size
+# idx_ = torch.arange(0, nB, dtype=torch.long)
 
 
 class Arcface(Module):
@@ -499,20 +504,28 @@ class Arcface(Module):
         #     self.kernel.weight_g.data = torch.ones((classnum, 1))
         #     self.kernel.weight_v.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
         # initial kernel
+        if gl_conf.fp16:
+            m=np.float16(m)
+            pi = np.float16(np.pi)
+        else:
+            m=np.float32(m)
+            pi = np.float32(np.pi)
         self.m = m  # the margin value, default is 0.5
         self.s = s  # scalar value default is 64, see normface https://arxiv.org/abs/1704.06369
-        self.cos_m = math.cos(m)
-        self.sin_m = math.sin(m)
+        self.cos_m = np.cos(m)
+        self.sin_m = np.sin(m)
         self.mm = self.sin_m * m  # issue 1
         self.threshold = math.cos(math.pi - m)
     
     def forward_eff(self, embbedings, label):
+        nB = embbedings.shape[0]
+        idx_ = torch.arange(0, nB, dtype=torch.long)
         kernel_norm = l2_norm(self.kernel, axis=0)
-        cos_theta = torch.mm(embbedings, kernel_norm)
+        cos_theta = torch.mm(embbedings, kernel_norm)#.float() # todo
         cos_theta = cos_theta.clamp(-1, 1)
         output = cos_theta.clone()  # todo avoid copy ttl
         cos_theta_need = cos_theta[idx_, label]
-        cos_theta_2 = torch.pow(cos_theta_need, 2)
+        cos_theta_2 = torch.pow(cos_theta_need, 2)#.half()
         sin_theta_2 = 1 - cos_theta_2
         sin_theta = torch.sqrt(sin_theta_2)
         cos_theta_m = (cos_theta_need * self.cos_m - sin_theta * self.sin_m)
@@ -530,6 +543,8 @@ class Arcface(Module):
         return output
     
     def forward_neff(self, embbedings, label):
+        nB = embbedings.shape[0]
+        idx_ = torch.arange(0, nB, dtype=torch.long)
         ## weights norm
         # if not use_kernel2:
         kernel_norm = l2_norm(self.kernel, axis=0)
@@ -625,7 +640,7 @@ class TripletLoss(Module):
         self.margin = margin
         self.ranking_loss = nn.MarginRankingLoss(margin=margin)
     
-    def forward(self, inputs, targets):
+    def forward(self, inputs, targets, return_info=False):
         n = inputs.size(0)  # todo is this version  correct?
         
         # Compute pairwise distance, replace by the official when merged
@@ -646,8 +661,11 @@ class TripletLoss(Module):
         dist_ap = (daps * ap_wei).sum(dim=1)
         dist_an = (dans * an_wei).sum(dim=1)
         loss = F.softplus(dist_ap - dist_an).mean()
-        
-        return loss
+        if not return_info:
+            return loss
+        else:
+            info = {'dap':dist_ap.mean().item(), 'dan':dist_an.mean().item() }
+            return loss,info
     
     def forward_slow(self, inputs, targets):
         """
