@@ -23,6 +23,7 @@ from torch import nn
 import torch.multiprocessing as mp
 from torch.utils.data.sampler import Sampler
 from torch.nn import functional as F
+
 logger = logging.getLogger()
 
 
@@ -422,7 +423,7 @@ class SeqSampler(Sampler):
 def update_dop_cls(thetas, labels, dop):
     with torch.no_grad():
         bs = thetas.shape[0]
-        thetas[torch.arange(0, bs, dtype=torch.long), labels] = -1e6
+        thetas[torch.arange(0, bs, dtype=torch.long), labels] = -1e3
         dop[labels.cpu().numpy()] = torch.argmax(thetas, dim=1).cpu().numpy()
 
 
@@ -474,6 +475,8 @@ class FaceInfer():
             self.model.load_state_dict(model_state_dict, strict=True, )  # todo later may upgrade
         else:
             self.model.module.load_state_dict(model_state_dict, strict=True, )
+
+
 try:
     from apex.parallel import DistributedDataParallel as DDP
     from apex.fp16_utils import *
@@ -481,6 +484,47 @@ try:
 except ImportError:
     logging.error("Please install apex from https://www.github.com/nvidia/apex to run this example.")
 amp_handle = amp.init(enabled=gl_conf.fp16)
+
+
+class data_prefetcher():
+    def __init__(self, loader):
+        self.loader = iter(loader)
+        self.stream = torch.cuda.Stream()
+        self.mean = torch.tensor([0.485 * 255, 0.456 * 255, 0.406 * 255]).cuda().view(1, 3, 1, 1)
+        self.std = torch.tensor([0.229 * 255, 0.224 * 255, 0.225 * 255]).cuda().view(1, 3, 1, 1)
+        # With Amp, it isn't necessary to manually convert data to half.
+        # Type conversions are done internally on the fly within patched torch functions.
+        # if args.fp16:
+        #     self.mean = self.mean.half()
+        #     self.std = self.std.half()
+        self.preload()
+    
+    def preload(self):
+        try:
+            self.next_input, self.next_target = next(self.loader)
+        except StopIteration:
+            self.next_input = None
+            self.next_target = None
+            return
+        with torch.cuda.stream(self.stream):
+            self.next_target['imgs'] = self.next_target['imgs'].cuda(async=True)
+            self.next_target['labels_cpu'] = self.next_target['labels']
+            self.next_target['labels'] = self.next_target['labels'].cuda(async=True)
+            # With Amp, it isn't necessary to manually convert data to half.
+            # Type conversions are done internally on the fly within patched torch functions.
+            # if args.fp16:
+            #     self.next_input = self.next_input.half()
+            # else:
+            # self.next_input = self.next_input.float()
+            # self.next_input = self.next_input.sub_(self.mean).div_(self.std)
+    
+    def next(self):
+        torch.cuda.current_stream().wait_stream(self.stream)
+        input = self.next_input
+        target = self.next_target
+        self.preload()
+        return input, target
+
 
 class face_learner(object):
     def __init__(self, conf, ):
@@ -694,147 +738,22 @@ class face_learner(object):
                          'sub_imp_loss': gl_conf.sub_imp_loss
                          }, out)
     
-    def finetune(self, conf, epochs):
-        # self.writer_ft = SummaryWriter(str(conf.log_path) + '/ft')
-        self.writer_ft = self.writer
-        self.model.train()
-        loader = DataLoader(
-            self.dataset, batch_size=conf.batch_size*gl_conf.ftbs_mult,
-            num_workers=conf.num_workers,
-            shuffle=False,
-            sampler=RandomIdSampler(self.dataset.imgidx,
-                                    self.dataset.ids, self.dataset.id2range),
-            drop_last=True,
-            pin_memory=True,
-        )
-        
-        lz.timer.since_last_check('start train')
-        data_time = lz.AverageMeter()
-        loss_time = lz.AverageMeter()
-        opt_time = lz.AverageMeter()
-        loss_meter = lz.AverageMeter()
-        loss_tri_meter = lz.AverageMeter()
-        acc_meter = lz.AverageMeter()
-        
-        for e in range(conf.start_epoch, epochs):
-            lz.timer.since_last_check('epoch {} started'.format(e))
-            for milestone in self.milestones:
-                if e == milestone:
-                    self.schedule_lr()
-            loader_enum = enumerate(loader)
-            
-            while True:
-                try:
-                    ind_data, data = loader_enum.__next__()
-                except StopIteration as e:
-                    logging.info(f'one epoch finish {e} {ind_data}')
-                    break
-                imgs = data['imgs']
-                labels_cpu = data['labels']
-                ind_inds = data['ind_inds']
-                imgs = imgs.cuda(non_blocking=True)
-                labels = labels_cpu.cuda(non_blocking=True)
-                data_time.update(
-                    lz.timer.since_last_check(verbose=False)
-                )
-                self.optimizer.zero_grad()
-                
-                # todo mode for nas desnet now
-                embeddings = self.model(imgs, mode='finetune')
-                # with torch.no_grad():
-                #     embeddings = self.model(imgs, )
-                thetas = self.head(embeddings, labels)
-                # from IPython import embed;embed()
-                loss = conf.ce_loss(thetas, labels)
-                acc_t = (thetas.argmax(dim=1) == labels)
-                acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
-                acc_meter.update(acc)
-                loss_meter.update(loss.item())
-                if gl_conf.tri_wei != 0:
-                    loss_triplet = self.head_triplet(embeddings, labels)
-                    loss_tri_meter.update(loss_triplet.item())
-                    loss = ((1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet) / (1 - gl_conf.tri_wei)
-                if gl_conf.mining == 'imp':
-                    grad = torch.autograd.grad(loss, embeddings,
-                                               retain_graph=True, create_graph=False,
-                                               only_inputs=True)[0].detach()
-                loss.backward()
-                if gl_conf.use_opt == 'adam':
-                    for group in self.optimizer.param_groups:
-                        for param in group['params']:
-                            param.data = param.data.add(-gl_conf.weight_decay, group['lr'] * param.data)
-                gl_conf.explored[labels_cpu.numpy()] = 1
-                if gl_conf.mining == 'dop':
-                    update_dop_cls(thetas, labels_cpu, gl_conf.dop)
-                if gl_conf.mining == 'imp':
-                    gi = torch.norm(grad, dim=1)
-                    for lable_, ind_ind_, gi_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy()):
-                        gl_conf.id2range_dop[str(lable_)][ind_ind_] = gl_conf.id2range_dop[str(lable_)][
-                                                                          ind_ind_] * 0.9 + 0.1 * gi_
-                        gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].sum()  # todo should be sum?
-                if gl_conf.mining == 'rand.id':
-                    gl_conf.dop[labels_cpu.numpy()] = 1
-                
-                loss_time.update(
-                    lz.timer.since_last_check(verbose=False)
-                )
-                self.optimizer.step()
-                opt_time.update(
-                    lz.timer.since_last_check(verbose=False)
-                )
-                if self.step % self.board_loss_every == 0:
-                    logging.info(f'epoch {e}/{epochs} step {self.step}/{len(loader)}: ' +
-                                 # f'img {imgs.mean()} {imgs.max()} {imgs.min()} '+
-                                 f'loss: {loss.item():.2e} ' +
-                                 f'data time: {data_time.avg:.2f} ' +
-                                 f'loss time: {loss_time.avg:.2f} ' +
-                                 f'opt time: {opt_time.avg:.2f} ' +
-                                 f'acc: {acc_meter.avg:.2e} ' +
-                                 f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
-                    self.writer_ft.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
-                    self.writer_ft.add_scalar('loss/ttl',
-                                              ((1 - gl_conf.tri_wei) * loss_meter.avg +
-                                               gl_conf.tri_wei * loss_tri_meter.avg) / (1 - gl_conf.tri_wei),
-                                              self.step)
-                    self.writer_ft.add_scalar('loss/xent', loss_meter.avg, self.step)
-                    self.writer_ft.add_scalar('loss/triplet', loss_tri_meter.avg, self.step)
-                    self.writer_ft.add_scalar('info/acc', acc_meter.avg, self.step)
-                    self.writer_ft.add_scalar('info/speed',
-                                              gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
-                    self.writer_ft.add_scalar('info/datatime', data_time.avg, self.step)
-                    self.writer_ft.add_scalar('info/losstime', loss_time.avg, self.step)
-                    self.writer_ft.add_scalar('info/epoch', e, self.step)
-                    dop = gl_conf.dop
-                    self.writer_ft.add_histogram('top_imp', dop, self.step)
-                    self.writer_ft.add_scalar('info/doprat',
-                                              np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
-                
-                if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'agedb_30')
-                    self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor)
-                    logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'lfw')
-                    self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor)
-                    logging.info(f'validation accuracy on lfw is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'cfp_fp')
-                    self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor)
-                    logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
-                if self.step % self.save_every == 0 and self.step != 0:
-                    self.save_state(conf, accuracy)
-                
-                self.step += 1
-        
-        self.save_state(conf, accuracy, to_save_folder=True, extra='final')
     
-    def train(self, conf, epochs):
+    
+    def train(self, conf, epochs, mode='train'):
         self.model.train()
-        loader = self.loader
+        if mode=='train':
+            loader = self.loader
+        else:
+            DataLoader(
+                self.dataset, batch_size=conf.batch_size*conf.ftbs_mult,
+                num_workers=conf.num_workers,
+                shuffle=False,
+                sampler=RandomIdSampler(self.dataset.imgidx,
+                                        self.dataset.ids, self.dataset.id2range),
+                drop_last=True,
+                pin_memory=True,
+            )
         
         if conf.start_eval:
             accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.agedb_30,
@@ -859,26 +778,24 @@ class face_learner(object):
         Batch_size = gl_conf.batch_size * B_multi
         batch_size = gl_conf.batch_size
         tau_thresh = 1.5
-#         tau_thresh = (Batch_size + 3 * batch_size) / (3 * batch_size)
+        #         tau_thresh = (Batch_size + 3 * batch_size) / (3 * batch_size)
         alpha_tau = .9
         for e in range(conf.start_epoch, epochs):
             lz.timer.since_last_check('epoch {} started'.format(e))
             self.schedule_lr(e)
-            loader_enum = enumerate(loader)
+            loader_enum = data_prefetcher(enumerate(loader))
             
             while True:
-                try:
-                    ind_data, data = loader_enum.__next__()
-                except StopIteration as e:
+                ind_data, data = loader_enum.next()
+                if ind_data is None:
                     logging.info(f'one epoch finish {e} {ind_data}')
-                    if self.step+1 % len(loader) ==0:
-                        break
-                    else:
-                        loader_enum = enumerate(loader)
-                        ind_data, data = loader_enum.__next__()
-                        
+                    loader_enum = data_prefetcher(enumerate(loader))
+                    ind_data, data = loader_enum.next()
+                if self.step + 1 % len(loader) == 0:
+                    break
                 imgs = data['imgs']
-                labels_cpu = data['labels']
+                labels_cpu = data['labels_cpu']
+                labels = data['labels']
                 ind_inds = data['ind_inds']
                 # todo visualize it
                 # import torchvision
@@ -892,26 +809,24 @@ class face_learner(object):
                 # plt.savefig(work_path+'t.png')
                 # plt.close()
                 # logging.info(f'this batch labes {labels} ')
-                imgs = imgs.cuda(non_blocking=True)
-                labels = labels_cpu.cuda(non_blocking=True)
                 data_time.update(
                     lz.timer.since_last_check(verbose=False)
                 )
                 self.optimizer.zero_grad()
                 
-#                 if not conf.fgg:
-#                     if True:
-
-#                 if np.random.rand()>0.5:
-                self.writer.add_scalar('info/tau', tau,self.step)
+                #                 if not conf.fgg:
+                #                     if True:
+                
+                #                 if np.random.rand()>0.5:
+                self.writer.add_scalar('info/tau', tau, self.step)
                 # if False:
                 if gl_conf.online_imp and tau > tau_thresh and ind_data < len(loader) - B_multi:  # todo enable it
-#                     logging.info(f'using sampling {self.step} {tau} {tau_thresh}')
+                    #                     logging.info(f'using sampling {self.step} {tau} {tau_thresh}')
                     self.writer.add_scalar('info/sampl', 1, self.step)
                     imgsl = [imgs]
                     labelsl = [labels]
                     for _ in range(B_multi - 1):
-                        ind_data, data = loader_enum.__next__()
+                        ind_data, data = loader_enum.next()
                         imgs = data['imgs']
                         labels = data['labels']
                         imgs = imgs.cuda()
@@ -926,8 +841,8 @@ class face_learner(object):
                     thetas = self.head(embeddings, labels)
                     loss = conf.ce_loss(thetas, labels)
                     grad = torch.autograd.grad(loss, embeddings,
-                                       retain_graph=False, create_graph=False,
-                                       only_inputs=True)[0].detach()
+                                               retain_graph=False, create_graph=False,
+                                               only_inputs=True)[0].detach()
                     grad.requires_grad_(False)
                     with torch.no_grad():
                         gi = torch.norm(grad, dim=1)
@@ -947,27 +862,27 @@ class face_learner(object):
                     else:
                         loss.backward()
                 else:
-#                     logging.info(f'normal {self.step} {tau} {tau_thresh}')
+                    #                     logging.info(f'normal {self.step} {tau} {tau_thresh}')
                     self.writer.add_scalar('info/sampl', 0, self.step)
-                    embeddings = self.model(imgs)
+                    embeddings = self.model(imgs, mode=mode)
                     thetas = self.head(embeddings, labels)
                     loss = conf.ce_loss(thetas, labels)
                     if gl_conf.tri_wei != 0:
-                        loss_triplet,info = self.head_triplet(embeddings, labels, return_info=True)
+                        loss_triplet, info = self.head_triplet(embeddings, labels, return_info=True)
                         loss_tri_meter.update(loss_triplet.item())
                         
                         grad_tri = torch.autograd.grad(loss_triplet, embeddings, retain_graph=True, create_graph=False,
-                                           only_inputs=True)[0].detach()
+                                                       only_inputs=True)[0].detach()
                         
-                        self.writer.add_scalar('info/grad_tri', torch.norm(grad_tri,dim =1 ).mean().item() , self.step)
-                        grad_xent=torch.autograd.grad(loss, embeddings, retain_graph=True, create_graph=False,
-                                           only_inputs=True)[0].detach()
-                        self.writer.add_scalar('info/grad_xent', torch.norm(grad_xent,dim =1 ).mean().item()  , self.step)
+                        self.writer.add_scalar('info/grad_tri', torch.norm(grad_tri, dim=1).mean().item(), self.step)
+                        grad_xent = torch.autograd.grad(loss, embeddings, retain_graph=True, create_graph=False,
+                                                        only_inputs=True)[0].detach()
+                        self.writer.add_scalar('info/grad_xent', torch.norm(grad_xent, dim=1).mean().item(), self.step)
                         loss = ((1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet) / (1 - gl_conf.tri_wei)
-#                         if gl_conf.mining == 'imp':
+                    #                         if gl_conf.mining == 'imp':
                     grad = torch.autograd.grad(loss, embeddings,
-                                           retain_graph=True, create_graph=False,
-                                           only_inputs=True)[0].detach()
+                                               retain_graph=True, create_graph=False,
+                                               only_inputs=True)[0].detach()
                     if gl_conf.fp16:
                         with amp_handle.scale_loss(loss, self.optimizer) as scaled_loss:
                             scaled_loss.backward()
@@ -977,12 +892,12 @@ class face_learner(object):
                     with torch.no_grad():
                         if gl_conf.mining == 'dop':
                             update_dop_cls(thetas, labels_cpu, gl_conf.dop)
-    #                         if gl_conf.mining == 'imp' :
+                        #                         if gl_conf.mining == 'imp' :
                         gi = torch.norm(grad, dim=1)
-    #                         for lable_, ind_ind_, gi_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy()):
-    #                             gl_conf.id2range_dop[str(lable_)][ind_ind_] = gl_conf.id2range_dop[str(lable_)][
-    #                                                                               ind_ind_] * 0.9 + 0.1 * gi_
-    #                             gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].sum()  # todo should be sum?
+                        #                         for lable_, ind_ind_, gi_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy()):
+                        #                             gl_conf.id2range_dop[str(lable_)][ind_ind_] = gl_conf.id2range_dop[str(lable_)][
+                        #                                                                               ind_ind_] * 0.9 + 0.1 * gi_
+                        #                             gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].sum()  # todo should be sum?
                         if gl_conf.mining == 'rand.id':
                             gl_conf.dop[labels_cpu.numpy()] = 1
                         gi /= gi.sum()
@@ -994,36 +909,37 @@ class face_learner(object):
                     loss_meter.update(loss.item())
                 
                 tau = alpha_tau * tau + \
-                   (1 - alpha_tau) * (1 -(1 / (gi ** 2).sum()).item() * (torch.norm(gi - 1 / len(gi), dim=0) ** 2).item()) ** (-1 / 2)
-
-#                 if self.step > 91:
-#                     from IPython import embed;
-#                     embed()
-
-#                 elif conf.fgg == 'g':
-#                     embeddings_o = self.model(imgs)
-#                     thetas_o = self.head(embeddings, labels)
-#                     loss_o = conf.ce_loss(thetas_o, labels)
-#                     grad = torch.autograd.grad(loss_o, embeddings_o,
-#                                                retain_graph=False, create_graph=False, allow_unused=True,
-#                                                only_inputs=True)[0].detach()
-#                     embeddings = embeddings_o + conf.fgg_wei * grad
-#                     thetas = self.head(embeddings, labels)
-#                     loss = conf.ce_loss(thetas, labels)
-#                     loss.backward()
-#                 elif conf.fgg == 'gg':
-#                     embeddings_o = self.model(imgs)
-#                     thetas_o = self.head(embeddings_o, labels)
-#                     loss_o = conf.ce_loss(thetas_o, labels)
-#                     grad = torch.autograd.grad(loss_o, embeddings_o,
-#                                                retain_graph=True, create_graph=True,
-#                                                only_inputs=True)[0]
-#                     embeddings = embeddings_o + conf.fgg_wei * grad
-#                     thetas = self.head(embeddings, labels)
-#                     loss = conf.ce_loss(thetas, labels)
-#                     loss.backward()
-#                 else:
-#                     raise ValueError(f'{conf.fgg}')
+                      (1 - alpha_tau) * (1 - (1 / (gi ** 2).sum()).item() * (
+                        torch.norm(gi - 1 / len(gi), dim=0) ** 2).item()) ** (-1 / 2)
+                
+                #                 if self.step > 91:
+                #                     from IPython import embed;
+                #                     embed()
+                
+                #                 elif conf.fgg == 'g':
+                #                     embeddings_o = self.model(imgs)
+                #                     thetas_o = self.head(embeddings, labels)
+                #                     loss_o = conf.ce_loss(thetas_o, labels)
+                #                     grad = torch.autograd.grad(loss_o, embeddings_o,
+                #                                                retain_graph=False, create_graph=False, allow_unused=True,
+                #                                                only_inputs=True)[0].detach()
+                #                     embeddings = embeddings_o + conf.fgg_wei * grad
+                #                     thetas = self.head(embeddings, labels)
+                #                     loss = conf.ce_loss(thetas, labels)
+                #                     loss.backward()
+                #                 elif conf.fgg == 'gg':
+                #                     embeddings_o = self.model(imgs)
+                #                     thetas_o = self.head(embeddings_o, labels)
+                #                     loss_o = conf.ce_loss(thetas_o, labels)
+                #                     grad = torch.autograd.grad(loss_o, embeddings_o,
+                #                                                retain_graph=True, create_graph=True,
+                #                                                only_inputs=True)[0]
+                #                     embeddings = embeddings_o + conf.fgg_wei * grad
+                #                     thetas = self.head(embeddings, labels)
+                #                     loss = conf.ce_loss(thetas, labels)
+                #                     loss.backward()
+                #                 else:
+                #                     raise ValueError(f'{conf.fgg}')
                 loss_time.update(
                     lz.timer.since_last_check(verbose=False)
                 )
@@ -1047,10 +963,10 @@ class face_learner(object):
                                            self.step)
                     self.writer.add_scalar('loss/xent', loss_meter.avg, self.step)
                     self.writer.add_scalar('loss/triplet', loss_tri_meter.avg, self.step)
-                    if gl_conf.tri_wei!=0:
+                    if gl_conf.tri_wei != 0:
                         self.writer.add_scalar('loss/dap', info['dap'], self.step)
-                        self.writer.add_scalar('loss/dan',info['dan'], self.step)
-                        
+                        self.writer.add_scalar('loss/dan', info['dan'], self.step)
+                    
                     self.writer.add_scalar('info/acc', acc_meter.avg, self.step)
                     self.writer.add_scalar('info/speed',
                                            gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)

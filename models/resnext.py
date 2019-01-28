@@ -4,7 +4,7 @@ from functools import partial
 
 import torch.nn as nn
 import torch
-from modules import IdentityResidualBlock, GlobalAvgPool2d, InPlaceABN
+from modules import IdentityResidualBlock, GlobalAvgPool2d, InPlaceABN, ABN
 from models._util import try_index
 from models.model import Linear_block, Flatten, l2_norm
 

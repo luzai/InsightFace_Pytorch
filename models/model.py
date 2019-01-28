@@ -525,7 +525,7 @@ class Arcface(Module):
         cos_theta = cos_theta.clamp(-1, 1)
         output = cos_theta.clone()  # todo avoid copy ttl
         cos_theta_need = cos_theta[idx_, label]
-        cos_theta_2 = torch.pow(cos_theta_need, 2)#.half()
+        cos_theta_2 = torch.pow(cos_theta_need, 2).clamp(1e-3).half()
         sin_theta_2 = 1 - cos_theta_2
         sin_theta = torch.sqrt(sin_theta_2)
         cos_theta_m = (cos_theta_need * self.cos_m - sin_theta * self.sin_m)

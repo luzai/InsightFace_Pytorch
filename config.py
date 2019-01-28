@@ -7,7 +7,7 @@ from torch.nn import CrossEntropyLoss
 from torchvision import transforms as trans
 
 dist = False
-num_devs = 3
+num_devs = 4
 # lz.init_dev((0, 1, 2,3))
 # lz.init_dev((4,5,6,7))
 lz.init_dev(lz.get_dev(num_devs))
@@ -69,7 +69,7 @@ conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
-conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
+conf.net_mode = 'resnext'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
 conf.net_depth = 50  # 100
 
 # conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -79,9 +79,9 @@ conf.net_depth = 50  # 100
 # ])
 
 conf.fp16 = True
-conf.ftbs_mult=3
+conf.ftbs_mult=2
 conf.online_imp=False
-conf.batch_size = 120 * num_devs if not dbg else 8 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
+conf.batch_size = 215 * num_devs if not dbg else 8 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
 conf.use_chkpnt = False
 conf.ipabn = True
 conf.use_redis = False
