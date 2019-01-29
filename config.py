@@ -30,7 +30,7 @@ conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
 # conf.data_path = Path('/ssd/ssd0/zl_data/')
-conf.work_path = Path('work_space/emore.rsnext')
+conf.work_path = Path('work_space/emore.rsnext.2')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -70,7 +70,7 @@ conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
 conf.net_mode = 'resnext'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
-conf.net_depth = 50  # 100
+conf.net_depth = 100  # 100
 
 # conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # conf.test_transform = trans.Compose([
@@ -81,7 +81,7 @@ conf.net_depth = 50  # 100
 conf.fp16 = True
 conf.ftbs_mult=2
 conf.online_imp=False
-conf.batch_size = 215 * num_devs if not dbg else 8 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
+conf.batch_size = 150 * num_devs if not dbg else 8 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
 conf.use_chkpnt = False
 conf.ipabn = True
 conf.use_redis = False

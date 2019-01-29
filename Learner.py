@@ -624,8 +624,7 @@ class face_learner(object):
             # )
         logging.info(f'optimizers generated {self.optimizer}')
         self.board_loss_every = gl_conf.board_loss_every
-        self.evaluate_every = gl_conf.other_every or len(self.loader) // 3
-        self.save_every = gl_conf.other_every or len(self.loader) // 3
+        
         self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
             self.loader.dataset.root_path)  # todo postpone load eval
     
@@ -744,8 +743,10 @@ class face_learner(object):
         self.model.train()
         if mode=='train':
             loader = self.loader
+            self.evaluate_every = gl_conf.other_every or len( loader) // 3
+            self.save_every = gl_conf.other_every or len( loader) // 3
         else:
-            DataLoader(
+            loader = DataLoader(
                 self.dataset, batch_size=conf.batch_size*conf.ftbs_mult,
                 num_workers=conf.num_workers,
                 shuffle=False,
@@ -754,6 +755,8 @@ class face_learner(object):
                 drop_last=True,
                 pin_memory=True,
             )
+            self.evaluate_every = gl_conf.other_every or len( loader) // 3
+            self.save_every = gl_conf.other_every or len( loader) // 3
         
         if conf.start_eval:
             accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.agedb_30,

@@ -28,27 +28,30 @@ if __name__ == '__main__':
     
     ## for pretrain resume or evaluate
     # learner.load_state(
-    #         resume_path=Path('work_space/emore.alphaf64.dop.tri/save1/'),
-    #         load_optimizer=False,
+    #         resume_path=Path('work_space/emore.rsnext.2/models/'),
+    #         load_optimizer=True,
     #         load_head=True,
     #         load_imp=True,
     #         latest=True,
     #     )
 
     sd = torch.load(lz.home_path + '.torch/models/resnext101_ipabn_lr_512.pth.tar')['state_dict']
-#     sd = torch.load(lz.home_path + 'zl_data/densenet264_ipabn_lr_256.tar')['state_dict']
+    # sd = torch.load(lz.home_path + 'zl_data/densenet264_ipabn_lr_256.tar')['state_dict']
     lz.load_state_dict(learner.model, sd, )
     
+    conf.lr=1e-2
     learner.init_lr()
     conf.tri_wei = 0
     log_conf(conf)
-    learner.finetune(conf, 1)
+    learner.train(conf, 1, 'finetune')
 
+    conf.lr = 1e-1
     learner.init_lr()
     conf.tri_wei = 0
     log_conf(conf)
     learner.train(conf, 1)
 
+    conf.lr = 1e-1
     learner.init_lr()
     conf.tri_wei = 0.5
     log_conf(conf)
