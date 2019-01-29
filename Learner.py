@@ -542,7 +542,7 @@ class face_learner(object):
             pin_memory=True,
         )
         self.class_num = self.dataset.num_classes
-        print(self.class_num, 'classes, load ok ')
+        logging.info(f'{self.class_num} classes, load ok ')
         if conf.need_log:
             lz.mkdir_p(conf.log_path, delete=True)  # todo delete?
             lz.set_file_logger(conf.log_path)
@@ -552,14 +552,14 @@ class face_learner(object):
         
         if conf.net_mode == 'mobilefacenet':
             self.model = MobileFaceNet(conf.embedding_size)
-            print('MobileFaceNet model generated')
+            logging.info('MobileFaceNet model generated')
         elif conf.net_mode == 'nasnetamobile':
             self.model = models.nasnetamobile(512)
         elif conf.net_mode == 'resnext':
             self.model = models.ResNeXt(**models.resnext._NETS[str(conf.net_depth)])
         elif conf.net_mode == 'csmobilefacenet':
             self.model = CSMobileFaceNet(conf.embedding_size)
-            print('CSMobileFaceNet model generated')
+            logging.info('CSMobileFaceNet model generated')
         elif conf.net_mode == 'densenet':
             self.model = models.DenseNet(**models.densenet._NETS[str(conf.net_depth)])
         elif conf.net_mode == 'widerresnet':
@@ -571,7 +571,7 @@ class face_learner(object):
         #     self.model = se_resnext101_32x4d(512)
         elif conf.net_mode == 'ir_se' or conf.net_mode == 'ir':
             self.model = Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)
-            print('{}_{} model generated'.format(conf.net_mode, conf.net_depth))
+            logging.info('{}_{} model generated'.format(conf.net_mode, conf.net_depth))
         else:
             raise ValueError(conf.net_mode)
         
@@ -596,7 +596,7 @@ class face_learner(object):
             self.head = self.head.cuda()
         if gl_conf.tri_wei != 0:
             self.head_triplet = TripletLoss().cuda()
-        print('two model heads generated')
+        logging.info(' model heads generated')
         
         paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
         if conf.use_opt == 'adam':
@@ -627,6 +627,509 @@ class face_learner(object):
         
         self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
             self.loader.dataset.root_path)  # todo postpone load eval
+    
+    def train(self, conf, epochs, mode='train', name=None):
+        self.model.train()
+        if mode == 'train':
+            loader = self.loader
+            self.evaluate_every = gl_conf.other_every or len(loader) // 3
+            self.save_every = gl_conf.other_every or len(loader) // 3
+            self.step = 0
+            if name is None:
+                writer = self.writer
+            else:
+                writer = SummaryWriter(str(conf.log_path) + f'/{name}')
+        else:
+            loader = DataLoader(
+                self.dataset, batch_size=conf.batch_size * conf.ftbs_mult,
+                num_workers=conf.num_workers,
+                shuffle=False,
+                sampler=RandomIdSampler(self.dataset.imgidx,
+                                        self.dataset.ids, self.dataset.id2range),
+                drop_last=True,
+                pin_memory=True,
+            )
+            self.evaluate_every = gl_conf.other_every or len(loader) // 3
+            self.save_every = gl_conf.other_every or len(loader) // 3
+            self.step = 0
+            writer = SummaryWriter(str(conf.log_path) + '/ft')
+        
+        if conf.start_eval:
+            accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.agedb_30,
+                                                                                  self.agedb_30_issame)
+            self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor, writer)
+            accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.lfw, self.lfw_issame)
+            self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor, writer)
+            accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.cfp_fp,
+                                                                                  self.cfp_fp_issame)
+            self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor, writer)
+        lz.timer.since_last_check('start train')
+        data_time = lz.AverageMeter()
+        loss_time = lz.AverageMeter()
+        opt_time = lz.AverageMeter()
+        loss_meter = lz.AverageMeter()
+        loss_tri_meter = lz.AverageMeter()
+        acc_meter = lz.AverageMeter()
+        accuracy = 0
+        
+        tau = 0
+        B_multi = 2
+        Batch_size = gl_conf.batch_size * B_multi
+        batch_size = gl_conf.batch_size
+        tau_thresh = 1.5
+        #         tau_thresh = (Batch_size + 3 * batch_size) / (3 * batch_size)
+        alpha_tau = .9
+        for e in range(conf.start_epoch, epochs):
+            lz.timer.since_last_check('epoch {} started'.format(e))
+            self.schedule_lr(e)
+            loader_enum = data_prefetcher(enumerate(loader))
+            
+            while True:
+                ind_data, data = loader_enum.next()
+                if ind_data is None:
+                    logging.info(f'one epoch finish {e} {ind_data}')
+                    loader_enum = data_prefetcher(enumerate(loader))
+                    ind_data, data = loader_enum.next()
+                if self.step + 1 % len(loader) == 0:
+                    break
+                imgs = data['imgs']
+                labels_cpu = data['labels_cpu']
+                labels = data['labels']
+                ind_inds = data['ind_inds']
+                # todo visualize it
+                # import torchvision
+                # imgs_thumb = torchvision.utils.make_grid(
+                #     to_torch(imgs), normalize=True,
+                #     nrow=int(np.sqrt(imgs.shape[0])) //4 * 4 ,
+                #     scale_each=True).numpy()
+                # imgs_thumb = to_img(imgs_thumb)
+                # # imgs_thumb = cvb.resize_keep_ar( imgs_thumb, 1024,1024, )
+                # plt_imshow(imgs_thumb)
+                # plt.savefig(work_path+'t.png')
+                # plt.close()
+                # logging.info(f'this batch labes {labels} ')
+                data_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
+                self.optimizer.zero_grad()
+                
+                #                 if not conf.fgg:
+                #                     if True:
+                
+                #                 if np.random.rand()>0.5:
+                writer.add_scalar('info/tau', tau, self.step)
+                # if False:
+                if gl_conf.online_imp and tau > tau_thresh and ind_data < len(loader) - B_multi:  # todo enable it
+                    #                     logging.info(f'using sampling {self.step} {tau} {tau_thresh}')
+                    writer.add_scalar('info/sampl', 1, self.step)
+                    imgsl = [imgs]
+                    labelsl = [labels]
+                    for _ in range(B_multi - 1):
+                        ind_data, data = loader_enum.next()
+                        imgs = data['imgs']
+                        labels = data['labels']
+                        imgs = imgs.cuda()
+                        labels = labels.cuda()
+                        imgsl.append(imgs)
+                        labelsl.append(labels)
+                    imgs = torch.cat(imgsl, dim=0)
+                    labels = torch.cat(labelsl, dim=0)
+                    with torch.no_grad():
+                        embeddings = self.model(imgs)
+                    embeddings.requires_grad_(True)
+                    thetas = self.head(embeddings, labels)
+                    loss = conf.ce_loss(thetas, labels)
+                    grad = torch.autograd.grad(loss, embeddings,
+                                               retain_graph=False, create_graph=False,
+                                               only_inputs=True)[0].detach()
+                    grad.requires_grad_(False)
+                    with torch.no_grad():
+                        gi = torch.norm(grad, dim=1)
+                        gi /= gi.sum()
+                        G_ind = torch.multinomial(gi, gl_conf.batch_size, replacement=True)
+                        imgs = imgs[G_ind]
+                        labels = labels[G_ind]
+                        gi_b = gi[G_ind]  # todo this is unbias
+                        gi_b = gi_b / gi_b.sum()
+                        wi = 1 / gl_conf.batch_size * (1 / gi_b)
+                    embeddings = self.model(imgs)
+                    thetas = self.head(embeddings, labels)
+                    loss = (F.cross_entropy(thetas, labels, reduction='none') * wi).mean()
+                    if gl_conf.fp16:
+                        with amp_handle.scale_loss(loss, self.optimizer) as scaled_loss:
+                            scaled_loss.backward()
+                    else:
+                        loss.backward()
+                else:
+                    #                     logging.info(f'normal {self.step} {tau} {tau_thresh}')
+                    writer.add_scalar('info/sampl', 0, self.step)
+                    embeddings = self.model(imgs, mode=mode)
+                    thetas = self.head(embeddings, labels)
+                    loss = conf.ce_loss(thetas, labels)
+                    if gl_conf.tri_wei != 0:
+                        loss_triplet, info = self.head_triplet(embeddings, labels, return_info=True)
+                        loss_tri_meter.update(loss_triplet.item())
+                        
+                        grad_tri = torch.autograd.grad(loss_triplet, embeddings, retain_graph=True, create_graph=False,
+                                                       only_inputs=True)[0].detach()
+                        
+                        writer.add_scalar('info/grad_tri', torch.norm(grad_tri, dim=1).mean().item(), self.step)
+                        grad_xent = torch.autograd.grad(loss, embeddings, retain_graph=True, create_graph=False,
+                                                        only_inputs=True)[0].detach()
+                        writer.add_scalar('info/grad_xent', torch.norm(grad_xent, dim=1).mean().item(), self.step)
+                        loss = ((1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet) / (1 - gl_conf.tri_wei)
+                    #                         if gl_conf.mining == 'imp':
+                    grad = torch.autograd.grad(loss, embeddings,
+                                               retain_graph=True, create_graph=False,
+                                               only_inputs=True)[0].detach()
+                    if gl_conf.fp16:
+                        with amp_handle.scale_loss(loss, self.optimizer) as scaled_loss:
+                            scaled_loss.backward()
+                    else:
+                        loss.backward()
+                    grad.requires_grad_(False)
+                    with torch.no_grad():
+                        if gl_conf.mining == 'dop':
+                            update_dop_cls(thetas, labels_cpu, gl_conf.dop)
+                        #                         if gl_conf.mining == 'imp' :
+                        gi = torch.norm(grad, dim=1)
+                        #                         for lable_, ind_ind_, gi_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy()):
+                        #                             gl_conf.id2range_dop[str(lable_)][ind_ind_] = gl_conf.id2range_dop[str(lable_)][
+                        #                                                                               ind_ind_] * 0.9 + 0.1 * gi_
+                        #                             gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].sum()  # todo should be sum?
+                        if gl_conf.mining == 'rand.id':
+                            gl_conf.dop[labels_cpu.numpy()] = 1
+                        gi /= gi.sum()
+                gl_conf.explored[labels_cpu.numpy()] = 1
+                with torch.no_grad():
+                    acc_t = (thetas.argmax(dim=1) == labels)
+                    acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
+                    acc_meter.update(acc)
+                    loss_meter.update(loss.item())
+                
+                tau = alpha_tau * tau + \
+                      (1 - alpha_tau) * (1 - (1 / (gi ** 2).sum()).item() * (
+                        torch.norm(gi - 1 / len(gi), dim=0) ** 2).item()) ** (-1 / 2)
+                
+                #                 elif conf.fgg == 'g':
+                #                     embeddings_o = self.model(imgs)
+                #                     thetas_o = self.head(embeddings, labels)
+                #                     loss_o = conf.ce_loss(thetas_o, labels)
+                #                     grad = torch.autograd.grad(loss_o, embeddings_o,
+                #                                                retain_graph=False, create_graph=False, allow_unused=True,
+                #                                                only_inputs=True)[0].detach()
+                #                     embeddings = embeddings_o + conf.fgg_wei * grad
+                #                     thetas = self.head(embeddings, labels)
+                #                     loss = conf.ce_loss(thetas, labels)
+                #                     loss.backward()
+                #                 elif conf.fgg == 'gg':
+                #                     embeddings_o = self.model(imgs)
+                #                     thetas_o = self.head(embeddings_o, labels)
+                #                     loss_o = conf.ce_loss(thetas_o, labels)
+                #                     grad = torch.autograd.grad(loss_o, embeddings_o,
+                #                                                retain_graph=True, create_graph=True,
+                #                                                only_inputs=True)[0]
+                #                     embeddings = embeddings_o + conf.fgg_wei * grad
+                #                     thetas = self.head(embeddings, labels)
+                #                     loss = conf.ce_loss(thetas, labels)
+                #                     loss.backward()
+                #                 else:
+                #                     raise ValueError(f'{conf.fgg}')
+                loss_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
+                self.optimizer.step()
+                opt_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
+                if self.step % self.board_loss_every == 0:
+                    logging.info(f'epoch {e}/{epochs} step {self.step}/{len(loader)}: ' +
+                                 # f'img {imgs.mean()} {imgs.max()} {imgs.min()} '+
+                                 f'loss: {loss.item():.2e} ' +
+                                 f'data time: {data_time.avg:.2f} ' +
+                                 f'loss time: {loss_time.avg:.2f} ' +
+                                 f'opt time: {opt_time.avg:.2f} ' +
+                                 f'acc: {acc_meter.avg:.2e} ' +
+                                 f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                    writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
+                    writer.add_scalar('loss/ttl',
+                                      ((1 - gl_conf.tri_wei) * loss_meter.avg +
+                                       gl_conf.tri_wei * loss_tri_meter.avg) / (1 - gl_conf.tri_wei),
+                                      self.step)
+                    writer.add_scalar('loss/xent', loss_meter.avg, self.step)
+                    writer.add_scalar('loss/triplet', loss_tri_meter.avg, self.step)
+                    if gl_conf.tri_wei != 0:
+                        writer.add_scalar('loss/dap', info['dap'], self.step)
+                        writer.add_scalar('loss/dan', info['dan'], self.step)
+                    
+                    writer.add_scalar('info/acc', acc_meter.avg, self.step)
+                    writer.add_scalar('info/speed',
+                                      gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                    writer.add_scalar('info/datatime', data_time.avg, self.step)
+                    writer.add_scalar('info/losstime', loss_time.avg, self.step)
+                    writer.add_scalar('info/epoch', e, self.step)
+                    dop = gl_conf.dop
+                    writer.add_histogram('top_imp', dop, self.step)
+                    writer.add_scalar('info/doprat',
+                                      np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
+                
+                if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
+                                                                                          self.loader.dataset.root_path,
+                                                                                          'agedb_30')
+                    self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor, writer)
+                    logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
+                                                                                          self.loader.dataset.root_path,
+                                                                                          'lfw')
+                    self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor, writer)
+                    logging.info(f'validation accuracy on lfw is {accuracy} ')
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
+                                                                                          self.loader.dataset.root_path,
+                                                                                          'cfp_fp')
+                    self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor, writer)
+                    logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
+                if self.step % self.save_every == 0 and self.step != 0:
+                    self.save_state(conf, accuracy)
+                
+                self.step += 1
+                if gl_conf.prof and self.step > 99:
+                    break
+            if gl_conf.prof and e > 5:
+                break
+        self.save_state(conf, accuracy, to_save_folder=True, extra='final')
+    
+    def schedule_lr(self, e=0):
+        from bisect import bisect_right
+        
+        e2lr = {epoch: gl_conf.lr * gl_conf.lr_gamma ** bisect_right(self.milestones, epoch) for epoch in
+                range(gl_conf.epochs)}
+        lr = e2lr[e]
+        for params in self.optimizer.param_groups:
+            params['lr'] = lr
+        logging.info(f'lr is {lr}')
+    
+    init_lr = schedule_lr
+    
+    def save_state(self, conf, accuracy, to_save_folder=False, extra=None, model_only=False):
+        if gl_conf.local_rank is not None and gl_conf.local_rank != 0:
+            return
+        if to_save_folder:
+            save_path = conf.save_path
+        else:
+            save_path = conf.model_path
+        time_now = get_time()
+        lz.mkdir_p(save_path, delete=False)
+        self.model.cpu()
+        torch.save(
+            self.model.module.state_dict(),
+            save_path /
+            ('model_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
+                                                          extra)))
+        self.model.cuda()
+        lz.msgpack_dump({'dop': gl_conf.dop,
+                         'id2range_dop': gl_conf.id2range_dop,
+                         }, str(save_path) + f'/extra_{time_now}_accuracy:{accuracy}_step:{self.step}_{extra}.pk')
+        if not model_only:
+            if self.head is not None:
+                self.head.cpu()
+                torch.save(
+                    self.head.state_dict(),
+                    save_path /
+                    ('head_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
+                                                                 extra)))
+            self.head.cuda()
+            torch.save(
+                self.optimizer.state_dict(),
+                save_path /
+                ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy,
+                                                                  self.step, extra)))
+    
+    def list_steps(self, resume_path):
+        from pathlib import Path
+        save_path = Path(resume_path)
+        fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
+        steps = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
+        steps = np.asarray(steps, int)
+        return steps
+    
+    @staticmethod
+    def try_load(model, state_dict):
+        try:
+            model.load_state_dict(state_dict)
+        except Exception as e:
+            # logger.info(f'{e}')
+            pass
+        try:
+            model.load_state_dict(state_dict)
+        except Exception as e:
+            # logger.info(f'{e}')
+            pass
+    
+    def load_state(self, fixed_str=None,
+                   resume_path=None, latest=True,
+                   load_optimizer=False, load_imp=False, load_head=False
+                   ):
+        from pathlib import Path
+        save_path = Path(resume_path)
+        modelp = save_path / '{}'.format(fixed_str)
+        if not osp.exists(modelp):
+            modelp = save_path / 'model_{}'.format(fixed_str)
+        if not osp.exists(modelp):
+            fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
+            if latest:
+                step = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
+            else:  # best
+                step = [fixed_str.split('_')[-3].split(':')[-1] for fixed_str in fixed_strs]
+            step = np.asarray(step, dtype=float)
+            step_ind = step.argmax()
+            fixed_str = fixed_strs[step_ind].replace('model_', '')
+            modelp = save_path / 'model_{}'.format(fixed_str)
+        logging.info(f'you are using gpu, load model, {modelp}')
+        model_state_dict = torch.load(modelp)
+        #         embed()
+        model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
+        if list(model_state_dict.keys())[0].startswith('module'):
+            self.model.load_state_dict(model_state_dict, strict=True)  # todo later may upgrade
+        else:
+            self.model.module.load_state_dict(model_state_dict, strict=True)
+        
+        if load_head and osp.exists(save_path / 'head_{}'.format(fixed_str)):
+            logging.info(f'load head from {modelp}')
+            head_state_dict = torch.load(save_path / 'head_{}'.format(fixed_str))
+            self.try_load(self.head, head_state_dict)
+        if load_optimizer:
+            logging.info(f'load opt from {modelp}')
+            self.try_load(self.optimizer, torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
+        if load_imp and osp.exists(save_path / f'extra_{fixed_str.replace(".pth", ".pk")}'):
+            extra = lz.msgpack_load(save_path / f'extra_{fixed_str.replace(".pth", ".pk")}')
+            gl_conf.dop = extra['dop'].copy()
+            gl_conf.id2range_dop = extra['id2range_dop'].copy()
+    
+    def board_val(self, db_name, accuracy, best_threshold, roc_curve_tensor, writer=None):
+        writer = writer or self.writer
+        writer.add_scalar('{}_accuracy'.format(db_name), accuracy, self.step)
+        writer.add_scalar('{}_best_threshold'.format(db_name), best_threshold, self.step)
+        writer.add_image('{}_roc_curve'.format(db_name), roc_curve_tensor, self.step)
+    
+    def evaluate_accelerate(self, conf, path, name, nrof_folds=5, tta=False):
+        lz.timer.since_last_check('start eval')
+        self.model.eval()  # set the module in evaluation mode
+        idx = 0
+        if name in self.val_loader_cache:
+            loader = self.val_loader_cache[name]
+        else:
+            if tta:
+                dataset = Dataset_val(path, name, transform=hflip)
+            else:
+                dataset = Dataset_val(path, name)
+            loader = DataLoader(dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
+                                shuffle=False, pin_memory=True)  # todo why shuffle must false
+            self.val_loader_cache[name] = loader
+        length = len(loader.dataset)
+        embeddings = np.zeros([length, conf.embedding_size])
+        issame = np.zeros(length)
+        
+        with torch.no_grad():
+            for data in loader:
+                carray_batch = data['carray']
+                issame_batch = data['issame']
+                if tta:
+                    fliped = data['fliped_carray']
+                    emb_batch = self.model(carray_batch.cuda()) + self.model(fliped.cuda())
+                    embeddings[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
+                            idx + conf.batch_size)] = l2_norm(emb_batch)
+                else:
+                    embeddings[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
+                            idx + conf.batch_size)] = self.model(carray_batch.cuda()).cpu()
+                issame[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
+                        idx + conf.batch_size)] = issame_batch
+                idx += conf.batch_size
+        
+        # tpr/fpr is averaged over various fold division
+        try:
+            tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
+            buf = gen_plot(fpr, tpr)
+            roc_curve = Image.open(buf)
+            roc_curve_tensor = trans.ToTensor()(roc_curve)
+        except Exception as e:
+            logging.error(f'{e}')
+            roc_curve_tensor = torch.zeros(3, 100, 100)
+        self.model.train()
+        lz.timer.since_last_check('eval end')
+        return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
+    
+    def evaluate(self, conf, carray, issame, nrof_folds=5, tta=False):
+        # accelerate eval
+        logging.info('start eval')
+        self.model.eval()  # set the module in evaluation mode
+        idx = 0
+        embeddings = np.zeros([len(carray), conf.embedding_size])
+        with torch.no_grad():
+            while idx + conf.batch_size <= len(carray):
+                batch = torch.tensor(carray[idx:idx + conf.batch_size])
+                if tta:
+                    fliped = hflip_batch(batch)
+                    emb_batch = self.model(batch.cuda()) + self.model(fliped.cuda())
+                    embeddings[idx:idx + conf.batch_size] = l2_norm(emb_batch)
+                else:
+                    embeddings[idx:idx + conf.batch_size] = self.model(batch.cuda()).cpu()
+                idx += conf.batch_size
+            if idx < len(carray):
+                batch = torch.tensor(carray[idx:])
+                if tta:
+                    fliped = hflip_batch(batch)
+                    emb_batch = self.model(batch.cuda()) + self.model(fliped.cuda())
+                    embeddings[idx:] = l2_norm(emb_batch)
+                else:
+                    embeddings[idx:] = self.model(batch.cuda()).cpu()
+        tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
+        buf = gen_plot(fpr, tpr)
+        roc_curve = Image.open(buf)
+        roc_curve_tensor = trans.ToTensor()(roc_curve)
+        self.model.train()
+        logging.info('eval end')
+        return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
+    
+    def validate(self, conf, resume_path):
+        self.load_state(resume_path=resume_path)
+        self.model.eval()
+        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
+                                                                              'agedb_30')
+        logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
+        
+        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
+                                                                              'lfw')
+        logging.info(f'validation accuracy on lfw is {accuracy} ')
+        
+        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
+                                                                              'cfp_fp')
+        logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
+        self.model.train()
+    
+    def infer(self, conf, faces, target_embs, tta=False):
+        '''
+        faces : list of PIL Image
+        target_embs : [n, 512] computed embeddings of faces in facebank
+        names : recorded names of faces in facebank
+        tta : test time augmentation (hfilp, that's all)
+        '''
+        embs = []
+        for img in faces:
+            if tta:
+                mirror = trans.functional.hflip(img)
+                emb = self.model(conf.test_transform(img).cuda().unsqueeze(0))
+                emb_mirror = self.model(conf.test_transform(mirror).cuda().unsqueeze(0))
+                embs.append(l2_norm(emb + emb_mirror))
+            else:
+                embs.append(self.model(conf.test_transform(img).cuda().unsqueeze(0)))
+        source_embs = torch.cat(embs)
+        
+        diff = source_embs.unsqueeze(-1) - target_embs.transpose(1, 0).unsqueeze(0)
+        dist = torch.sum(torch.pow(diff, 2), dim=1)
+        minimum, min_idx = torch.min(dist, dim=1)
+        min_idx[minimum > self.threshold] = -1  # if no match, set idx to -1
+        return min_idx, minimum
     
     def push2redis(self, limits=6 * 10 ** 6 // 8):
         conf = gl_conf
@@ -736,504 +1239,6 @@ class face_learner(object):
                          'id2range_dop': gl_conf.id2range_dop,
                          'sub_imp_loss': gl_conf.sub_imp_loss
                          }, out)
-    
-    
-    
-    def train(self, conf, epochs, mode='train'):
-        self.model.train()
-        if mode=='train':
-            loader = self.loader
-            self.evaluate_every = gl_conf.other_every or len( loader) // 3
-            self.save_every = gl_conf.other_every or len( loader) // 3
-        else:
-            loader = DataLoader(
-                self.dataset, batch_size=conf.batch_size*conf.ftbs_mult,
-                num_workers=conf.num_workers,
-                shuffle=False,
-                sampler=RandomIdSampler(self.dataset.imgidx,
-                                        self.dataset.ids, self.dataset.id2range),
-                drop_last=True,
-                pin_memory=True,
-            )
-            self.evaluate_every = gl_conf.other_every or len( loader) // 3
-            self.save_every = gl_conf.other_every or len( loader) // 3
-        
-        if conf.start_eval:
-            accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.agedb_30,
-                                                                                  self.agedb_30_issame)
-            self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor)
-            accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.lfw, self.lfw_issame)
-            self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor)
-            accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.cfp_fp,
-                                                                                  self.cfp_fp_issame)
-            self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor)
-        lz.timer.since_last_check('start train')
-        data_time = lz.AverageMeter()
-        loss_time = lz.AverageMeter()
-        opt_time = lz.AverageMeter()
-        loss_meter = lz.AverageMeter()
-        loss_tri_meter = lz.AverageMeter()
-        acc_meter = lz.AverageMeter()
-        accuracy = 0
-        
-        tau = 0
-        B_multi = 2
-        Batch_size = gl_conf.batch_size * B_multi
-        batch_size = gl_conf.batch_size
-        tau_thresh = 1.5
-        #         tau_thresh = (Batch_size + 3 * batch_size) / (3 * batch_size)
-        alpha_tau = .9
-        for e in range(conf.start_epoch, epochs):
-            lz.timer.since_last_check('epoch {} started'.format(e))
-            self.schedule_lr(e)
-            loader_enum = data_prefetcher(enumerate(loader))
-            
-            while True:
-                ind_data, data = loader_enum.next()
-                if ind_data is None:
-                    logging.info(f'one epoch finish {e} {ind_data}')
-                    loader_enum = data_prefetcher(enumerate(loader))
-                    ind_data, data = loader_enum.next()
-                if self.step + 1 % len(loader) == 0:
-                    break
-                imgs = data['imgs']
-                labels_cpu = data['labels_cpu']
-                labels = data['labels']
-                ind_inds = data['ind_inds']
-                # todo visualize it
-                # import torchvision
-                # imgs_thumb = torchvision.utils.make_grid(
-                #     to_torch(imgs), normalize=True,
-                #     nrow=int(np.sqrt(imgs.shape[0])) //4 * 4 ,
-                #     scale_each=True).numpy()
-                # imgs_thumb = to_img(imgs_thumb)
-                # # imgs_thumb = cvb.resize_keep_ar( imgs_thumb, 1024,1024, )
-                # plt_imshow(imgs_thumb)
-                # plt.savefig(work_path+'t.png')
-                # plt.close()
-                # logging.info(f'this batch labes {labels} ')
-                data_time.update(
-                    lz.timer.since_last_check(verbose=False)
-                )
-                self.optimizer.zero_grad()
-                
-                #                 if not conf.fgg:
-                #                     if True:
-                
-                #                 if np.random.rand()>0.5:
-                self.writer.add_scalar('info/tau', tau, self.step)
-                # if False:
-                if gl_conf.online_imp and tau > tau_thresh and ind_data < len(loader) - B_multi:  # todo enable it
-                    #                     logging.info(f'using sampling {self.step} {tau} {tau_thresh}')
-                    self.writer.add_scalar('info/sampl', 1, self.step)
-                    imgsl = [imgs]
-                    labelsl = [labels]
-                    for _ in range(B_multi - 1):
-                        ind_data, data = loader_enum.next()
-                        imgs = data['imgs']
-                        labels = data['labels']
-                        imgs = imgs.cuda()
-                        labels = labels.cuda()
-                        imgsl.append(imgs)
-                        labelsl.append(labels)
-                    imgs = torch.cat(imgsl, dim=0)
-                    labels = torch.cat(labelsl, dim=0)
-                    with torch.no_grad():
-                        embeddings = self.model(imgs)
-                    embeddings.requires_grad_(True)
-                    thetas = self.head(embeddings, labels)
-                    loss = conf.ce_loss(thetas, labels)
-                    grad = torch.autograd.grad(loss, embeddings,
-                                               retain_graph=False, create_graph=False,
-                                               only_inputs=True)[0].detach()
-                    grad.requires_grad_(False)
-                    with torch.no_grad():
-                        gi = torch.norm(grad, dim=1)
-                        gi /= gi.sum()
-                        G_ind = torch.multinomial(gi, gl_conf.batch_size, replacement=True)
-                        imgs = imgs[G_ind]
-                        labels = labels[G_ind]
-                        gi_b = gi[G_ind]  # todo this is unbias
-                        gi_b = gi_b / gi_b.sum()
-                        wi = 1 / gl_conf.batch_size * (1 / gi_b)
-                    embeddings = self.model(imgs)
-                    thetas = self.head(embeddings, labels)
-                    loss = (F.cross_entropy(thetas, labels, reduction='none') * wi).mean()
-                    if gl_conf.fp16:
-                        with amp_handle.scale_loss(loss, self.optimizer) as scaled_loss:
-                            scaled_loss.backward()
-                    else:
-                        loss.backward()
-                else:
-                    #                     logging.info(f'normal {self.step} {tau} {tau_thresh}')
-                    self.writer.add_scalar('info/sampl', 0, self.step)
-                    embeddings = self.model(imgs, mode=mode)
-                    thetas = self.head(embeddings, labels)
-                    loss = conf.ce_loss(thetas, labels)
-                    if gl_conf.tri_wei != 0:
-                        loss_triplet, info = self.head_triplet(embeddings, labels, return_info=True)
-                        loss_tri_meter.update(loss_triplet.item())
-                        
-                        grad_tri = torch.autograd.grad(loss_triplet, embeddings, retain_graph=True, create_graph=False,
-                                                       only_inputs=True)[0].detach()
-                        
-                        self.writer.add_scalar('info/grad_tri', torch.norm(grad_tri, dim=1).mean().item(), self.step)
-                        grad_xent = torch.autograd.grad(loss, embeddings, retain_graph=True, create_graph=False,
-                                                        only_inputs=True)[0].detach()
-                        self.writer.add_scalar('info/grad_xent', torch.norm(grad_xent, dim=1).mean().item(), self.step)
-                        loss = ((1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet) / (1 - gl_conf.tri_wei)
-                    #                         if gl_conf.mining == 'imp':
-                    grad = torch.autograd.grad(loss, embeddings,
-                                               retain_graph=True, create_graph=False,
-                                               only_inputs=True)[0].detach()
-                    if gl_conf.fp16:
-                        with amp_handle.scale_loss(loss, self.optimizer) as scaled_loss:
-                            scaled_loss.backward()
-                    else:
-                        loss.backward()
-                    grad.requires_grad_(False)
-                    with torch.no_grad():
-                        if gl_conf.mining == 'dop':
-                            update_dop_cls(thetas, labels_cpu, gl_conf.dop)
-                        #                         if gl_conf.mining == 'imp' :
-                        gi = torch.norm(grad, dim=1)
-                        #                         for lable_, ind_ind_, gi_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy()):
-                        #                             gl_conf.id2range_dop[str(lable_)][ind_ind_] = gl_conf.id2range_dop[str(lable_)][
-                        #                                                                               ind_ind_] * 0.9 + 0.1 * gi_
-                        #                             gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].sum()  # todo should be sum?
-                        if gl_conf.mining == 'rand.id':
-                            gl_conf.dop[labels_cpu.numpy()] = 1
-                        gi /= gi.sum()
-                gl_conf.explored[labels_cpu.numpy()] = 1
-                with torch.no_grad():
-                    acc_t = (thetas.argmax(dim=1) == labels)
-                    acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
-                    acc_meter.update(acc)
-                    loss_meter.update(loss.item())
-                
-                tau = alpha_tau * tau + \
-                      (1 - alpha_tau) * (1 - (1 / (gi ** 2).sum()).item() * (
-                        torch.norm(gi - 1 / len(gi), dim=0) ** 2).item()) ** (-1 / 2)
-                
-                #                 if self.step > 91:
-                #                     from IPython import embed;
-                #                     embed()
-                
-                #                 elif conf.fgg == 'g':
-                #                     embeddings_o = self.model(imgs)
-                #                     thetas_o = self.head(embeddings, labels)
-                #                     loss_o = conf.ce_loss(thetas_o, labels)
-                #                     grad = torch.autograd.grad(loss_o, embeddings_o,
-                #                                                retain_graph=False, create_graph=False, allow_unused=True,
-                #                                                only_inputs=True)[0].detach()
-                #                     embeddings = embeddings_o + conf.fgg_wei * grad
-                #                     thetas = self.head(embeddings, labels)
-                #                     loss = conf.ce_loss(thetas, labels)
-                #                     loss.backward()
-                #                 elif conf.fgg == 'gg':
-                #                     embeddings_o = self.model(imgs)
-                #                     thetas_o = self.head(embeddings_o, labels)
-                #                     loss_o = conf.ce_loss(thetas_o, labels)
-                #                     grad = torch.autograd.grad(loss_o, embeddings_o,
-                #                                                retain_graph=True, create_graph=True,
-                #                                                only_inputs=True)[0]
-                #                     embeddings = embeddings_o + conf.fgg_wei * grad
-                #                     thetas = self.head(embeddings, labels)
-                #                     loss = conf.ce_loss(thetas, labels)
-                #                     loss.backward()
-                #                 else:
-                #                     raise ValueError(f'{conf.fgg}')
-                loss_time.update(
-                    lz.timer.since_last_check(verbose=False)
-                )
-                self.optimizer.step()
-                opt_time.update(
-                    lz.timer.since_last_check(verbose=False)
-                )
-                if self.step % self.board_loss_every == 0:
-                    logging.info(f'epoch {e}/{epochs} step {self.step}/{len(loader)}: ' +
-                                 # f'img {imgs.mean()} {imgs.max()} {imgs.min()} '+
-                                 f'loss: {loss.item():.2e} ' +
-                                 f'data time: {data_time.avg:.2f} ' +
-                                 f'loss time: {loss_time.avg:.2f} ' +
-                                 f'opt time: {opt_time.avg:.2f} ' +
-                                 f'acc: {acc_meter.avg:.2e} ' +
-                                 f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
-                    self.writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
-                    self.writer.add_scalar('loss/ttl',
-                                           ((1 - gl_conf.tri_wei) * loss_meter.avg +
-                                            gl_conf.tri_wei * loss_tri_meter.avg) / (1 - gl_conf.tri_wei),
-                                           self.step)
-                    self.writer.add_scalar('loss/xent', loss_meter.avg, self.step)
-                    self.writer.add_scalar('loss/triplet', loss_tri_meter.avg, self.step)
-                    if gl_conf.tri_wei != 0:
-                        self.writer.add_scalar('loss/dap', info['dap'], self.step)
-                        self.writer.add_scalar('loss/dan', info['dan'], self.step)
-                    
-                    self.writer.add_scalar('info/acc', acc_meter.avg, self.step)
-                    self.writer.add_scalar('info/speed',
-                                           gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
-                    self.writer.add_scalar('info/datatime', data_time.avg, self.step)
-                    self.writer.add_scalar('info/losstime', loss_time.avg, self.step)
-                    self.writer.add_scalar('info/epoch', e, self.step)
-                    dop = gl_conf.dop
-                    self.writer.add_histogram('top_imp', dop, self.step)
-                    self.writer.add_scalar('info/doprat',
-                                           np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
-                
-                if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'agedb_30')
-                    self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor)
-                    logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'lfw')
-                    self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor)
-                    logging.info(f'validation accuracy on lfw is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'cfp_fp')
-                    self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor)
-                    logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
-                if self.step % self.save_every == 0 and self.step != 0:
-                    self.save_state(conf, accuracy)
-                
-                self.step += 1
-        
-        self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-    
-    def schedule_lr(self, e=0):
-        from bisect import bisect_right
-        
-        e2lr = {epoch: gl_conf.lr * gl_conf.lr_gamma ** bisect_right(self.milestones, epoch) for epoch in
-                range(gl_conf.epochs)}
-        lr = e2lr[e]
-        for params in self.optimizer.param_groups:
-            params['lr'] = lr
-        logging.info(f'lr is {lr}')
-    
-    init_lr = schedule_lr
-    
-    def infer(self, conf, faces, target_embs, tta=False):
-        '''
-        faces : list of PIL Image
-        target_embs : [n, 512] computed embeddings of faces in facebank
-        names : recorded names of faces in facebank
-        tta : test time augmentation (hfilp, that's all)
-        '''
-        embs = []
-        for img in faces:
-            if tta:
-                mirror = trans.functional.hflip(img)
-                emb = self.model(conf.test_transform(img).cuda().unsqueeze(0))
-                emb_mirror = self.model(conf.test_transform(mirror).cuda().unsqueeze(0))
-                embs.append(l2_norm(emb + emb_mirror))
-            else:
-                embs.append(self.model(conf.test_transform(img).cuda().unsqueeze(0)))
-        source_embs = torch.cat(embs)
-        
-        diff = source_embs.unsqueeze(-1) - target_embs.transpose(1, 0).unsqueeze(0)
-        dist = torch.sum(torch.pow(diff, 2), dim=1)
-        minimum, min_idx = torch.min(dist, dim=1)
-        min_idx[minimum > self.threshold] = -1  # if no match, set idx to -1
-        return min_idx, minimum
-    
-    def save_state(self, conf, accuracy, to_save_folder=False, extra=None, model_only=False):
-        if gl_conf.local_rank is not None and gl_conf.local_rank != 0:
-            return
-        if to_save_folder:
-            save_path = conf.save_path
-        else:
-            save_path = conf.model_path
-        time_now = get_time()
-        lz.mkdir_p(save_path, delete=False)
-        self.model.cpu()
-        torch.save(
-            self.model.module.state_dict(),
-            save_path /
-            ('model_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
-                                                          extra)))
-        self.model.cuda()
-        lz.msgpack_dump({'dop': gl_conf.dop,
-                         'id2range_dop': gl_conf.id2range_dop,
-                         }, str(save_path) + f'/extra_{time_now}_accuracy:{accuracy}_step:{self.step}_{extra}.pk')
-        if not model_only:
-            if self.head is not None:
-                self.head.cpu()
-                torch.save(
-                    self.head.state_dict(),
-                    save_path /
-                    ('head_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
-                                                                 extra)))
-            self.head.cuda()
-            torch.save(
-                self.optimizer.state_dict(),
-                save_path /
-                ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy,
-                                                                  self.step, extra)))
-    
-    def list_steps(self, resume_path):
-        from pathlib import Path
-        save_path = Path(resume_path)
-        fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
-        steps = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
-        steps = np.asarray(steps, int)
-        return steps
-    
-    @staticmethod
-    def try_load(model, state_dict):
-        try:
-            model.load_state_dict(state_dict)
-        except Exception as e:
-            # logger.info(f'{e}')
-            pass
-        try:
-            model.load_state_dict(state_dict)
-        except Exception as e:
-            # logger.info(f'{e}')
-            pass
-    
-    def load_state(self, fixed_str=None,
-                   resume_path=None, latest=True,
-                   load_optimizer=False, load_imp=False, load_head=False
-                   ):
-        from pathlib import Path
-        save_path = Path(resume_path)
-        modelp = save_path / '{}'.format(fixed_str)
-        if not osp.exists(modelp):
-            modelp = save_path / 'model_{}'.format(fixed_str)
-        if not osp.exists(modelp):
-            fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
-            if latest:
-                step = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
-            else:  # best
-                step = [fixed_str.split('_')[-3].split(':')[-1] for fixed_str in fixed_strs]
-            step = np.asarray(step, dtype=float)
-            step_ind = step.argmax()
-            fixed_str = fixed_strs[step_ind].replace('model_', '')
-            modelp = save_path / 'model_{}'.format(fixed_str)
-        logging.info(f'you are using gpu, load model, {modelp}')
-        model_state_dict = torch.load(modelp)
-        #         embed()
-        model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
-        if list(model_state_dict.keys())[0].startswith('module'):
-            self.model.load_state_dict(model_state_dict, strict=True)  # todo later may upgrade
-        else:
-            self.model.module.load_state_dict(model_state_dict, strict=True)
-        
-        if load_head and osp.exists(save_path / 'head_{}'.format(fixed_str)):
-            logging.info(f'load head from {modelp}')
-            head_state_dict = torch.load(save_path / 'head_{}'.format(fixed_str))
-            self.try_load(self.head, head_state_dict)
-        if load_optimizer:
-            logging.info(f'load opt from {modelp}')
-            self.try_load(self.optimizer, torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
-        if load_imp and osp.exists(save_path / f'extra_{fixed_str.replace(".pth", ".pk")}'):
-            extra = lz.msgpack_load(save_path / f'extra_{fixed_str.replace(".pth", ".pk")}')
-            gl_conf.dop = extra['dop'].copy()
-            gl_conf.id2range_dop = extra['id2range_dop'].copy()
-    
-    def board_val(self, db_name, accuracy, best_threshold, roc_curve_tensor):
-        self.writer.add_scalar('{}_accuracy'.format(db_name), accuracy, self.step)
-        self.writer.add_scalar('{}_best_threshold'.format(db_name), best_threshold, self.step)
-        self.writer.add_image('{}_roc_curve'.format(db_name), roc_curve_tensor, self.step)
-    
-    def evaluate_accelerate(self, conf, path, name, nrof_folds=5, tta=False):
-        lz.timer.since_last_check('start eval')
-        self.model.eval()  # set the module in evaluation mode
-        idx = 0
-        if name in self.val_loader_cache:
-            loader = self.val_loader_cache[name]
-        else:
-            if tta:
-                dataset = Dataset_val(path, name, transform=hflip)
-            else:
-                dataset = Dataset_val(path, name)
-            loader = DataLoader(dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
-                                shuffle=False, pin_memory=True)  # todo why shuffle must false
-            self.val_loader_cache[name] = loader
-        length = len(loader.dataset)
-        embeddings = np.zeros([length, conf.embedding_size])
-        issame = np.zeros(length)
-        
-        with torch.no_grad():
-            for data in loader:
-                carray_batch = data['carray']
-                issame_batch = data['issame']
-                if tta:
-                    fliped = data['fliped_carray']
-                    emb_batch = self.model(carray_batch.cuda()) + self.model(fliped.cuda())
-                    embeddings[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
-                            idx + conf.batch_size)] = l2_norm(emb_batch)
-                else:
-                    embeddings[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
-                            idx + conf.batch_size)] = self.model(carray_batch.cuda()).cpu()
-                issame[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
-                        idx + conf.batch_size)] = issame_batch
-                idx += conf.batch_size
-        
-        # tpr/fpr is averaged over various fold division
-        try:
-            tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
-            buf = gen_plot(fpr, tpr)
-            roc_curve = Image.open(buf)
-            roc_curve_tensor = trans.ToTensor()(roc_curve)
-        except Exception as e:
-            logging.error(f'{e}')
-            roc_curve_tensor = torch.zeros(3, 100, 100)
-        self.model.train()
-        lz.timer.since_last_check('eval end')
-        return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
-    
-    def evaluate(self, conf, carray, issame, nrof_folds=5, tta=False):
-        # accelerate eval
-        logging.info('start eval')
-        self.model.eval()  # set the module in evaluation mode
-        idx = 0
-        embeddings = np.zeros([len(carray), conf.embedding_size])
-        with torch.no_grad():
-            while idx + conf.batch_size <= len(carray):
-                batch = torch.tensor(carray[idx:idx + conf.batch_size])
-                if tta:
-                    fliped = hflip_batch(batch)
-                    emb_batch = self.model(batch.cuda()) + self.model(fliped.cuda())
-                    embeddings[idx:idx + conf.batch_size] = l2_norm(emb_batch)
-                else:
-                    embeddings[idx:idx + conf.batch_size] = self.model(batch.cuda()).cpu()
-                idx += conf.batch_size
-            if idx < len(carray):
-                batch = torch.tensor(carray[idx:])
-                if tta:
-                    fliped = hflip_batch(batch)
-                    emb_batch = self.model(batch.cuda()) + self.model(fliped.cuda())
-                    embeddings[idx:] = l2_norm(emb_batch)
-                else:
-                    embeddings[idx:] = self.model(batch.cuda()).cpu()
-        tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
-        buf = gen_plot(fpr, tpr)
-        roc_curve = Image.open(buf)
-        roc_curve_tensor = trans.ToTensor()(roc_curve)
-        self.model.train()
-        logging.info('eval end')
-        return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
-    
-    def validate(self, conf, resume_path):
-        self.load_state(resume_path=resume_path)
-        self.model.eval()
-        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
-                                                                              'agedb_30')
-        logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-        
-        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
-                                                                              'lfw')
-        logging.info(f'validation accuracy on lfw is {accuracy} ')
-        
-        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
-                                                                              'cfp_fp')
-        logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
-        self.model.train()
     
     def find_lr(self,
                 conf,

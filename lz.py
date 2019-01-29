@@ -7,9 +7,6 @@ import matplotlib
 # matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-# dbg = True
-dbg = False
-
 # plt.switch_backend('Agg')
 # plt.switch_backend('TkAgg')
 

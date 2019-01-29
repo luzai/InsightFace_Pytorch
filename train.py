@@ -6,8 +6,10 @@ from Learner import face_learner
 import argparse
 from pathlib import Path
 import lz
-if  not conf.online_imp:
+
+if not conf.online_imp:
     torch.backends.cudnn.benchmark = True
+
 
 def log_conf(conf):
     conf2 = {k: v for k, v in conf.items() if not isinstance(v, (dict, np.ndarray))}
@@ -34,12 +36,12 @@ if __name__ == '__main__':
     #         load_imp=True,
     #         latest=True,
     #     )
-
+    
     sd = torch.load(lz.home_path + '.torch/models/resnext101_ipabn_lr_512.pth.tar')['state_dict']
     # sd = torch.load(lz.home_path + 'zl_data/densenet264_ipabn_lr_256.tar')['state_dict']
     lz.load_state_dict(learner.model, sd, )
     
-    conf.lr=1e-2
+    conf.lr = 1e-2
     learner.init_lr()
     conf.tri_wei = 0
     log_conf(conf)
@@ -49,14 +51,14 @@ if __name__ == '__main__':
     learner.init_lr()
     conf.tri_wei = 0
     log_conf(conf)
-    learner.train(conf, 1)
+    learner.train(conf, 1, 'xent')
 
     conf.lr = 1e-1
     learner.init_lr()
     conf.tri_wei = 0.5
     log_conf(conf)
     learner.train(conf, conf.epochs)
-
+    
     # learner.validate(conf, 'work_space/emore.r100.bs.head.notri.nochkpnt/save/')
     # def calc_importance():
     #     steps = learner.list_steps(conf.model_path)

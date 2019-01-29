@@ -8,6 +8,7 @@ from config import conf as gl_conf
 import functools, logging
 from torch import nn
 import numpy as np
+
 upgrade = True
 if gl_conf.use_chkpnt:
     BatchNorm2d = functools.partial(BatchNorm2d, momentum=1 - np.sqrt(0.9))
@@ -67,6 +68,13 @@ def bn_act(depth, with_act):
             return [BatchNorm2d(depth), PReLU(depth, ), ]
         else:
             return [BatchNorm2d(depth)]
+
+
+def bn2d(depth):
+    if gl_conf.ipabn:
+        return InPlaceABN(depth, activation='none')
+    else:
+        return BatchNorm2d(depth)
 
 
 # todo @deprecated
@@ -187,10 +195,10 @@ class Backbone(Module):
         elif mode == 'ir_se':
             unit_module = bottleneck_IR_SE
         self.input_layer = Sequential(Conv2d(3, 64, (3, 3), 1, 1, bias=False),
-                                      BatchNorm2d(64),
+                                      bn2d(64),
                                       PReLU(64))
         
-        self.output_layer = Sequential(BatchNorm2d(512),
+        self.output_layer = Sequential(bn2d(512),
                                        Dropout(drop_ratio),
                                        Flatten(),
                                        Linear(512 * 7 * 7, 512),
@@ -213,7 +221,7 @@ class Backbone(Module):
                                 bottleneck.stride))
         self.body = Sequential(*modules)
     
-    def forward(self, x, normalize=True, return_norm=False,  mode='train' ):
+    def forward(self, x, normalize=True, return_norm=False, mode='train'):
         if mode == 'finetune':
             with torch.no_grad():
                 x = self.input_layer(x)
@@ -486,6 +494,7 @@ class SEBlock(nn.Module):
 ##################################  Arcface head #################
 from torch.nn.utils import weight_norm
 
+
 # use_kernel2 = False  # kernel2 not work!
 # nB = gl_conf.batch_size
 # idx_ = torch.arange(0, nB, dtype=torch.long)
@@ -505,10 +514,10 @@ class Arcface(Module):
         #     self.kernel.weight_v.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
         # initial kernel
         if gl_conf.fp16:
-            m=np.float16(m)
+            m = np.float16(m)
             pi = np.float16(np.pi)
         else:
-            m=np.float32(m)
+            m = np.float32(m)
             pi = np.float32(np.pi)
         self.m = m  # the margin value, default is 0.5
         self.s = s  # scalar value default is 64, see normface https://arxiv.org/abs/1704.06369
@@ -521,11 +530,14 @@ class Arcface(Module):
         nB = embbedings.shape[0]
         idx_ = torch.arange(0, nB, dtype=torch.long)
         kernel_norm = l2_norm(self.kernel, axis=0)
-        cos_theta = torch.mm(embbedings, kernel_norm)#.float() # todo
+        cos_theta = torch.mm(embbedings, kernel_norm)
         cos_theta = cos_theta.clamp(-1, 1)
         output = cos_theta.clone()  # todo avoid copy ttl
         cos_theta_need = cos_theta[idx_, label]
-        cos_theta_2 = torch.pow(cos_theta_need, 2).clamp(1e-3).half()
+        if gl_conf.fp16:
+            cos_theta_2 = torch.pow(cos_theta_need, 2).clamp(1e-3).half()
+        else:
+            cos_theta_2 = torch.pow(cos_theta_need, 2)
         sin_theta_2 = 1 - cos_theta_2
         sin_theta = torch.sqrt(sin_theta_2)
         cos_theta_m = (cos_theta_need * self.cos_m - sin_theta * self.sin_m)
@@ -664,8 +676,8 @@ class TripletLoss(Module):
         if not return_info:
             return loss
         else:
-            info = {'dap':dist_ap.mean().item(), 'dan':dist_an.mean().item() }
-            return loss,info
+            info = {'dap': dist_ap.mean().item(), 'dan': dist_an.mean().item()}
+            return loss, info
     
     def forward_slow(self, inputs, targets):
         """
