@@ -7,13 +7,14 @@ import torch
 from modules import IdentityResidualBlock, GlobalAvgPool2d, InPlaceABN, ABN
 from models._util import try_index
 from models.model import Linear_block, Flatten, l2_norm
+from config import conf
 
 
 class ResNeXt(nn.Module):
     def __init__(self,
                  structure,
                  groups=64,
-                 norm_act=InPlaceABN,
+                 norm_act=InPlaceABN if conf.ipabn else ABN,
                  input_3x3=True,
                  classes=0,
                  dilation=1,
@@ -100,7 +101,7 @@ class ResNeXt(nn.Module):
                 ("fc", nn.Linear(in_channels, classes))
             ]))
     
-    def forward(self, img, normalize=True, return_norm=False,   mode='train'  ):
+    def forward(self, img, normalize=True, return_norm=False, mode='train'):
         if img.shape[-1] == 112:
             with torch.no_grad():
                 img = nn.functional.interpolate(img, scale_factor=2, mode='bilinear', align_corners=True)
@@ -111,12 +112,14 @@ class ResNeXt(nn.Module):
                 out = self.mod3(out)
                 out = self.mod4(out)
                 out = self.mod5(out)
-        else:
+        elif mode == 'train':
             out = self.mod1(img)
             out = self.mod2(out)
             out = self.mod3(out)
             out = self.mod4(out)
             out = self.mod5(out)
+        else:
+            raise ValueError(mode)
         out = self.bn_out(out)
         out = self.output_layer(out)
         if hasattr(self, "classifier"):

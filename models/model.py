@@ -226,7 +226,7 @@ class Backbone(Module):
             with torch.no_grad():
                 x = self.input_layer(x)
                 x = self.body(x)
-        elif mode =='train':
+        elif mode == 'train':
             x = self.input_layer(x)
             if not gl_conf.use_chkpnt:
                 x = self.body(x)
@@ -491,8 +491,6 @@ class SEBlock(nn.Module):
         return x * y.expand_as(x)
 
 
-##########################################################
-
 ##################################  Arcface head #################
 from torch.nn.utils import weight_norm
 
@@ -526,7 +524,7 @@ class Arcface(Module):
         self.cos_m = np.cos(m)
         self.sin_m = np.sin(m)
         self.mm = self.sin_m * m  # issue 1
-        self.threshold = math.cos(math.pi - m)
+        self.threshold = math.cos(pi - m)
     
     def forward_eff(self, embbedings, label):
         nB = embbedings.shape[0]
@@ -536,10 +534,10 @@ class Arcface(Module):
         cos_theta = cos_theta.clamp(-1, 1)
         output = cos_theta.clone()  # todo avoid copy ttl
         cos_theta_need = cos_theta[idx_, label]
-        if gl_conf.fp16:
-            cos_theta_2 = torch.pow(cos_theta_need, 2).clamp(1e-3).half()
-        else:
-            cos_theta_2 = torch.pow(cos_theta_need, 2)
+        # if gl_conf.fp16:
+        #     cos_theta_2 = torch.pow(cos_theta_need, 2).clamp(1e-5).half()
+        # else:
+        cos_theta_2 = torch.pow(cos_theta_need, 2)
         sin_theta_2 = 1 - cos_theta_2
         sin_theta = torch.sqrt(sin_theta_2)
         cos_theta_m = (cos_theta_need * self.cos_m - sin_theta * self.sin_m)
@@ -660,8 +658,7 @@ class TripletLoss(Module):
         # Compute pairwise distance, replace by the official when merged
         dist = torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(n, n)
         dist = dist + dist.t()
-        dist.addmm_(1, -2, inputs, inputs.t()).clamp_(min=1e-12).sqrt_()
-        dist = dist * gl_conf.scale
+        dist = dist.addmm(1, -2, inputs, inputs.t()).clamp(min=1e-6).sqrt()* gl_conf.scale
         # todo how to use triplet only, can use temprature decay/progessive learinig curriculum learning
         # For each anchor, find the hardest positive and negative
         mask = targets.expand(n, n).eq(targets.expand(n, n).t())

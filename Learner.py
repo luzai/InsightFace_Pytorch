@@ -24,7 +24,23 @@ import torch.multiprocessing as mp
 from torch.utils.data.sampler import Sampler
 from torch.nn import functional as F
 
-logger = logging.getLogger()
+try:
+    from apex.parallel import DistributedDataParallel as DDP
+    from apex.fp16_utils import *
+    from apex import amp
+    
+    if gl_conf.fp16:
+        amp.register_half_function(torch, 'prelu')
+        amp.register_half_function(torch, 'pow')
+        amp.register_half_function(torch, 'norm')
+        amp.register_half_function(torch, 'div')
+
+
+except ImportError:
+    logging.error("Please install apex from https://www.github.com/nvidia/apex to run this example.")
+amp_handle = amp.init(enabled=gl_conf.fp16)
+
+# logger = logging.getLogger()
 
 
 def unpack_f64(s):
@@ -423,7 +439,8 @@ class SeqSampler(Sampler):
 def update_dop_cls(thetas, labels, dop):
     with torch.no_grad():
         bs = thetas.shape[0]
-        thetas[torch.arange(0, bs, dtype=torch.long), labels] = -1e3
+        # logging.info(f'min is {thetas.min()}')
+        thetas[torch.arange(0, bs, dtype=torch.long), labels] = -1e4
         dop[labels.cpu().numpy()] = torch.argmax(thetas, dim=1).cpu().numpy()
 
 
@@ -477,14 +494,6 @@ class FaceInfer():
             self.model.module.load_state_dict(model_state_dict, strict=True, )
 
 
-try:
-    from apex.parallel import DistributedDataParallel as DDP
-    from apex.fp16_utils import *
-    from apex import amp
-except ImportError:
-    logging.error("Please install apex from https://www.github.com/nvidia/apex to run this example.")
-amp_handle = amp.init(enabled=gl_conf.fp16)
-
 
 class data_prefetcher():
     def __init__(self, loader):
@@ -494,9 +503,9 @@ class data_prefetcher():
         self.std = torch.tensor([.5 * 255, .5 * 255, .5 * 255]).cuda().view(1, 3, 1, 1)
         # With Amp, it isn't necessary to manually convert data to half.
         # Type conversions are done internally on the fly within patched torch functions.
-        # if args.fp16:
-        #     self.mean = self.mean.half()
-        #     self.std = self.std.half()
+        if gl_conf.fp16:
+            self.mean = self.mean.half()
+            self.std = self.std.half()
         self.preload()
     
     def preload(self):
@@ -512,10 +521,10 @@ class data_prefetcher():
             self.next_target['labels'] = self.next_target['labels'].cuda(async=True)
             # With Amp, it isn't necessary to manually convert data to half.
             # Type conversions are done internally on the fly within patched torch functions.
-            # if args.fp16:
-            #     self.next_input = self.next_input.half()
-            # else:
-            self.next_target['imgs'] = self.next_target['imgs'].float()
+            if gl_conf.fp16:
+                self.next_target['imgs'] = self.next_target['imgs'].half()
+            else:
+                self.next_target['imgs'] = self.next_target['imgs'].float()
             self.next_target['imgs'] = self.next_target['imgs'].sub_(self.mean).div_(self.std)
     
     def next(self):
@@ -603,6 +612,7 @@ class face_learner(object):
             self.model = torch.nn.parallel.DistributedDataParallel(self.model.cuda(),
                                                                    device_ids=[conf.local_rank],
                                                                    output_device=conf.local_rank)
+        
         if conf.head_init:
             kernel = lz.msgpack_load(conf.head_init).astype(np.float32).transpose()
             kernel = torch.from_numpy(kernel)
@@ -703,7 +713,7 @@ class face_learner(object):
                     logging.info(f'one epoch finish {e} {ind_data}')
                     loader_enum = data_prefetcher(enumerate(loader))
                     ind_data, data = loader_enum.next()
-                if self.step + 1 % len(loader) == 0:
+                if (self.step + 1 )% len(loader) == 0:
                     break
                 imgs = data['imgs']
                 labels_cpu = data['labels_cpu']
@@ -728,7 +738,6 @@ class face_learner(object):
                 
                 #                 if not conf.fgg:
                 #                     if True:
-                
                 #                 if np.random.rand()>0.5:
                 writer.add_scalar('info/tau', tau, self.step)
                 # if False:

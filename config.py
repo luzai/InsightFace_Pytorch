@@ -4,13 +4,12 @@ from lz import *
 from torch.nn import CrossEntropyLoss
 # todo label smooth
 # todo batch read redis
-# ir se
 
 from torchvision import transforms as trans
 
 dist = False
-num_devs = 2
-lz.init_dev((1,2))
+num_devs = 1
+# lz.init_dev((1,2))
 # lz.init_dev((4,5,6,7))
 lz.init_dev(lz.get_dev(num_devs))
 # init_dev(3)
@@ -70,23 +69,27 @@ conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
 conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
-conf.net_depth = 50  # 100
+conf.net_depth = 50 # 100 121 169 201 264
 
 # conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # conf.test_transform = trans.Compose([
 #     trans.ToTensor(),
 #     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 # ])
-conf.prof = True
+
+conf.prof = False
 conf.fast_load = True
 conf.fp16 = True
-conf.ftbs_mult = 2
-conf.online_imp = False
-conf.batch_size = 8 * num_devs   # 135 99 xent: 96 92 tri: 112 108  # 180
-conf.use_chkpnt = False
 conf.ipabn = True
+
+conf.online_imp = False
+conf.batch_size = 220 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
+conf.ftbs_mult = 2
+
 conf.use_redis = False
+conf.use_chkpnt = False
 conf.chs_first = True
+
 conf.board_loss_every = 10  # 100
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
