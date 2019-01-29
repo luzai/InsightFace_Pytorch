@@ -45,14 +45,14 @@ if __name__ == '__main__':
     learner.init_lr()
     conf.tri_wei = 0
     log_conf(conf)
-    learner.train(conf, 1, 'finetune')
-
+    learner.train(conf, 1, mode='finetune',name='ft')
+    
     conf.lr = 1e-1
     learner.init_lr()
     conf.tri_wei = 0
     log_conf(conf)
-    learner.train(conf, 1, 'xent')
-
+    learner.train(conf, 1, name='xent')
+    
     conf.lr = 1e-1
     learner.init_lr()
     conf.tri_wei = 0.5

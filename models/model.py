@@ -226,12 +226,14 @@ class Backbone(Module):
             with torch.no_grad():
                 x = self.input_layer(x)
                 x = self.body(x)
-        else:
+        elif mode =='train':
             x = self.input_layer(x)
             if not gl_conf.use_chkpnt:
                 x = self.body(x)
             else:
                 x = checkpoint_sequential(self.body, 2, x)
+        else:
+            raise ValueError(mode)
         x = self.output_layer(x)
         x_norm, norm = l2_norm(x, axis=1, need_norm=True)
         if normalize:

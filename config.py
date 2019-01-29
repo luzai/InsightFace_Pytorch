@@ -4,14 +4,13 @@ from lz import *
 from torch.nn import CrossEntropyLoss
 # todo label smooth
 # todo batch read redis
-# faster reader
 # ir se
 
 from torchvision import transforms as trans
 
 dist = False
-num_devs = 1
-# lz.init_dev((0, 1, 2,3))
+num_devs = 2
+lz.init_dev((1,2))
 # lz.init_dev((4,5,6,7))
 lz.init_dev(lz.get_dev(num_devs))
 # init_dev(3)
@@ -31,8 +30,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-# conf.data_path = Path('/ssd/ssd0/zl_data/')
-conf.work_path = Path('work_space/emore.rsnext.2')
+conf.work_path = Path('work_space/emore.rsnext.4')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -71,8 +69,8 @@ conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
-conf.net_mode = 'resnext'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
-conf.net_depth = 100  # 100
+conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
+conf.net_depth = 50  # 100
 
 # conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # conf.test_transform = trans.Compose([
@@ -80,17 +78,17 @@ conf.net_depth = 100  # 100
 #     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 # ])
 conf.prof = True
-
+conf.fast_load = True
 conf.fp16 = True
 conf.ftbs_mult = 2
 conf.online_imp = False
-conf.batch_size = 150 * num_devs   # 135 99 xent: 96 92 tri: 112 108  # 180
+conf.batch_size = 8 * num_devs   # 135 99 xent: 96 92 tri: 112 108  # 180
 conf.use_chkpnt = False
 conf.ipabn = True
 conf.use_redis = False
 conf.chs_first = True
 conf.board_loss_every = 10  # 100
-conf.other_every = None if not conf.prof else 49
+conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
 # --------------------Training Config ------------------------
 conf.log_path = conf.work_path / 'log'

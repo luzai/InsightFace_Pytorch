@@ -221,19 +221,19 @@ class TorchDataset(object):
         _rd = random.randint(0, 1)
         if _rd == 1:
             imgs = mx.ndarray.flip(data=imgs, axis=1)
+        
         imgs = imgs.asnumpy()
-        imgs = imgs / 255.
-        # simply use 0.5 as mean
-        imgs -= 0.5
-        imgs /= 0.5
+        if not gl_conf.fast_load:
+            imgs = imgs / 255.
+            imgs -= 0.5  # simply use 0.5 as mean
+            imgs /= 0.5
+            imgs = np.array(imgs, dtype=np.float32)
         imgs = imgs.transpose((2, 0, 1))
         
         if gl_conf.use_redis and self.r and lz.get_mem() >= 20:
             self.r.set(f'{gl_conf.dataset_name}/imgs/{index}', img)
-        #             if np.random.rand()<0.001:
-        #             print('not hit', index)
         
-        return {'imgs': np.array(imgs, dtype=np.float32), 'labels': label,
+        return {'imgs': imgs, 'labels': label,
                 'ind_inds': ind_ind}
 
 
@@ -490,8 +490,8 @@ class data_prefetcher():
     def __init__(self, loader):
         self.loader = iter(loader)
         self.stream = torch.cuda.Stream()
-        self.mean = torch.tensor([0.485 * 255, 0.456 * 255, 0.406 * 255]).cuda().view(1, 3, 1, 1)
-        self.std = torch.tensor([0.229 * 255, 0.224 * 255, 0.225 * 255]).cuda().view(1, 3, 1, 1)
+        self.mean = torch.tensor([.5 * 255, .5 * 255, .5 * 255]).cuda().view(1, 3, 1, 1)
+        self.std = torch.tensor([.5 * 255, .5 * 255, .5 * 255]).cuda().view(1, 3, 1, 1)
         # With Amp, it isn't necessary to manually convert data to half.
         # Type conversions are done internally on the fly within patched torch functions.
         # if args.fp16:
@@ -515,8 +515,8 @@ class data_prefetcher():
             # if args.fp16:
             #     self.next_input = self.next_input.half()
             # else:
-            # self.next_input = self.next_input.float()
-            # self.next_input = self.next_input.sub_(self.mean).div_(self.std)
+            self.next_target['imgs'] = self.next_target['imgs'].float()
+            self.next_target['imgs'] = self.next_target['imgs'].sub_(self.mean).div_(self.std)
     
     def next(self):
         torch.cuda.current_stream().wait_stream(self.stream)
@@ -524,6 +524,23 @@ class data_prefetcher():
         target = self.next_target
         self.preload()
         return input, target
+
+
+def fast_collate(batch):
+    imgs = [img['imgs'] for img in batch]
+    targets = torch.tensor([target['labels'] for target in batch], dtype=torch.int64)
+    ind_inds = torch.tensor([target['ind_inds'] for target in batch], dtype=torch.int64)
+    w = imgs[0].shape[1]
+    h = imgs[0].shape[2]
+    tensor = torch.zeros((len(imgs), 3, h, w), dtype=torch.uint8)
+    for i, img in enumerate(imgs):
+        nump_array = np.asarray(img, dtype=np.uint8)
+        if nump_array.ndim < 3:
+            nump_array = np.expand_dims(nump_array, axis=-1)
+        # nump_array = np.rollaxis(nump_array, 2)
+        tensor[i] += torch.from_numpy(nump_array)
+    
+    return {'imgs': tensor, 'labels': targets, 'ind_inds': ind_inds}
 
 
 class face_learner(object):
@@ -535,11 +552,10 @@ class face_learner(object):
         self.loader = DataLoader(
             self.dataset, batch_size=conf.batch_size,
             num_workers=conf.num_workers,
-            shuffle=False,
             sampler=RandomIdSampler(self.dataset.imgidx,
                                     self.dataset.ids, self.dataset.id2range),
-            drop_last=True,
-            pin_memory=True,
+            drop_last=True, pin_memory=True,
+            collate_fn=torch.utils.data.default_collate if not gl_conf.fast_load else fast_collate
         )
         self.class_num = self.dataset.num_classes
         logging.info(f'{self.class_num} classes, load ok ')
@@ -617,16 +633,12 @@ class face_learner(object):
                 {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': gl_conf.weight_decay},
                 {'params': paras_only_bn},
             ], lr=conf.lr, momentum=conf.momentum)
-            # self.optimizer = optim.SGD(
-            #     [*self.model.parameters()] + [*self.head.parameters()],
-            #     weight_decay=conf.weight_decay,
-            #     lr=conf.lr, momentum=conf.momentum
-            # )
+        
         logging.info(f'optimizers generated {self.optimizer}')
         self.board_loss_every = gl_conf.board_loss_every
         
         self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
-            self.loader.dataset.root_path)  # todo postpone load eval
+            self.dataset.root_path)  # todo postpone load eval
     
     def train(self, conf, epochs, mode='train', name=None):
         self.model.train()
@@ -635,23 +647,24 @@ class face_learner(object):
             self.evaluate_every = gl_conf.other_every or len(loader) // 3
             self.save_every = gl_conf.other_every or len(loader) // 3
             self.step = 0
-            if name is None:
-                writer = self.writer
-            else:
-                writer = SummaryWriter(str(conf.log_path) + f'/{name}')
-        else:
+        
+        elif mode == 'finetune':
             loader = DataLoader(
                 self.dataset, batch_size=conf.batch_size * conf.ftbs_mult,
                 num_workers=conf.num_workers,
-                shuffle=False,
                 sampler=RandomIdSampler(self.dataset.imgidx,
                                         self.dataset.ids, self.dataset.id2range),
-                drop_last=True,
-                pin_memory=True,
+                drop_last=True, pin_memory=True,
+                collate_fn=torch.utils.data.default_collate if not gl_conf.fast_load else fast_collate
             )
             self.evaluate_every = gl_conf.other_every or len(loader) // 3
             self.save_every = gl_conf.other_every or len(loader) // 3
             self.step = 0
+        else:
+            raise ValueError(mode)
+        if name is None:
+            writer = self.writer
+        else:
             writer = SummaryWriter(str(conf.log_path) + '/ft')
         
         if conf.start_eval:
