@@ -1,5 +1,17 @@
-Cython
 h5py
+tensorboardX
+tabulate
+# tensorflow-gpu
+# torch
+tensorboard
+tqdm
+mxnet-cu90
+tqdm
+easydict
+scikit-learn
+ipython
+pandas
+bcolz
 numpy
 Pillow
 scipy
@@ -15,10 +27,4 @@ trash-cli
 scikit-image
 opencv-python
 lmdb
-# tensorboardX
-tabulate
-# tensorflow-gpu
-# tensorboard
-tqdm
-# mxnet-cu90mkl
-# torch
+redis

@@ -309,7 +309,7 @@ class Residual(Module):
                 Depth_Wise(c, c, residual=True, kernel=kernel, padding=padding, stride=stride, groups=groups))
         self.model = Sequential(*modules)
     
-    def forward(self, x):
+    def forward(self, x,):
         return self.model(x)
 
 
@@ -330,7 +330,7 @@ class MobileFaceNet(Module):
         self.linear = Linear(512, embedding_size, bias=False)
         self.bn = BatchNorm1d(embedding_size)
     
-    def forward(self, x):
+    def forward(self, x,  *args, **kwargs):
         out = self.conv1(x)
         out = self.conv2_dw(out)
         out = self.conv_23(out)
@@ -534,9 +534,6 @@ class Arcface(Module):
         cos_theta = cos_theta.clamp(-1, 1)
         output = cos_theta.clone()  # todo avoid copy ttl
         cos_theta_need = cos_theta[idx_, label]
-        # if gl_conf.fp16:
-        #     cos_theta_2 = torch.pow(cos_theta_need, 2).clamp(1e-5).half()
-        # else:
         cos_theta_2 = torch.pow(cos_theta_need, 2)
         sin_theta_2 = 1 - cos_theta_2
         sin_theta = torch.sqrt(sin_theta_2)

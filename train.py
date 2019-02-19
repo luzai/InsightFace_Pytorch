@@ -29,13 +29,13 @@ if __name__ == '__main__':
     learner = face_learner(conf, )
     
     ## for pretrain resume or evaluate
-    # learner.load_state(
-    #         resume_path=Path('work_space/emore.rsnext.2/models/'),
-    #         load_optimizer=True,
-    #         load_head=True,
-    #         load_imp=True,
-    #         latest=True,
-    #     )
+    learner.load_state(
+            resume_path=Path('work_space/emore.mbnet.kd/models/'),
+            load_optimizer=True,
+            load_head=True,
+            load_imp=False,
+            latest=True,
+        )
     
     # sd = torch.load(lz.home_path + '.torch/models/resnext101_ipabn_lr_512.pth.tar')['state_dict']
     # sd = torch.load(lz.home_path + 'zl_data/densenet264_ipabn_lr_256.tar')['state_dict']
@@ -53,10 +53,11 @@ if __name__ == '__main__':
     # log_conf(conf)
     # learner.train(conf, 1, name='xent')
     
-    conf.lr = 1e-1
+    # conf.lr = 1e-1
     learner.init_lr()
-    conf.tri_wei = 0.5
+    conf.tri_wei = 0
     log_conf(conf)
+    # learner.calc_logits()
     learner.train(conf, conf.epochs)
     
     # learner.validate(conf, 'work_space/emore.r100.bs.head.notri.nochkpnt/save/')
@@ -74,14 +75,17 @@ if __name__ == '__main__':
     #
     #
     # calc_importance()
-    
-    # learner.calc_feature(out='work_space/ms1m.rv1.fc7.pk')
+    # learner.calc_feature(out='work_space/emore.r152.fea.pk')
     
     # log_lrs, losses = learner.find_lr(conf,
-    #                                   # final_value=100,
+    #                                   init_value=1e-5,
+    #                                   final_value=100,
     #                                   num=200,
-    #                                   bloding_scale=1000)
+    #                                   # bloding_scale=100
+    #                                   )
     # best_lr = 10 ** (log_lrs[np.argmin(losses)])
     # print(best_lr)
     # conf.lr = best_lr
+    # learner.train(conf, conf.epochs)
+    
     # learner.push2redis()

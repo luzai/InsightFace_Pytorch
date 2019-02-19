@@ -7,6 +7,10 @@ from scipy import spatial
 import re
 import multiprocessing as mp
 import sklearn.preprocessing
+try:
+    import cPickle as pickle
+except:
+    import pickle
 import argparse
 import tensorflow as tf
 import mxnet as mx
@@ -56,7 +60,7 @@ def get_test_set_dict(test_cache_root, jk_list, zj_list):
                 feature = np.fromstring(feature_fr.read(feature_len*4), dtype=np.float32)
                 ret_dict[key] = feature
     return ret_dict
-
+ 
 def tf_build_graph(sess):
     ret_list = []
     dis_features_list = np.array_split(dis_features, gpu_used)
@@ -65,13 +69,14 @@ def tf_build_graph(sess):
     feed_dict = {}
     for device_id in range(gpu_used):
         with tf.device('/gpu:%s' % device_id):
+        #with tf.device('/cpu'):
             dis_feature = tf.placeholder(tf.float32, shape=dis_features_list[device_id].shape)
             disv_feature = tf.Variable(dis_feature)
             feed_dict[dis_feature] = dis_features_list[device_id]
             query_feature = tf.placeholder(tf.float32, shape=(None, feature_len))
             similarity = tf.matmul(query_feature, tf.transpose(disv_feature))
             similarity = tf.squeeze(similarity)
-            print((similarity.get_shape()))
+            print(similarity.get_shape())
             query_results = tf.nn.top_k(similarity, k=100)
             ret_list.append((query_results, query_feature))
     sess.run(tf.global_variables_initializer(), feed_dict=feed_dict)
@@ -110,6 +115,7 @@ def tf_query(sess, search_feature, ret_pairs):
 
     for device_id in range(gpu_used):
         with tf.device('/gpu:%s' % device_id):
+        #with tf.device('cpu'):
             query_results, query_feature = ret_pairs[device_id]
 
             if len(search_feature.shape) < 2:
@@ -120,6 +126,7 @@ def tf_query(sess, search_feature, ret_pairs):
             similarities_list.append(similarities)
    
     with tf.device('/gpu:0'):
+    #with tf.device('cpu'):
         topk, total_ids, sim_feed_keys, id_feed_keys = topk_items
         assert len(ids_list) == len(id_feed_keys)
         assert len(similarities_list) == len(id_feed_keys)
@@ -157,9 +164,9 @@ def result_generator(pairs, test_set_dict, sess, query_results, label_list, q):
             q.append(ret_str)
             return
         search_feature = test_set_dict[pair[0]]
-        # print( search_feature.shape)
+        # print search_feature.shape
         searched_feature = test_set_dict[pair[1]]
-        # print( searched_feature.shape)
+        # print searched_feature.shape
         
         similarity = np.dot(search_feature, searched_feature)
         ret_str += ',%.3g;'%(similarity)
@@ -174,15 +181,17 @@ def result_generator(pairs, test_set_dict, sess, query_results, label_list, q):
             ret_str = ret_str[:-1]+';'+'dis_top='
             for i in [1,2,3]:
                 ret_str += '%.3g,%s,'%(similarities[i-1], label_list[ids[i-1]].split(' ')[0])
+                #print( label_list[ids[i-1]].split(' '))
         q.append(ret_str)
             
     idx = 0
     count = 0
     #zj2jk
+#     if True:
     for opair in pairs:
         search_feature = test_set_dict[opair[0]]
         ids, similarities = tf_query(sess, search_feature, query_results)
-        
+
         for item in opair[1]:
             pair = [opair[0], item]
             write_result(ids, similarities, pair)
@@ -197,17 +206,17 @@ def result_generator(pairs, test_set_dict, sess, query_results, label_list, q):
         for item in opair[1]:
             search_features.append(test_set_dict[item])
         search_features = np.array(search_features)
-        # print( search_features.shape)
+        # print search_features.shape
         # pdb.set_trace()
         idss, similaritiess = tf_query(sess, search_features, query_results)
-        # print( idss.shape, similaritiess.shape)
+        # print idss.shape, similaritiess.shape
         assert len(idss) == len(opair[1]) and len(idss)==len(similaritiess)
         for ids, similarities, item in zip(idss, similaritiess, opair[1]):
             pair = [item, opair[0]]
             write_result(ids, similarities, pair)
             count += 1
             if count % 1000 == 0:
-                print( 'process: %d'%count)
+                print ('process: %d'%count)
     
     
 def comsumer(q, fw):
@@ -225,15 +234,15 @@ def get_final_result(test_cache_root, jk_list, zj_list, dist_list_path, result_f
     fw = open(result_file_path,'w')
     q = []
     result_generator(zj2jk_pairs, test_set_dict, sess, query_results_pairs, dist_list, q)
-    print( len(q))
+    print (len(q))
     comsumer(q,fw)
     fw.close()
 
             
 feature_len = 512
-query_process_num = 1
-gpu_used = 2
-os.environ['CUDA_VISIBLE_DEVICES'] = '3,4'
+query_process_num = len(os.environ['CUDA_VISIBLE_DEVICES'].strip(',').split(','))
+gpu_used = query_process_num
+# os.environ['CUDA_VISIBLE_DEVICES'] = '1,2,3,4'
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -273,6 +282,7 @@ for im_name in os.listdir(dist):
     if 'bin' in im_name:
         st = os.stat(os.path.join(dist, im_name))
         dis_feature_len += st.st_size/feature_len/4
+    dis_feature_len=int(dis_feature_len)
 dis_features = np.zeros((dis_feature_len, feature_len))
 idx = 0
 print( 'loading dis set: %d'%dis_feature_len)
@@ -296,6 +306,7 @@ query_results_pairs, idx_start = tf_build_graph(sess)
 topk_items = tf_build_graph_merge_topk(gpu_used)
 #get_final_result(distractor_index, zjjk+total_test, test_lists+jk, test_lists+zj, dist+dist_list, zjjk+total_test+'.log')
 get_final_result(zjjk+facereg, lists+facereg+jk, lists+facereg+zj, dist+dist_list, zjjk+facereg+'.log')
+print('ok facereg', )
 get_final_result(zjjk+media, lists+media+jk, lists+media+zj, dist+dist_list, zjjk+media+'.log')
 
 #split test @deprecated

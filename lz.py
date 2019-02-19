@@ -6,7 +6,6 @@ import matplotlib
 # matplotlib.use('TkAgg')
 # matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-
 # plt.switch_backend('Agg')
 # plt.switch_backend('TkAgg')
 
@@ -30,7 +29,7 @@ import collections
 # shutil, itertools,pathlib,
 # from IPython import embed
 # from tensorboardX import SummaryWriter
-
+dbg = False
 
 root_path = osp.normpath(
     osp.join(osp.abspath(osp.dirname(__file__)), )
@@ -48,6 +47,7 @@ os.environ.setdefault('pytorch', '1')
 os.environ.setdefault('tensorflow', '0')
 os.environ.setdefault('chainer', '0')
 timer = cvb.Timer()
+
 
 def set_stream_logger(log_level=logging.INFO):
     import colorlog
@@ -641,15 +641,14 @@ def norm_th(tensor):
     return tensor.add_(min).div_(max - min)
 
 
-def load_state_dict(model, state_dict, own_prefix='', own_de_prefix=''):
+def load_state_dict(model, state_dict, prefix='', de_prefix=''):
     own_state = model.state_dict()
     success = []
+    if prefix != '':
+        state_dict = {prefix + name: param for name, param in state_dict.items()}
+    elif de_prefix != '':
+        state_dict = {name.replace(de_prefix, ''): param for name, param in state_dict.items()}
     for name, param in state_dict.items():
-        if own_prefix + name in own_state:
-            name = own_prefix + name
-        if name.replace(own_de_prefix, '') in own_state:
-            name = name.replace(own_de_prefix, '')
-        
         if name not in own_state:
             print('ignore key "{}" in his state_dict'.format(name))
             continue

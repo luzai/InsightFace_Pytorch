@@ -2,13 +2,13 @@ from pathlib import Path
 import lz
 from lz import *
 from torch.nn import CrossEntropyLoss
-# todo label smooth
+# todo label smooth + dbg
 # todo batch read redis
-
+# todo huawe sync
 from torchvision import transforms as trans
 
 dist = False
-num_devs = 1
+num_devs = 4
 # lz.init_dev((1,2))
 # lz.init_dev((4,5,6,7))
 lz.init_dev(lz.get_dev(num_devs))
@@ -29,7 +29,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/emore.rsnext.4')
+conf.work_path = Path('work_space/emore.mbnet.kd.cont')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -51,15 +51,15 @@ elif conf.use_data_folder == emore_folder:
     conf.cutoff = 0
 else:
     conf.cutoff = 0
-conf.mining = 'dop'  # 'dop' 'imp' rand.img(slow) rand.id # todo imp.grad imp.loss
-conf.mining_init = -1  # imp 1.6; rand.id 1; dop -1
+conf.mining = 'rand.id'  # 'dop' 'imp' rand.img(slow) rand.id # todo imp.grad imp.loss
+conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
 # conf.eps_greed = .3  # todo
 conf.rand_ratio = 9 / 27
 
 conf.margin = 0.4
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
-conf.tri_wei = 0.5
+conf.tri_wei = 0
 conf.scale = 64.
 conf.start_eval = False
 conf.instances = 4
@@ -68,8 +68,8 @@ conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
-conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
-conf.net_depth = 50 # 100 121 169 201 264
+conf.net_mode = 'mobilefacenet'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
+conf.net_depth = 50  # 100 121 169 201 264
 
 # conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # conf.test_transform = trans.Compose([
@@ -82,8 +82,12 @@ conf.fast_load = True
 conf.fp16 = True
 conf.ipabn = True
 
+conf.kd = True
+conf.sftlbl_from_file = False
+conf.alpha = .95
+conf.temperature = 6
 conf.online_imp = False
-conf.batch_size = 220 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
+conf.batch_size = 275 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
 conf.ftbs_mult = 2
 
 conf.use_redis = False
@@ -97,7 +101,7 @@ conf.num_recs = 1
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
-conf.start_epoch = 0  # 0
+conf.start_epoch = 1  # 0
 conf.use_opt = 'sgd'
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
@@ -105,8 +109,8 @@ conf.lr = 1e-1  # 3e-3  0.1 4e-2 5e-4  # tri 6e-4
 conf.lr_gamma = 0.1
 # conf.epochs = 25
 # conf.milestones = [14, 19, 22]
-conf.epochs = 18
-conf.milestones = [6, 12, 16]
+conf.epochs = 12
+conf.milestones = [5, 8, 10]
 conf.momentum = 0.9
 conf.pin_memory = True
 conf.num_workers = 24 if "amax" in hostname() else 66  # 4

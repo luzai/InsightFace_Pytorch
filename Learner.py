@@ -34,11 +34,11 @@ try:
         amp.register_half_function(torch, 'pow')
         amp.register_half_function(torch, 'norm')
         amp.register_half_function(torch, 'div')
-
-
+    amp_handle = amp.init(enabled=gl_conf.fp16)
 except ImportError:
     logging.error("Please install apex from https://www.github.com/nvidia/apex to run this example.")
-amp_handle = amp.init(enabled=gl_conf.fp16)
+    gl_conf.fp16 = False
+
 
 # logger = logging.getLogger()
 
@@ -152,12 +152,15 @@ class TorchDataset(object):
         logging.info(f'update num_clss {gl_conf.num_clss} ')
         self.cur = 0
         lz.timer.since_last_check('finish cal dataset info')
+        if gl_conf.kd and gl_conf.sftlbl_from_file:
+            self.teacher_embedding_db = lz.Database('work_space/teacher_embedding.h5', 'r')
     
     def __len__(self):
         if gl_conf.local_rank is not None:
             return len(self.imgidx) // torch.distributed.get_world_size()
         else:
-            return len(self.imgidx)
+            #             logging.info(f'ask me len {len(self.imgidx)} {self.imgidx}')
+            return len(self.imgidx)  # todo
     
     def __getitem__(self, indices, ):
         # if isinstance(indices, (tuple, list)) and len(indices[0])==3:
@@ -248,9 +251,11 @@ class TorchDataset(object):
         
         if gl_conf.use_redis and self.r and lz.get_mem() >= 20:
             self.r.set(f'{gl_conf.dataset_name}/imgs/{index}', img)
-        
-        return {'imgs': imgs, 'labels': label,
-                'ind_inds': ind_ind}
+        res = {'imgs': imgs, 'labels': label,
+               'ind_inds': ind_ind, 'indexes': index}
+        if hasattr(self, 'teacher_embedding_db'):
+            res['teacher_embedding'] = self.teacher_embedding_db[str(index)]
+        return res
 
 
 class Dataset_val(torch.utils.data.Dataset):
@@ -494,51 +499,61 @@ class FaceInfer():
             self.model.module.load_state_dict(model_state_dict, strict=True, )
 
 
-
-class data_prefetcher():
-    def __init__(self, loader):
-        self.loader = iter(loader)
-        self.stream = torch.cuda.Stream()
-        self.mean = torch.tensor([.5 * 255, .5 * 255, .5 * 255]).cuda().view(1, 3, 1, 1)
-        self.std = torch.tensor([.5 * 255, .5 * 255, .5 * 255]).cuda().view(1, 3, 1, 1)
-        # With Amp, it isn't necessary to manually convert data to half.
-        # Type conversions are done internally on the fly within patched torch functions.
-        if gl_conf.fp16:
-            self.mean = self.mean.half()
-            self.std = self.std.half()
-        self.preload()
-    
-    def preload(self):
-        try:
-            self.next_input, self.next_target = next(self.loader)
-        except StopIteration:
-            self.next_input = None
-            self.next_target = None
-            return
-        with torch.cuda.stream(self.stream):
-            self.next_target['imgs'] = self.next_target['imgs'].cuda(async=True)
-            self.next_target['labels_cpu'] = self.next_target['labels']
-            self.next_target['labels'] = self.next_target['labels'].cuda(async=True)
+if gl_conf.fast_load:
+    class data_prefetcher():
+        def __init__(self, loader):
+            self.loader = iter(loader)
+            self.stream = torch.cuda.Stream()
+            self.mean = torch.tensor([.5 * 255, .5 * 255, .5 * 255]).cuda().view(1, 3, 1, 1)
+            self.std = torch.tensor([.5 * 255, .5 * 255, .5 * 255]).cuda().view(1, 3, 1, 1)
             # With Amp, it isn't necessary to manually convert data to half.
             # Type conversions are done internally on the fly within patched torch functions.
             if gl_conf.fp16:
-                self.next_target['imgs'] = self.next_target['imgs'].half()
-            else:
-                self.next_target['imgs'] = self.next_target['imgs'].float()
-            self.next_target['imgs'] = self.next_target['imgs'].sub_(self.mean).div_(self.std)
-    
-    def next(self):
-        torch.cuda.current_stream().wait_stream(self.stream)
-        input = self.next_input
-        target = self.next_target
-        self.preload()
-        return input, target
+                self.mean = self.mean.half()
+                self.std = self.std.half()
+            self.preload()
+        
+        def preload(self):
+            try:
+                self.ind_loader, self.data_loader = next(self.loader)
+            except StopIteration:
+                self.ind_loader = None
+                self.data_loader = None
+                return
+            with torch.cuda.stream(self.stream):
+                self.data_loader['imgs'] = self.data_loader['imgs'].cuda(async=True)
+                self.data_loader['labels_cpu'] = self.data_loader['labels']
+                self.data_loader['labels'] = self.data_loader['labels'].cuda(async=True)
+                # With Amp, it isn't necessary to manually convert data to half.
+                # Type conversions are done internally on the fly within patched torch functions.
+                if gl_conf.fp16:
+                    self.data_loader['imgs'] = self.data_loader['imgs'].half()
+                else:
+                    self.data_loader['imgs'] = self.data_loader['imgs'].float()
+                self.data_loader['imgs'] = self.data_loader['imgs'].sub_(self.mean).div_(self.std)
+        
+        def next(self):
+            torch.cuda.current_stream().wait_stream(self.stream)
+            self.preload()
+            return self.ind_loader, self.data_loader
+        
+        __next__ = next
+        
+        def __iter__(self):
+            while True:
+                ind, data = self.next()
+                if ind is None:
+                    raise StopIteration
+                yield ind, data
+else:
+    data_prefetcher = lambda x: x
 
 
 def fast_collate(batch):
     imgs = [img['imgs'] for img in batch]
     targets = torch.tensor([target['labels'] for target in batch], dtype=torch.int64)
     ind_inds = torch.tensor([target['ind_inds'] for target in batch], dtype=torch.int64)
+    indexes = torch.tensor([target['indexes'] for target in batch], dtype=torch.int64)
     w = imgs[0].shape[1]
     h = imgs[0].shape[2]
     tensor = torch.zeros((len(imgs), 3, h, w), dtype=torch.uint8)
@@ -549,7 +564,8 @@ def fast_collate(batch):
         # nump_array = np.rollaxis(nump_array, 2)
         tensor[i] += torch.from_numpy(nump_array)
     
-    return {'imgs': tensor, 'labels': targets, 'ind_inds': ind_inds}
+    return {'imgs': tensor, 'labels': targets,
+            'ind_inds': ind_inds, 'indexes': indexes}
 
 
 class face_learner(object):
@@ -564,7 +580,7 @@ class face_learner(object):
             sampler=RandomIdSampler(self.dataset.imgidx,
                                     self.dataset.ids, self.dataset.id2range),
             drop_last=True, pin_memory=True,
-            collate_fn=torch.utils.data.default_collate if not gl_conf.fast_load else fast_collate
+            collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
         )
         self.class_num = self.dataset.num_classes
         logging.info(f'{self.class_num} classes, load ok ')
@@ -599,7 +615,23 @@ class face_learner(object):
             logging.info('{}_{} model generated'.format(conf.net_mode, conf.net_depth))
         else:
             raise ValueError(conf.net_mode)
-        
+        if conf.kd:
+            save_path = Path('work_space/emore.r152.cont/save/')
+            fixed_str = [t.name for t in save_path.glob('model*_*.pth')][0]
+            if not gl_conf.sftlbl_from_file:
+                self.teacher_model = Backbone(152, conf.drop_ratio, 'ir_se')
+                self.teacher_model = torch.nn.DataParallel(self.teacher_model).cuda()
+                modelp = save_path / fixed_str
+                model_state_dict = torch.load(modelp)
+                model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
+                if list(model_state_dict.keys())[0].startswith('module'):
+                    self.teacher_model.load_state_dict(model_state_dict, strict=True)  # todo later may upgrade
+                else:
+                    self.teacher_model.module.load_state_dict(model_state_dict, strict=True)
+                self.teacher_model.eval()
+            self.teacher_head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num).cuda()
+            head_state_dict = torch.load(save_path / 'head_{}'.format(fixed_str.replace('model_', '')))
+            self.teacher_head.load_state_dict(head_state_dict)
         if conf.loss == 'arcface':
             self.head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num)
         elif conf.loss == 'softmax':
@@ -665,7 +697,7 @@ class face_learner(object):
                 sampler=RandomIdSampler(self.dataset.imgidx,
                                         self.dataset.ids, self.dataset.id2range),
                 drop_last=True, pin_memory=True,
-                collate_fn=torch.utils.data.default_collate if not gl_conf.fast_load else fast_collate
+                collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
             )
             self.evaluate_every = gl_conf.other_every or len(loader) // 3
             self.save_every = gl_conf.other_every or len(loader) // 3
@@ -713,7 +745,8 @@ class face_learner(object):
                     logging.info(f'one epoch finish {e} {ind_data}')
                     loader_enum = data_prefetcher(enumerate(loader))
                     ind_data, data = loader_enum.next()
-                if (self.step + 1 )% len(loader) == 0:
+                if (self.step + 1) % (len(loader)) == 0:
+                    self.step += 1
                     break
                 imgs = data['imgs']
                 labels_cpu = data['labels_cpu']
@@ -737,10 +770,7 @@ class face_learner(object):
                 self.optimizer.zero_grad()
                 
                 #                 if not conf.fgg:
-                #                     if True:
-                #                 if np.random.rand()>0.5:
                 writer.add_scalar('info/tau', tau, self.step)
-                # if False:
                 if gl_conf.online_imp and tau > tau_thresh and ind_data < len(loader) - B_multi:  # todo enable it
                     #                     logging.info(f'using sampling {self.step} {tau} {tau_thresh}')
                     writer.add_scalar('info/sampl', 1, self.step)
@@ -748,10 +778,8 @@ class face_learner(object):
                     labelsl = [labels]
                     for _ in range(B_multi - 1):
                         ind_data, data = loader_enum.next()
-                        imgs = data['imgs']
-                        labels = data['labels']
-                        imgs = imgs.cuda()
-                        labels = labels.cuda()
+                        imgs = data['imgs'].cuda()
+                        labels = data['labels'].cuda()
                         imgsl.append(imgs)
                         labelsl.append(labels)
                     imgs = torch.cat(imgsl, dim=0)
@@ -787,7 +815,22 @@ class face_learner(object):
                     writer.add_scalar('info/sampl', 0, self.step)
                     embeddings = self.model(imgs, mode=mode)
                     thetas = self.head(embeddings, labels)
-                    loss = conf.ce_loss(thetas, labels)
+                    if not gl_conf.kd:
+                        loss = conf.ce_loss(thetas, labels)
+                    else:
+                        alpha = gl_conf.alpha
+                        T = gl_conf.temperature
+                        outputs = thetas
+                        with torch.no_grad():
+                            if not gl_conf.sftlbl_from_file:
+                                teachers_embedding = self.teacher_model(imgs, )
+                            else:
+                                teachers_embedding = data['teacher_embedding']
+                            teacher_outputs = self.teacher_head(teachers_embedding, labels)
+                        # loss = -(F.softmax(teacher_outputs / T, dim=1) * F.log_softmax(outputs / T, dim=1)).sum(     dim=1).mean() *alpha
+                        loss = F.kl_div(F.log_softmax(outputs / T, dim=1), F.softmax(teacher_outputs / T, dim=1)) * (
+                                alpha * T * T)
+                        loss += F.cross_entropy(outputs, labels) * (1. - alpha)
                     if gl_conf.tri_wei != 0:
                         loss_triplet, info = self.head_triplet(embeddings, labels, return_info=True)
                         loss_tri_meter.update(loss_triplet.item())
@@ -915,7 +958,7 @@ class face_learner(object):
                     self.save_state(conf, accuracy)
                 
                 self.step += 1
-                if gl_conf.prof and self.step > 99:
+                if gl_conf.prof and self.step % 29 == 28:
                     break
             if gl_conf.prof and e > 5:
                 break
@@ -926,6 +969,7 @@ class face_learner(object):
         
         e2lr = {epoch: gl_conf.lr * gl_conf.lr_gamma ** bisect_right(self.milestones, epoch) for epoch in
                 range(gl_conf.epochs)}
+        logging.info(f'map e to lr is {e2lr}')
         lr = e2lr[e]
         for params in self.optimizer.param_groups:
             params['lr'] = lr
@@ -975,19 +1019,6 @@ class face_learner(object):
         steps = np.asarray(steps, int)
         return steps
     
-    @staticmethod
-    def try_load(model, state_dict):
-        try:
-            model.load_state_dict(state_dict)
-        except Exception as e:
-            # logger.info(f'{e}')
-            pass
-        try:
-            model.load_state_dict(state_dict)
-        except Exception as e:
-            # logger.info(f'{e}')
-            pass
-    
     def load_state(self, fixed_str=None,
                    resume_path=None, latest=True,
                    load_optimizer=False, load_imp=False, load_head=False
@@ -1009,7 +1040,6 @@ class face_learner(object):
             modelp = save_path / 'model_{}'.format(fixed_str)
         logging.info(f'you are using gpu, load model, {modelp}')
         model_state_dict = torch.load(modelp)
-        #         embed()
         model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
         if list(model_state_dict.keys())[0].startswith('module'):
             self.model.load_state_dict(model_state_dict, strict=True)  # todo later may upgrade
@@ -1019,10 +1049,10 @@ class face_learner(object):
         if load_head and osp.exists(save_path / 'head_{}'.format(fixed_str)):
             logging.info(f'load head from {modelp}')
             head_state_dict = torch.load(save_path / 'head_{}'.format(fixed_str))
-            self.try_load(self.head, head_state_dict)
+            self.head.load_state_dict(head_state_dict)
         if load_optimizer:
             logging.info(f'load opt from {modelp}')
-            self.try_load(self.optimizer, torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
+            self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
         if load_imp and osp.exists(save_path / f'extra_{fixed_str.replace(".pth", ".pk")}'):
             extra = lz.msgpack_load(save_path / f'extra_{fixed_str.replace(".pth", ".pk")}')
             gl_conf.dop = extra['dop'].copy()
@@ -1032,7 +1062,7 @@ class face_learner(object):
         writer = writer or self.writer
         writer.add_scalar('{}_accuracy'.format(db_name), accuracy, self.step)
         writer.add_scalar('{}_best_threshold'.format(db_name), best_threshold, self.step)
-        writer.add_image('{}_roc_curve'.format(db_name), roc_curve_tensor, self.step)
+        # writer.add_image('{}_roc_curve'.format(db_name), roc_curve_tensor, self.step)
     
     def evaluate_accelerate(self, conf, path, name, nrof_folds=5, tta=False):
         lz.timer.since_last_check('start eval')
@@ -1081,38 +1111,6 @@ class face_learner(object):
         lz.timer.since_last_check('eval end')
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
     
-    def evaluate(self, conf, carray, issame, nrof_folds=5, tta=False):
-        # accelerate eval
-        logging.info('start eval')
-        self.model.eval()  # set the module in evaluation mode
-        idx = 0
-        embeddings = np.zeros([len(carray), conf.embedding_size])
-        with torch.no_grad():
-            while idx + conf.batch_size <= len(carray):
-                batch = torch.tensor(carray[idx:idx + conf.batch_size])
-                if tta:
-                    fliped = hflip_batch(batch)
-                    emb_batch = self.model(batch.cuda()) + self.model(fliped.cuda())
-                    embeddings[idx:idx + conf.batch_size] = l2_norm(emb_batch)
-                else:
-                    embeddings[idx:idx + conf.batch_size] = self.model(batch.cuda()).cpu()
-                idx += conf.batch_size
-            if idx < len(carray):
-                batch = torch.tensor(carray[idx:])
-                if tta:
-                    fliped = hflip_batch(batch)
-                    emb_batch = self.model(batch.cuda()) + self.model(fliped.cuda())
-                    embeddings[idx:] = l2_norm(emb_batch)
-                else:
-                    embeddings[idx:] = self.model(batch.cuda()).cpu()
-        tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
-        buf = gen_plot(fpr, tpr)
-        roc_curve = Image.open(buf)
-        roc_curve_tensor = trans.ToTensor()(roc_curve)
-        self.model.train()
-        logging.info('eval end')
-        return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
-    
     def validate(self, conf, resume_path):
         self.load_state(resume_path=resume_path)
         self.model.eval()
@@ -1159,7 +1157,7 @@ class face_learner(object):
         loader = DataLoader(
             self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
             shuffle=False, sampler=SeqSampler(), drop_last=False,
-            pin_memory=True,
+            pin_memory=True, collate_fn=torch.utils.data.default_collate if not gl_conf.fast_load else fast_collate
         )
         meter = lz.AverageMeter()
         lz.timer.since_last_check(verbose=False)
@@ -1170,6 +1168,32 @@ class face_learner(object):
             if ind_data > limits:
                 break
     
+    def calc_logits(self, out='work_space/teacher_embedding.h5'):
+        db = lz.Database(out, 'a')
+        conf = gl_conf
+        loader = DataLoader(
+            self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
+            shuffle=False, sampler=SeqSampler(), drop_last=False,
+            pin_memory=True,
+            collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
+        )
+        for ind_data, data in data_prefetcher(enumerate(loader)):
+            if ind_data % 99 == 3:
+                logging.info(f'{ind_data} / {len(loader)}')
+            indexes = data['indexes'].numpy()
+            imgs = data['imgs']
+            labels = data['labels']
+            with torch.no_grad():
+                if str(indexes.max()) in db:
+                    print('skip', indexes.max())
+                    continue
+                embeddings = self.teacher_model(imgs, )
+                outputs = embeddings.cpu().numpy()
+                for index, output in zip(indexes, outputs):
+                    db[str(index)] = output
+        db.flush()
+        db.close()
+    
     def calc_feature(self, out='t.pk'):
         conf = gl_conf
         self.model.eval()
@@ -1177,18 +1201,18 @@ class face_learner(object):
             self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
             shuffle=False, sampler=SeqSampler(), drop_last=False,
             pin_memory=True,
+            collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
         )
         features = np.empty((self.dataset.num_classes, 512))
         import collections
         features_tmp = collections.defaultdict(list)
         features_wei = collections.defaultdict(list)
-        for ind_data, data in enumerate(loader):
+        for ind_data, data in data_prefetcher(enumerate(loader)):
             if ind_data % 99 == 3:
                 logging.info(f'{ind_data} / {len(loader)}')
                 # break
             imgs = data['imgs']
-            labels = data['labels'].numpy()
-            imgs = imgs.cuda()
+            labels = data['labels_cpu'].numpy()
             labels_unique = np.unique(labels)
             with torch.no_grad():
                 embeddings = self.model(imgs, normalize=False).cpu().numpy()
@@ -1281,7 +1305,8 @@ class face_learner(object):
         batch_num = 0
         losses = []
         log_lrs = []
-        for i, data in enumerate(self.loader):
+        loader_enum = data_prefetcher(enumerate(self.loader))
+        for i, data in loader_enum:
             imgs = data['imgs']
             labels = data['labels']
             if i % 100 == 0:
@@ -1294,7 +1319,19 @@ class face_learner(object):
             
             embeddings = self.model(imgs)
             thetas = self.head(embeddings, labels)
-            loss = conf.ce_loss(thetas, labels)
+            
+            if not gl_conf.kd:
+                loss = conf.ce_loss(thetas, labels)
+            else:
+                alpha = gl_conf.alpha
+                T = gl_conf.temperature
+                outputs = thetas
+                with torch.no_grad():
+                    teachers_embedding = self.teacher_model(imgs, )
+                    teacher_outputs = self.head(teachers_embedding, labels)
+                loss = -(F.softmax(teacher_outputs / T, dim=1) * F.log_softmax(outputs / T, dim=1)).sum(
+                    dim=1).mean() * T * T * alpha + \
+                       F.cross_entropy(outputs, labels) * (1. - alpha)  # todo wrong here
             if gl_conf.tri_wei != 0:
                 loss_triplet = self.head_triplet(embeddings, labels)
                 loss = (1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet  # todo
