@@ -745,8 +745,7 @@ class face_learner(object):
                     logging.info(f'one epoch finish {e} {ind_data}')
                     loader_enum = data_prefetcher(enumerate(loader))
                     ind_data, data = loader_enum.next()
-                if (self.step + 1) % (len(loader)) == 0:
-                    self.step += 1
+                if (self.step + 1) % len(loader) == 0:
                     break
                 imgs = data['imgs']
                 labels_cpu = data['labels_cpu']
@@ -770,7 +769,10 @@ class face_learner(object):
                 self.optimizer.zero_grad()
                 
                 #                 if not conf.fgg:
+                #                     if True:
+                #                 if np.random.rand()>0.5:
                 writer.add_scalar('info/tau', tau, self.step)
+                # if False:
                 if gl_conf.online_imp and tau > tau_thresh and ind_data < len(loader) - B_multi:  # todo enable it
                     #                     logging.info(f'using sampling {self.step} {tau} {tau_thresh}')
                     writer.add_scalar('info/sampl', 1, self.step)
@@ -1041,6 +1043,14 @@ class face_learner(object):
         logging.info(f'you are using gpu, load model, {modelp}')
         model_state_dict = torch.load(modelp)
         model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
+        if gl_conf.cvt_ipabn:
+            import copy
+            model_state_dict2 = copy.deepcopy(model_state_dict)
+            for k in model_state_dict2.keys():
+                if 'running_mean' in k:
+                    name = k.replace('running_mean', 'weight')
+                    model_state_dict2[name] = torch.abs(model_state_dict[name])
+            model_state_dict = model_state_dict2
         if list(model_state_dict.keys())[0].startswith('module'):
             self.model.load_state_dict(model_state_dict, strict=True)  # todo later may upgrade
         else:
@@ -1111,8 +1121,9 @@ class face_learner(object):
         lz.timer.since_last_check('eval end')
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
     
-    def validate(self, conf, resume_path):
-        self.load_state(resume_path=resume_path)
+    def validate(self, conf, resume_path=None):
+        if resume_path is not None:
+            self.load_state(resume_path=resume_path)
         self.model.eval()
         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
                                                                               'agedb_30')
@@ -1354,8 +1365,11 @@ class face_learner(object):
             self.writer.add_scalar('log_lr', math.log10(lr), batch_num)
             # Do the SGD step
             # Update the lr for the next step
-            
-            loss.backward()
+            if gl_conf.fp16:
+                with amp_handle.scale_loss(loss, self.optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else:
+                loss.backward()
             self.optimizer.step()
             
             lr *= mult

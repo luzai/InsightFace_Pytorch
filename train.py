@@ -30,9 +30,9 @@ if __name__ == '__main__':
     
     ## for pretrain resume or evaluate
     learner.load_state(
-            resume_path=Path('work_space/emore.mbnet.kd/models/'),
-            load_optimizer=True,
-            load_head=True,
+            resume_path=Path('work_space/emore.r152.cont/save/'),
+            load_optimizer=False,
+            load_head=False,
             load_imp=False,
             latest=True,
         )
@@ -41,12 +41,11 @@ if __name__ == '__main__':
     # sd = torch.load(lz.home_path + 'zl_data/densenet264_ipabn_lr_256.tar')['state_dict']
     # lz.load_state_dict(learner.model, sd, )
     
-    # conf.lr = 1e-2
-    # learner.init_lr()
-    # conf.tri_wei = 0
-    # log_conf(conf)
-    # learner.train(conf, 1, mode='finetune',name='ft')
-    #
+    learner.init_lr()
+    conf.tri_wei = 0
+    log_conf(conf)
+    learner.train(conf, 3, mode='finetune',name='ft')
+    
     # conf.lr = 1e-1
     # learner.init_lr()
     # conf.tri_wei = 0
@@ -60,7 +59,7 @@ if __name__ == '__main__':
     # learner.calc_logits()
     learner.train(conf, conf.epochs)
     
-    # learner.validate(conf, 'work_space/emore.r100.bs.head.notri.nochkpnt/save/')
+    # learner.validate(conf,)
     # def calc_importance():
     #     steps = learner.list_steps(conf.model_path)
     #     for step in steps[::-1]:
@@ -75,17 +74,14 @@ if __name__ == '__main__':
     #
     #
     # calc_importance()
-    # learner.calc_feature(out='work_space/emore.r152.fea.pk')
+    
+    # learner.calc_feature(out='work_space/ms1m.rv1.fc7.pk')
     
     # log_lrs, losses = learner.find_lr(conf,
-    #                                   init_value=1e-5,
-    #                                   final_value=100,
+    #                                   # final_value=100,
     #                                   num=200,
-    #                                   # bloding_scale=100
-    #                                   )
+    #                                   bloding_scale=1000)
     # best_lr = 10 ** (log_lrs[np.argmin(losses)])
     # print(best_lr)
     # conf.lr = best_lr
-    # learner.train(conf, conf.epochs)
-    
     # learner.push2redis()
