@@ -23,7 +23,7 @@ def separate_bn_paras(modules):
         if 'container' in str(layer.__class__):
             continue
         else:
-            if 'batchnorm' in str(layer.__class__):
+            if 'batchnorm' in str(layer.__class__).lower() or 'inplaceabn' in str(layer.__class__).lower():
                 paras_only_bn.extend([*layer.parameters()])
             else:
                 paras_wo_bn.extend([*layer.parameters()])
