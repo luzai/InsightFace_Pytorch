@@ -37,26 +37,19 @@ if __name__ == '__main__':
             latest=True,
         )
     
-    # sd = torch.load(lz.home_path + '.torch/models/resnext101_ipabn_lr_512.pth.tar')['state_dict']
-    # sd = torch.load(lz.home_path + 'zl_data/densenet264_ipabn_lr_256.tar')['state_dict']
-    # lz.load_state_dict(learner.model, sd, )
+    learner.init_lr()
+    conf.tri_wei = 0
+    log_conf(conf)
+    learner.train(conf, 1, mode='finetune',name='ft')
     
-    # learner.init_lr()
-    # conf.tri_wei = 0
-    # log_conf(conf)
-    # learner.train(conf, 1, mode='finetune',name='ft')
-    
-    # conf.lr = 1e-1
     # learner.init_lr()
     # conf.tri_wei = 0
     # log_conf(conf)
     # learner.train(conf, 1, name='xent')
     
-    # conf.lr = 1e-1
     learner.init_lr()
     conf.tri_wei = 0
     log_conf(conf)
-    # learner.calc_logits()
     learner.train(conf, conf.epochs)
     
     # learner.validate(conf,)

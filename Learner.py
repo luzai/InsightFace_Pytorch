@@ -70,6 +70,7 @@ def unpack_auto(s, fp):
         return unpack_f64(s)
 
 
+# todo merge this
 class Obj():
     pass
 
@@ -84,8 +85,9 @@ def get_rec(p='/data2/share/faces_emore/train.idx'):
             path_imgidx, path_imgrec,
             'r')
     )
-    
-    self.imgrec = s = self.imgrecs[0].read_idx(0)
+    self.lock = mp.Lock()
+    self.imgrec = self.imgrecs[0]
+    s = self.imgrec.read_idx(0)
     header, _ = recordio.unpack(s)
     assert header.flag > 0, 'ms1m or glint ...'
     print('header0 label', header.label)
@@ -104,7 +106,7 @@ def get_rec(p='/data2/share/faces_emore/train.idx'):
         self.imgidx += list(range(a, b))
     self.ids = np.asarray(self.ids)
     self.num_classes = len(self.ids)
-    self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
+    # self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
     ids_map_tmp = {identity: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
     self.ids = [ids_map_tmp[id_] for id_ in self.ids]
     self.ids = np.asarray(self.ids)
@@ -197,8 +199,7 @@ class TorchDataset(object):
         if gl_conf.kd and gl_conf.sftlbl_from_file:
             self.teacher_embedding_db = lz.Database('work_space/teacher_embedding.h5', 'r')
         if gl_conf.use_test:
-            self.rec_test =get_rec('/data2/share/glint_test/train.idx')
-            
+            self.rec_test = get_rec('/data2/share/glint_test/train.idx')
     
     def __len__(self):
         if gl_conf.local_rank is not None:
@@ -233,9 +234,9 @@ class TorchDataset(object):
     def postprocess_data(self, datum):
         """Final postprocessing step before image is loaded into the batch."""
         return nd.transpose(datum, axes=(2, 0, 1))
-    def preprocess_img(self,imgs):
-        _rd = random.randint(0, 1)
-        if _rd == 1:
+    
+    def preprocess_img(self, imgs):
+        if self.flip and random.randint(0, 1) == 1:
             imgs = mx.ndarray.flip(data=imgs, axis=1)
         imgs = imgs.asnumpy()
         if not gl_conf.fast_load:
@@ -244,29 +245,30 @@ class TorchDataset(object):
             imgs /= 0.5
             imgs = np.array(imgs, dtype=np.float32)
         imgs = imgs.transpose((2, 0, 1))
-        return imgs 
+        return imgs
     
     def _get_single_item(self, index):
         # self.cur += 1
         # index += 1  # noneed,  here it index (imgidx) start from 1,.rec start from 1
         # assert index != 0 and index < len(self) + 1 # index can > len(self)
-        if gl_conf.use_test and np.random.rand() > .7: # todo control ratio
-            index = np.random.randint(0,max(self.rec_test.imgidx))
+        if gl_conf.use_test and np.random.rand() > .7:  # todo control ratio
+            index = np.random.randint(1, max(self.rec_test.imgidx))
+            self.rec_test.lock.acquire()
             s = self.rec_test.imgrec.read_idx(index)
-            header, img =  unpack_auto(s, '') 
-            imgs = self.imdecode(img) 
-            imgs = self.preprocess_img(imgs) 
-            return {'imgs': np.array(imgs, dtype=np.float32), 'labels': -1,
-                        'ind_inds': -1, 'is_trains': False}
+            self.rec_test.lock.release()
+            header, img = unpack_auto(s, 'glint_test')
+            imgs = self.imdecode(img)
+            imgs = self.preprocess_img(imgs)
+            return {'imgs': np.array(imgs, dtype=np.float32), 'labels': -1, 'indexes': index,
+                    'ind_inds': -1, 'is_trains': False}
         succ = False
         index, pid, ind_ind = index
         if self.r:
             img = self.r.get(f'{gl_conf.dataset_name}/imgs/{index}')
             if img is not None:
-                # print('hit! ')
                 imgs = self.imdecode(img)
                 imgs = self.preprocess_img(imgs)
-                return {'imgs': np.array(imgs, dtype=np.float32), 'labels': pid,
+                return {'imgs': np.array(imgs, dtype=np.float32), 'labels': pid, 'indexes': index,
                         'ind_inds': ind_ind, 'is_trains': True}
         ## rand until lock
         while True:
@@ -291,12 +293,12 @@ class TorchDataset(object):
         if not isinstance(label, numbers.Number):
             assert label[-1] == 0. or label[-1] == 1., f'{label} {index} {imgs.shape}'
             label = label[0]
-        #label = int(label)
-        #assert label in self.ids_map
-        #label = self.ids_map[label]
-        #assert label == pid
-        label = int(pid)                
-        imgs = self.preprocess_img(imgs)        
+        # label = int(label)
+        # assert label in self.ids_map
+        # label = self.ids_map[label]
+        # assert label == pid
+        label = int(pid)
+        imgs = self.preprocess_img(imgs)
         if gl_conf.use_redis and self.r and lz.get_mem() >= 20:
             self.r.set(f'{gl_conf.dataset_name}/imgs/{index}', img)
         res = {'imgs': imgs, 'labels': label,
@@ -603,6 +605,7 @@ def fast_collate(batch):
     targets = torch.tensor([target['labels'] for target in batch], dtype=torch.int64)
     ind_inds = torch.tensor([target['ind_inds'] for target in batch], dtype=torch.int64)
     indexes = torch.tensor([target['indexes'] for target in batch], dtype=torch.int64)
+    is_trains = torch.tensor([target['is_trains'] for target in batch], dtype=torch.int64)
     w = imgs[0].shape[1]
     h = imgs[0].shape[2]
     tensor = torch.zeros((len(imgs), 3, h, w), dtype=torch.uint8)
@@ -614,7 +617,8 @@ def fast_collate(batch):
         tensor[i] += torch.from_numpy(nump_array)
     
     return {'imgs': tensor, 'labels': targets,
-            'ind_inds': ind_inds, 'indexes': indexes}
+            'ind_inds': ind_inds, 'indexes': indexes,
+            'is_trains': is_trains}
 
 
 class face_learner(object):
@@ -780,7 +784,7 @@ class face_learner(object):
         B_multi = 2
         Batch_size = gl_conf.batch_size * B_multi
         batch_size = gl_conf.batch_size
-        tau_thresh = 1.2 # todo mv to conf
+        tau_thresh = 1.2  # todo mv to conf
         #         tau_thresh = (Batch_size + 3 * batch_size) / (3 * batch_size)
         alpha_tau = .9
         for e in range(conf.start_epoch, epochs):
@@ -818,12 +822,10 @@ class face_learner(object):
                 self.optimizer.zero_grad()
                 
                 #                 if not conf.fgg:
-                #                     if True:
                 #                 if np.random.rand()>0.5:
                 writer.add_scalar('info/tau', tau, self.step)
                 # if False:
-                if gl_conf.online_imp and tau > tau_thresh and ind_data < len(loader) - B_multi:  # todo enable it
-                    #                     logging.info(f'using sampling {self.step} {tau} {tau_thresh}')
+                if gl_conf.online_imp and tau > tau_thresh and ind_data < len(loader) - B_multi:
                     writer.add_scalar('info/sampl', 1, self.step)
                     imgsl = [imgs]
                     labelsl = [labels]
@@ -862,12 +864,27 @@ class face_learner(object):
                     else:
                         loss.backward()
                 else:
-                    #                     logging.info(f'normal {self.step} {tau} {tau_thresh}')
+                    #  logging.info(f'normal {self.step} {tau} {tau_thresh}')
                     writer.add_scalar('info/sampl', 0, self.step)
+                    imgs.requires_grad_(True)
                     embeddings = self.model(imgs, mode=mode)
                     thetas = self.head(embeddings, labels)
                     if not gl_conf.kd:
-                        loss = conf.ce_loss(thetas, labels)
+                        if gl_conf.use_test:
+                            mask = data['is_trains'] == 1
+                            loss = conf.ce_loss(thetas[mask], labels[mask])
+                            img_grad = torch.autograd.grad(
+                                outputs=loss, inputs=imgs,
+                                create_graph=True,
+                                retain_graph=True,
+                                only_inputs=True
+                            )[0].view(
+                                imgs.shape[0], -1
+                            )
+                            grad_reg = (img_grad.norm(2, dim=1) ** 2).mean()
+                            loss = loss + .1 * grad_reg  # todo
+                        else:
+                            loss = conf.ce_loss(thetas, labels)
                     else:
                         alpha = gl_conf.alpha
                         T = gl_conf.temperature
@@ -894,36 +911,37 @@ class face_learner(object):
                                                         only_inputs=True)[0].detach()
                         writer.add_scalar('info/grad_xent', torch.norm(grad_xent, dim=1).mean().item(), self.step)
                         loss = ((1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet) / (1 - gl_conf.tri_wei)
-                    #                         if gl_conf.mining == 'imp':
-                    grad = torch.autograd.grad(loss, embeddings,
-                                               retain_graph=True, create_graph=False,
-                                               only_inputs=True)[0].detach()
+                    # if gl_conf.online_imp:
+                    #     # todo the order not correct
+                    #     grad = torch.autograd.grad(loss, embeddings,
+                    #                                retain_graph=True, create_graph=False,
+                    #                                only_inputs=True)[0].detach()
+                    #     grad.requires_grad_(False)
+                    #     gi = torch.norm(grad, dim=1)
+                    #     gi /= gi.sum()
                     if gl_conf.fp16:
                         with amp_handle.scale_loss(loss, self.optimizer) as scaled_loss:
                             scaled_loss.backward()
                     else:
                         loss.backward()
-                    grad.requires_grad_(False)
                     with torch.no_grad():
                         if gl_conf.mining == 'dop':
                             update_dop_cls(thetas, labels_cpu, gl_conf.dop)
                         #                         if gl_conf.mining == 'imp' :
-                        gi = torch.norm(grad, dim=1)
-                        #                         for lable_, ind_ind_, gi_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy()):
-                        #                             gl_conf.id2range_dop[str(lable_)][ind_ind_] = gl_conf.id2range_dop[str(lable_)][
-                        #                                                                               ind_ind_] * 0.9 + 0.1 * gi_
-                        #                             gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].sum()  # todo should be sum?
+#  for lable_, ind_ind_, gi_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy()):
+#      gl_conf.id2range_dop[str(lable_)][ind_ind_] = gl_conf.id2range_dop[str(lable_)][
+#                                                                               ind_ind_] * 0.9 + 0.1 * gi_
+#                             gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].sum()  # todo should be sum?
                         if gl_conf.mining == 'rand.id':
                             gl_conf.dop[labels_cpu.numpy()] = 1
-                        gi /= gi.sum()
                 gl_conf.explored[labels_cpu.numpy()] = 1
                 with torch.no_grad():
                     acc_t = (thetas.argmax(dim=1) == labels)
                     acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
                     acc_meter.update(acc)
                     loss_meter.update(loss.item())
-                
-                tau = alpha_tau * tau + \
+                if gl_conf.online_imp:
+                    tau = alpha_tau * tau + \
                       (1 - alpha_tau) * (1 - (1 / (gi ** 2).sum()).item() * (
                         torch.norm(gi - 1 / len(gi), dim=0) ** 2).item()) ** (-1 / 2)
                 

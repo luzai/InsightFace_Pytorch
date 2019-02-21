@@ -90,9 +90,9 @@ conf.sftlbl_from_file = False
 conf.alpha = .95
 conf.temperature = 6
 conf.online_imp = False
-conf.batch_size = 120 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
+conf.batch_size = 130 * num_devs
 conf.ftbs_mult = 2
-conf.use_test = True
+conf.use_test = False
 
 conf.use_redis = False
 conf.use_chkpnt = False
