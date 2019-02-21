@@ -233,15 +233,31 @@ class TorchDataset(object):
     def postprocess_data(self, datum):
         """Final postprocessing step before image is loaded into the batch."""
         return nd.transpose(datum, axes=(2, 0, 1))
+    def preprocess_img(self,imgs):
+        _rd = random.randint(0, 1)
+        if _rd == 1:
+            imgs = mx.ndarray.flip(data=imgs, axis=1)
+        imgs = imgs.asnumpy()
+        if not gl_conf.fast_load:
+            imgs = imgs / 255.
+            imgs -= 0.5  # simply use 0.5 as mean
+            imgs /= 0.5
+            imgs = np.array(imgs, dtype=np.float32)
+        imgs = imgs.transpose((2, 0, 1))
+        return imgs 
     
     def _get_single_item(self, index):
         # self.cur += 1
         # index += 1  # noneed,  here it index (imgidx) start from 1,.rec start from 1
         # assert index != 0 and index < len(self) + 1 # index can > len(self)
-        if gl_conf.use_test and np.random.rand() > .3:
+        if gl_conf.use_test and np.random.rand() > .7: # todo control ratio
             index = np.random.randint(0,max(self.rec_test.imgidx))
-            
-        
+            s = self.rec_test.imgrec.read_idx(index)
+            header, img =  unpack_auto(s, '') 
+            imgs = self.imdecode(img) 
+            imgs = self.preprocess_img(imgs) 
+            return {'imgs': np.array(imgs, dtype=np.float32), 'labels': -1,
+                        'ind_inds': -1, 'is_trains': False}
         succ = False
         index, pid, ind_ind = index
         if self.r:
@@ -249,14 +265,7 @@ class TorchDataset(object):
             if img is not None:
                 # print('hit! ')
                 imgs = self.imdecode(img)
-                if self.flip and random.randint(0, 1):
-                    imgs = mx.ndarray.flip(data=imgs, axis=1)
-                imgs = imgs.asnumpy()
-                imgs = imgs / 255.
-                # simply use 0.5 as mean
-                imgs -= 0.5
-                imgs /= 0.5
-                imgs = imgs.transpose((2, 0, 1))
+                imgs = self.preprocess_img(imgs)
                 return {'imgs': np.array(imgs, dtype=np.float32), 'labels': pid,
                         'ind_inds': ind_ind, 'is_trains': True}
         ## rand until lock
@@ -282,22 +291,12 @@ class TorchDataset(object):
         if not isinstance(label, numbers.Number):
             assert label[-1] == 0. or label[-1] == 1., f'{label} {index} {imgs.shape}'
             label = label[0]
-        label = int(label)
-        assert label in self.ids_map
-        label = self.ids_map[label]
-        assert label == pid
-        _rd = random.randint(0, 1)
-        if _rd == 1:
-            imgs = mx.ndarray.flip(data=imgs, axis=1)
-        
-        imgs = imgs.asnumpy()
-        if not gl_conf.fast_load:
-            imgs = imgs / 255.
-            imgs -= 0.5  # simply use 0.5 as mean
-            imgs /= 0.5
-            imgs = np.array(imgs, dtype=np.float32)
-        imgs = imgs.transpose((2, 0, 1))
-        
+        #label = int(label)
+        #assert label in self.ids_map
+        #label = self.ids_map[label]
+        #assert label == pid
+        label = int(pid)                
+        imgs = self.preprocess_img(imgs)        
         if gl_conf.use_redis and self.r and lz.get_mem() >= 20:
             self.r.set(f'{gl_conf.dataset_name}/imgs/{index}', img)
         res = {'imgs': imgs, 'labels': label,
@@ -781,7 +780,7 @@ class face_learner(object):
         B_multi = 2
         Batch_size = gl_conf.batch_size * B_multi
         batch_size = gl_conf.batch_size
-        tau_thresh = 1.5
+        tau_thresh = 1.2 # todo mv to conf
         #         tau_thresh = (Batch_size + 3 * batch_size) / (3 * batch_size)
         alpha_tau = .9
         for e in range(conf.start_epoch, epochs):
