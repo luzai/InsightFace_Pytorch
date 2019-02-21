@@ -70,6 +70,48 @@ def unpack_auto(s, fp):
         return unpack_f64(s)
 
 
+class Obj():
+    pass
+
+
+def get_rec(p='/data2/share/faces_emore/train.idx'):
+    self = Obj()
+    self.imgrecs = []
+    path_imgidx = p
+    path_imgrec = path_imgidx.replace('.idx', '.rec')
+    self.imgrecs.append(
+        recordio.MXIndexedRecordIO(
+            path_imgidx, path_imgrec,
+            'r')
+    )
+    
+    self.imgrec = s = self.imgrecs[0].read_idx(0)
+    header, _ = recordio.unpack(s)
+    assert header.flag > 0, 'ms1m or glint ...'
+    print('header0 label', header.label)
+    self.header0 = (int(header.label[0]), int(header.label[1]))
+    self.id2range = {}
+    self.imgidx = []
+    self.ids = []
+    ids_shif = int(header.label[0])
+    for identity in list(range(int(header.label[0]), int(header.label[1]))):
+        s = self.imgrecs[0].read_idx(identity)
+        header, _ = recordio.unpack(s)
+        a, b = int(header.label[0]), int(header.label[1])
+        #     if b - a > gl_conf.cutoff:
+        self.id2range[identity] = (a, b)
+        self.ids.append(identity)
+        self.imgidx += list(range(a, b))
+    self.ids = np.asarray(self.ids)
+    self.num_classes = len(self.ids)
+    self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
+    ids_map_tmp = {identity: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
+    self.ids = [ids_map_tmp[id_] for id_ in self.ids]
+    self.ids = np.asarray(self.ids)
+    self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
+    return self
+
+
 class TorchDataset(object):
     def __init__(self,
                  path_ms1m, flip=True
@@ -154,6 +196,9 @@ class TorchDataset(object):
         lz.timer.since_last_check('finish cal dataset info')
         if gl_conf.kd and gl_conf.sftlbl_from_file:
             self.teacher_embedding_db = lz.Database('work_space/teacher_embedding.h5', 'r')
+        if gl_conf.use_test:
+            self.rec_test =get_rec('/data2/share/glint_test/train.idx')
+            
     
     def __len__(self):
         if gl_conf.local_rank is not None:
@@ -193,6 +238,10 @@ class TorchDataset(object):
         # self.cur += 1
         # index += 1  # noneed,  here it index (imgidx) start from 1,.rec start from 1
         # assert index != 0 and index < len(self) + 1 # index can > len(self)
+        if gl_conf.use_test and np.random.rand() > .3:
+            index = np.random.randint(0,max(self.rec_test.imgidx))
+            
+        
         succ = False
         index, pid, ind_ind = index
         if self.r:
@@ -209,7 +258,7 @@ class TorchDataset(object):
                 imgs /= 0.5
                 imgs = imgs.transpose((2, 0, 1))
                 return {'imgs': np.array(imgs, dtype=np.float32), 'labels': pid,
-                        'ind_inds': ind_ind}
+                        'ind_inds': ind_ind, 'is_trains': True}
         ## rand until lock
         while True:
             for ind_rec in range(len(self.locks)):
@@ -252,7 +301,8 @@ class TorchDataset(object):
         if gl_conf.use_redis and self.r and lz.get_mem() >= 20:
             self.r.set(f'{gl_conf.dataset_name}/imgs/{index}', img)
         res = {'imgs': imgs, 'labels': label,
-               'ind_inds': ind_ind, 'indexes': index}
+               'ind_inds': ind_ind, 'indexes': index,
+               'is_trains': True}
         if hasattr(self, 'teacher_embedding_db'):
             res['teacher_embedding'] = self.teacher_embedding_db[str(index)]
         return res

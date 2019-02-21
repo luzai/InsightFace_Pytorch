@@ -27,7 +27,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/asia.emore.r152')
+conf.work_path = Path('work_space/asia.emore.r152.2')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -61,7 +61,7 @@ conf.rand_ratio = 9 / 27
 conf.margin = 0.4
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
-conf.tri_wei = 0
+conf.tri_wei = 0.5
 conf.scale = 64.
 conf.start_eval = False
 conf.instances = 4
@@ -92,6 +92,7 @@ conf.temperature = 6
 conf.online_imp = False
 conf.batch_size = 120 * num_devs  # 135 99 xent: 96 92 tri: 112 108  # 180
 conf.ftbs_mult = 2
+conf.use_test = True
 
 conf.use_redis = False
 conf.use_chkpnt = False
@@ -119,7 +120,42 @@ conf.milestones = [2, 5, 7]
 conf.momentum = 0.9
 conf.pin_memory = True
 conf.num_workers = 24 if "amax" in hostname() else 66  # 4
+
+
+class CrossEntropyLabelSmooth(nn.Module):
+    """Cross entropy loss with label smoothing regularizer.
+    Reference:
+    Szegedy et al. Rethinking the Inception Architecture for Computer Vision. CVPR 2016.
+    Equation: y = (1 - epsilon) * y + epsilon / K.
+    Args:
+        num_classes (int): number of classes.
+        epsilon (float): weight.
+    """
+    
+    def __init__(self,  epsilon=0.1,):
+        super(CrossEntropyLabelSmooth, self).__init__()
+        self.epsilon = epsilon
+        self.logsoftmax = nn.LogSoftmax(dim=1)
+    
+    def forward(self, inputs, targets):
+        """
+        Args:
+            inputs: prediction matrix (before softmax) with shape (batch_size, num_classes)
+            targets: ground truth labels with shape (num_classes)
+        """
+        log_probs = self.logsoftmax(inputs)
+        targets1= torch.zeros(log_probs.size()).scatter_(
+            1, targets.unsqueeze(1).data.cpu(), 1).cuda()
+        # targets2 = torch.cuda.FloatTensor(inputs.size()).fill_(0).scatter_(1, targets.unsqueeze(1).detach(), 1)
+        targets3 = (1 - self.epsilon) * targets1 + \
+                  self.epsilon / inputs.shape[1]
+        loss = (-targets3 * log_probs).mean(0).sum()
+        return loss
+
+
 conf.ce_loss = CrossEntropyLoss()
+# conf.ce_loss = CrossEntropyLabelSmooth()
+
 training = True  # False means test
 if not training:
     conf.batch_size *= 2

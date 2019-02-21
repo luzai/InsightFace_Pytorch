@@ -30,9 +30,9 @@ if __name__ == '__main__':
     
     ## for pretrain resume or evaluate
     learner.load_state(
-            resume_path=Path('work_space/emore.r152.cont/save/'),
-            load_optimizer=False,
-            load_head=False,
+            resume_path=Path('work_space/asia.emore.r152/models/'),
+            load_optimizer=True,
+            load_head=True,
             load_imp=False,
             latest=True,
         )
@@ -41,10 +41,10 @@ if __name__ == '__main__':
     # sd = torch.load(lz.home_path + 'zl_data/densenet264_ipabn_lr_256.tar')['state_dict']
     # lz.load_state_dict(learner.model, sd, )
     
-    learner.init_lr()
-    conf.tri_wei = 0
-    log_conf(conf)
-    learner.train(conf, 3, mode='finetune',name='ft')
+    # learner.init_lr()
+    # conf.tri_wei = 0
+    # log_conf(conf)
+    # learner.train(conf, 1, mode='finetune',name='ft')
     
     # conf.lr = 1e-1
     # learner.init_lr()
