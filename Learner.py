@@ -728,12 +728,136 @@ class face_learner(object):
                 {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': gl_conf.weight_decay},
                 {'params': paras_only_bn},
             ], lr=conf.lr, momentum=conf.momentum)
-        
+        if gl_conf.fp16:
+            if gl_conf.use_test:
+                nloss = 2
+            else:
+                nloss = 1
+            self.optimizer = amp_handle.wrap_optimizer(self.optimizer, num_loss=nloss)
         logging.info(f'optimizers generated {self.optimizer}')
         self.board_loss_every = gl_conf.board_loss_every
-        
         self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
             self.dataset.root_path)  # todo postpone load eval
+    
+    def train_use_test(self, conf, epochs):
+        self.model.train()
+        loader = self.loader
+        self.evaluate_every = gl_conf.other_every or len(loader) // 3
+        self.save_every = gl_conf.other_every or len(loader) // 3
+        self.step = 0
+        writer = self.writer
+        lz.timer.since_last_check('start train')
+        data_time = lz.AverageMeter()
+        loss_time = lz.AverageMeter()
+        accuracy = 0
+        
+        for e in range(conf.start_epoch, epochs):
+            lz.timer.since_last_check('epoch {} started'.format(e))
+            self.schedule_lr(e)
+            loader_enum = data_prefetcher(enumerate(loader))
+            while True:
+                ind_data, data = loader_enum.next()
+                if ind_data is None:
+                    logging.info(f'one epoch finish {e} {ind_data}')
+                    loader_enum = data_prefetcher(enumerate(loader))
+                    ind_data, data = loader_enum.next()
+                if (self.step + 1) % len(loader) == 0:
+                    self.step += 1
+                    break
+                imgs = data['imgs']
+                labels_cpu = data['labels_cpu']
+                labels = data['labels']
+                data_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
+                self.optimizer.zero_grad()
+                if gl_conf.use_test:
+                    # imgs.requires_grad_(True)
+                    loss_vat = conf.vat_loss_func(self.model, self.head, imgs)
+                    # imgs.requires_grad_(False)
+                    if gl_conf.fp16:
+                        with self.optimizer.scale_loss(loss_vat) as scaled_loss:
+                            scaled_loss.backward()
+                    else:
+                        loss_vat.backward()
+                embeddings = self.model(imgs, mode='train')
+                thetas = self.head(embeddings, labels)
+                mask = data['is_trains'] == 1
+                loss_xent = conf.ce_loss(thetas[mask], labels[mask])
+                # img_grad = torch.autograd.grad(
+                #     outputs=loss_xent, inputs=imgs,
+                #     create_graph=True,
+                #     retain_graph=True,
+                #     only_inputs=True
+                # )[0].view(
+                #     imgs.shape[0], -1
+                # )
+                # grad_reg = (img_grad.norm(2, dim=1) ** 2).mean()
+                # (grad_reg * .1).bakward()  # todo .1
+                if gl_conf.fp16:
+                    with self.optimizer.scale_loss(loss_xent) as scaled_loss:
+                        scaled_loss.backward()
+                else:
+                    loss_xent.backward()
+                with torch.no_grad():
+                    if gl_conf.mining == 'dop':
+                        update_dop_cls(thetas, labels_cpu, gl_conf.dop)
+                    if gl_conf.mining == 'rand.id':
+                        gl_conf.dop[labels_cpu.numpy()] = 1
+                gl_conf.explored[labels_cpu.numpy()] = 1
+                with torch.no_grad():
+                    acc_t = (thetas.argmax(dim=1) == labels)
+                    acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
+                self.optimizer.step()
+                loss_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
+                if self.step % self.board_loss_every == 0:
+                    logging.info(f'epoch {e}/{epochs} step {self.step}/{len(loader)}: ' +
+                                 f'xent: {loss_xent.item():.2e} ' +
+                                 f'vat: {loss_vat.item():.2e} ' +
+                                 f'data time: {data_time.avg:.2f} ' +
+                                 f'loss time: {loss_time.avg:.2f} ' +
+                                 f'acc: {acc:.2e} ' +
+                                 f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                    writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
+                    writer.add_scalar('loss/xent', loss_xent.item(), self.step)
+                    writer.add_scalar('loss/vat', loss_vat.item(), self.step)
+                    writer.add_scalar('info/acc', acc, self.step)
+                    writer.add_scalar('info/speed', gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                    writer.add_scalar('info/datatime', data_time.avg, self.step)
+                    writer.add_scalar('info/losstime', loss_time.avg, self.step)
+                    writer.add_scalar('info/epoch', e, self.step)
+                    dop = gl_conf.dop
+                    writer.add_histogram('top_imp', dop, self.step)
+                    writer.add_scalar('info/doprat',
+                                      np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
+                
+                if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
+                                                                                          self.loader.dataset.root_path,
+                                                                                          'agedb_30')
+                    self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor, writer)
+                    logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
+                                                                                          self.loader.dataset.root_path,
+                                                                                          'lfw')
+                    self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor, writer)
+                    logging.info(f'validation accuracy on lfw is {accuracy} ')
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
+                                                                                          self.loader.dataset.root_path,
+                                                                                          'cfp_fp')
+                    self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor, writer)
+                    logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
+                if self.step % self.save_every == 0 and self.step != 0:
+                    self.save_state(conf, accuracy)
+                
+                self.step += 1
+                if gl_conf.prof and self.step % 29 == 28:
+                    break
+            if gl_conf.prof and e > 5:
+                break
+        self.save_state(conf, accuracy, to_save_folder=True, extra='final')
     
     def train(self, conf, epochs, mode='train', name=None):
         self.model.train()
@@ -742,7 +866,6 @@ class face_learner(object):
             self.evaluate_every = gl_conf.other_every or len(loader) // 3
             self.save_every = gl_conf.other_every or len(loader) // 3
             self.step = 0
-        
         elif mode == 'finetune':
             loader = DataLoader(
                 self.dataset, batch_size=conf.batch_size * conf.ftbs_mult,
@@ -762,22 +885,9 @@ class face_learner(object):
         else:
             writer = SummaryWriter(str(conf.log_path) + '/ft')
         
-        if conf.start_eval:
-            accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.agedb_30,
-                                                                                  self.agedb_30_issame)
-            self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor, writer)
-            accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.lfw, self.lfw_issame)
-            self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor, writer)
-            accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.cfp_fp,
-                                                                                  self.cfp_fp_issame)
-            self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor, writer)
         lz.timer.since_last_check('start train')
         data_time = lz.AverageMeter()
         loss_time = lz.AverageMeter()
-        opt_time = lz.AverageMeter()
-        loss_meter = lz.AverageMeter()
-        loss_tri_meter = lz.AverageMeter()
-        acc_meter = lz.AverageMeter()
         accuracy = 0
         
         tau = 0
@@ -821,11 +931,9 @@ class face_learner(object):
                     lz.timer.since_last_check(verbose=False)
                 )
                 self.optimizer.zero_grad()
-                
                 #                 if not conf.fgg:
                 #                 if np.random.rand()>0.5:
                 writer.add_scalar('info/tau', tau, self.step)
-                # if False:
                 if gl_conf.online_imp and tau > tau_thresh and ind_data < len(loader) - B_multi:
                     writer.add_scalar('info/sampl', 1, self.step)
                     imgsl = [imgs]
@@ -865,7 +973,6 @@ class face_learner(object):
                     else:
                         loss.backward()
                 else:
-                    #  logging.info(f'normal {self.step} {tau} {tau_thresh}')
                     writer.add_scalar('info/sampl', 0, self.step)
                     if gl_conf.use_test:
                         imgs.requires_grad_(True)
@@ -903,7 +1010,6 @@ class face_learner(object):
                         loss += F.cross_entropy(outputs, labels) * (1. - alpha)
                     if gl_conf.tri_wei != 0:
                         loss_triplet, info = self.head_triplet(embeddings, labels, return_info=True)
-                        loss_tri_meter.update(loss_triplet.item())
                         grad_tri = torch.autograd.grad(loss_triplet, embeddings, retain_graph=True, create_graph=False,
                                                        only_inputs=True)[0].detach()
                         
@@ -921,7 +1027,7 @@ class face_learner(object):
                     #     gi = torch.norm(grad, dim=1)
                     #     gi /= gi.sum()
                     if gl_conf.fp16:
-                        with amp_handle.scale_loss(loss, self.optimizer) as scaled_loss:
+                        with  self.optimizer.scale_loss(loss) as scaled_loss:
                             scaled_loss.backward()
                     else:
                         loss.backward()
@@ -939,8 +1045,6 @@ class face_learner(object):
                 with torch.no_grad():
                     acc_t = (thetas.argmax(dim=1) == labels)
                     acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
-                    acc_meter.update(acc)
-                    loss_meter.update(loss.item())
                 if gl_conf.online_imp:
                     tau = alpha_tau * tau + \
                           (1 - alpha_tau) * (1 - (1 / (gi ** 2).sum()).item() * (
@@ -970,11 +1074,8 @@ class face_learner(object):
                 #                     loss.backward()
                 #                 else:
                 #                     raise ValueError(f'{conf.fgg}')
-                loss_time.update(
-                    lz.timer.since_last_check(verbose=False)
-                )
                 self.optimizer.step()
-                opt_time.update(
+                loss_time.update(
                     lz.timer.since_last_check(verbose=False)
                 )
                 if self.step % self.board_loss_every == 0:
@@ -983,21 +1084,20 @@ class face_learner(object):
                                  f'loss: {loss.item():.2e} ' +
                                  f'data time: {data_time.avg:.2f} ' +
                                  f'loss time: {loss_time.avg:.2f} ' +
-                                 f'opt time: {opt_time.avg:.2f} ' +
-                                 f'acc: {acc_meter.avg:.2e} ' +
+                                 f'acc: {acc:.2e} ' +
                                  f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     writer.add_scalar('loss/ttl',
-                                      ((1 - gl_conf.tri_wei) * loss_meter.avg +
-                                       gl_conf.tri_wei * loss_tri_meter.avg) / (1 - gl_conf.tri_wei),
+                                      ((1 - gl_conf.tri_wei) * loss.item() +
+                                       gl_conf.tri_wei * loss_tri.item()) / (1 - gl_conf.tri_wei),
                                       self.step)
-                    writer.add_scalar('loss/xent', loss_meter.avg, self.step)
-                    writer.add_scalar('loss/triplet', loss_tri_meter.avg, self.step)
+                    writer.add_scalar('loss/xent', loss.item(), self.step)
                     if gl_conf.tri_wei != 0:
+                        writer.add_scalar('loss/triplet', loss_triplet.item(), self.step)
                         writer.add_scalar('loss/dap', info['dap'], self.step)
                         writer.add_scalar('loss/dan', info['dan'], self.step)
                     
-                    writer.add_scalar('info/acc', acc_meter.avg, self.step)
+                    writer.add_scalar('info/acc', acc, self.step)
                     writer.add_scalar('info/speed',
                                       gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
                     writer.add_scalar('info/datatime', data_time.avg, self.step)

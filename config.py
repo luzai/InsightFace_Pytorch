@@ -2,15 +2,16 @@ from pathlib import Path
 import lz
 from lz import *
 from torch.nn import CrossEntropyLoss
+from vat import VATLoss
 # todo label smooth
 # todo batch read redis
 
 from torchvision import transforms as trans
 
 dist = False
-num_devs = 4
-# lz.init_dev((2,3))
-# lz.init_dev(lz.get_dev(num_devs))
+num_devs = 1
+# lz.init_dev(0)
+lz.init_dev(lz.get_dev(num_devs))
 
 if dist:
     num_devs = 1
@@ -27,7 +28,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/asia.emore.r50.3')
+conf.work_path = Path('work_space/asia.emore.r50.3.bak')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -40,7 +41,7 @@ glint_test = conf.data_path / 'glint_test'
 alpha_f64 = conf.data_path / 'alpha_f64'
 alpha_jk = conf.data_path / 'alpha_jk'
 
-conf.use_data_folder = asia_emore  # conf.emore_folder  # conf.glint_folder #  conf.ms1m_folder #alpha_f64
+conf.use_data_folder = asia_emore  # emore_folder  # conf.glint_folder #  conf.ms1m_folder #alpha_f64
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 
 if conf.use_data_folder == ms1m_folder:
@@ -73,7 +74,6 @@ conf.drop_ratio = 0.4
 conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
 conf.net_depth = 50  # 100 121 169 201 264
 
-# conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # conf.test_transform = trans.Compose([
 #     trans.ToTensor(),
 #     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
@@ -93,9 +93,9 @@ conf.alpha = .95
 conf.temperature = 6
 
 conf.online_imp = False
-conf.use_test = False
+conf.use_test = True
 
-conf.batch_size = 190 * num_devs
+conf.batch_size = 137 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
 conf.other_every = None if not conf.prof else 51
@@ -104,7 +104,7 @@ conf.num_recs = 1
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
-conf.start_epoch = 5  # 0
+conf.start_epoch = 0 # 0
 conf.use_opt = 'sgd'
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
@@ -121,6 +121,7 @@ conf.pin_memory = True
 conf.num_workers = 24 if "amax" in hostname() else 66  # 4
 
 
+# todo may use kl_div to speed up
 class CrossEntropyLabelSmooth(nn.Module):
     """Cross entropy loss with label smoothing regularizer.
     Reference:
@@ -154,6 +155,8 @@ class CrossEntropyLabelSmooth(nn.Module):
 
 conf.ce_loss = CrossEntropyLoss()
 # conf.ce_loss = CrossEntropyLabelSmooth()
+if conf.use_test:
+    conf.vat_loss_func = VATLoss(xi=1e-6, eps=8., ip=1)
 
 training = True  # False means test
 if not training:

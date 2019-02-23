@@ -502,7 +502,7 @@ from torch.nn.utils import weight_norm
 
 class Arcface(Module):
     # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599    
-    def __init__(self, embedding_size=512, classnum=51332, s=gl_conf.scale, m=0.5):
+    def __init__(self, embedding_size=512, classnum=51332, s=gl_conf.scale, m=gl_conf.margin):
         super(Arcface, self).__init__()
         self.classnum = classnum
         # if not use_kernel2:
@@ -526,12 +526,14 @@ class Arcface(Module):
         self.mm = self.sin_m * m  # issue 1
         self.threshold = math.cos(pi - m)
     
-    def forward_eff(self, embbedings, label):
+    def forward_eff(self, embbedings, label=None):
         nB = embbedings.shape[0]
         idx_ = torch.arange(0, nB, dtype=torch.long)
         kernel_norm = l2_norm(self.kernel, axis=0)
         cos_theta = torch.mm(embbedings, kernel_norm)
         cos_theta = cos_theta.clamp(-1, 1)
+        if label is None:
+            return cos_theta * self.s
         output = cos_theta.clone()  # todo avoid copy ttl
         cos_theta_need = cos_theta[idx_, label]
         cos_theta_2 = torch.pow(cos_theta_need, 2)
