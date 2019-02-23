@@ -94,8 +94,9 @@ conf.temperature = 6
 
 conf.online_imp = False
 conf.use_test = True
+conf.train_ratio = .7
 
-conf.batch_size = 137 * num_devs
+conf.batch_size = 250 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
 conf.other_every = None if not conf.prof else 51
@@ -104,7 +105,8 @@ conf.num_recs = 1
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
-conf.start_epoch = 0 # 0
+conf.start_epoch = 0
+conf.start_step = 0
 conf.use_opt = 'sgd'
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
