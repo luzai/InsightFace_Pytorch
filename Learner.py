@@ -799,6 +799,7 @@ class face_learner(object):
                     loader_enum = data_prefetcher(enumerate(loader))
                     ind_data, data = loader_enum.next()
                 if (self.step + 1) % len(loader) == 0:
+                    self.step += 1
                     break
                 imgs = data['imgs']
                 labels_cpu = data['labels_cpu']
@@ -866,7 +867,8 @@ class face_learner(object):
                 else:
                     #  logging.info(f'normal {self.step} {tau} {tau_thresh}')
                     writer.add_scalar('info/sampl', 0, self.step)
-                    imgs.requires_grad_(True)
+                    if gl_conf.use_test:
+                        imgs.requires_grad_(True)
                     embeddings = self.model(imgs, mode=mode)
                     thetas = self.head(embeddings, labels)
                     if not gl_conf.kd:
@@ -902,7 +904,6 @@ class face_learner(object):
                     if gl_conf.tri_wei != 0:
                         loss_triplet, info = self.head_triplet(embeddings, labels, return_info=True)
                         loss_tri_meter.update(loss_triplet.item())
-                        
                         grad_tri = torch.autograd.grad(loss_triplet, embeddings, retain_graph=True, create_graph=False,
                                                        only_inputs=True)[0].detach()
                         
@@ -927,11 +928,11 @@ class face_learner(object):
                     with torch.no_grad():
                         if gl_conf.mining == 'dop':
                             update_dop_cls(thetas, labels_cpu, gl_conf.dop)
-                        #                         if gl_conf.mining == 'imp' :
-#  for lable_, ind_ind_, gi_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy()):
-#      gl_conf.id2range_dop[str(lable_)][ind_ind_] = gl_conf.id2range_dop[str(lable_)][
-#                                                                               ind_ind_] * 0.9 + 0.1 * gi_
-#                             gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].sum()  # todo should be sum?
+                        #  if gl_conf.mining == 'imp' :
+                        #  for lable_, ind_ind_, gi_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy()):
+                        #      gl_conf.id2range_dop[str(lable_)][ind_ind_] = gl_conf.id2range_dop[str(lable_)][
+                        #      ind_ind_] * 0.9 + 0.1 * gi_
+                        #                             gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].sum()  # todo should be sum?
                         if gl_conf.mining == 'rand.id':
                             gl_conf.dop[labels_cpu.numpy()] = 1
                 gl_conf.explored[labels_cpu.numpy()] = 1
@@ -942,8 +943,8 @@ class face_learner(object):
                     loss_meter.update(loss.item())
                 if gl_conf.online_imp:
                     tau = alpha_tau * tau + \
-                      (1 - alpha_tau) * (1 - (1 / (gi ** 2).sum()).item() * (
-                        torch.norm(gi - 1 / len(gi), dim=0) ** 2).item()) ** (-1 / 2)
+                          (1 - alpha_tau) * (1 - (1 / (gi ** 2).sum()).item() * (
+                            torch.norm(gi - 1 / len(gi), dim=0) ** 2).item()) ** (-1 / 2)
                 
                 #                 elif conf.fgg == 'g':
                 #                     embeddings_o = self.model(imgs)

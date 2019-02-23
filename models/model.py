@@ -9,7 +9,7 @@ import functools, logging
 from torch import nn
 import numpy as np
 
-upgrade = True
+upgrade = True # todo
 if gl_conf.use_chkpnt:
     BatchNorm2d = functools.partial(BatchNorm2d, momentum=1 - np.sqrt(0.9))
 
@@ -309,7 +309,7 @@ class Residual(Module):
                 Depth_Wise(c, c, residual=True, kernel=kernel, padding=padding, stride=stride, groups=groups))
         self.model = Sequential(*modules)
     
-    def forward(self, x,):
+    def forward(self, x, ):
         return self.model(x)
 
 
@@ -330,7 +330,7 @@ class MobileFaceNet(Module):
         self.linear = Linear(512, embedding_size, bias=False)
         self.bn = BatchNorm1d(embedding_size)
     
-    def forward(self, x,  *args, **kwargs):
+    def forward(self, x, *args, **kwargs):
         out = self.conv1(x)
         out = self.conv2_dw(out)
         out = self.conv_23(out)
@@ -655,7 +655,7 @@ class TripletLoss(Module):
         # Compute pairwise distance, replace by the official when merged
         dist = torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(n, n)
         dist = dist + dist.t()
-        dist = dist.addmm(1, -2, inputs, inputs.t()).clamp(min=1e-6).sqrt()* gl_conf.scale
+        dist = dist.addmm(1, -2, inputs, inputs.t()).clamp(min=1e-6).sqrt() * gl_conf.scale
         # todo how to use triplet only, can use temprature decay/progessive learinig curriculum learning
         # For each anchor, find the hardest positive and negative
         mask = targets.expand(n, n).eq(targets.expand(n, n).t())

@@ -3,9 +3,8 @@ import torch.nn as nn
 import math
 import torch.utils.model_zoo as model_zoo
 
-
 __all__ = ['FBResNet',
-           #'fbresnet18', 'fbresnet34', 'fbresnet50', 'fbresnet101',
+           # 'fbresnet18', 'fbresnet34', 'fbresnet50', 'fbresnet101',
            'fbresnet152']
 
 pretrained_settings = {
@@ -31,7 +30,7 @@ def conv3x3(in_planes, out_planes, stride=1):
 
 class BasicBlock(nn.Module):
     expansion = 1
-
+    
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
@@ -41,29 +40,29 @@ class BasicBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(planes)
         self.downsample = downsample
         self.stride = stride
-
+    
     def forward(self, x):
         residual = x
-
+        
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
-
+        
         out = self.conv2(out)
         out = self.bn2(out)
-
+        
         if self.downsample is not None:
             residual = self.downsample(x)
-
+        
         out += residual
         out = self.relu(out)
-
+        
         return out
 
 
 class Bottleneck(nn.Module):
     expansion = 4
-
+    
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=True)
@@ -76,31 +75,32 @@ class Bottleneck(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
-
+    
     def forward(self, x):
         residual = x
-
+        
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
-
+        
         out = self.conv2(out)
         out = self.bn2(out)
         out = self.relu(out)
-
+        
         out = self.conv3(out)
         out = self.bn3(out)
-
+        
         if self.downsample is not None:
             residual = self.downsample(x)
-
+        
         out += residual
         out = self.relu(out)
-
+        
         return out
 
-class FBResNet(nn.Module):
 
+class FBResNet(nn.Module):
+    
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         # Special attributs
@@ -111,7 +111,7 @@ class FBResNet(nn.Module):
         super(FBResNet, self).__init__()
         # Modules
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
-                                bias=True)
+                               bias=True)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -121,7 +121,7 @@ class FBResNet(nn.Module):
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7)
         self.last_linear = nn.Linear(512 * block.expansion, num_classes)
-
+        
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -129,7 +129,7 @@ class FBResNet(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
-
+    
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
@@ -138,34 +138,34 @@ class FBResNet(nn.Module):
                           kernel_size=1, stride=stride, bias=True),
                 nn.BatchNorm2d(planes * block.expansion),
             )
-
+        
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes))
-
+        
         return nn.Sequential(*layers)
-
+    
     def features(self, input):
         x = self.conv1(input)
         self.conv1_input = x.clone()
         x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)
-
+        
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
         return x
-
+    
     def logits(self, features):
         x = self.avgpool(features)
         x = x.view(x.size(0), -1)
         x = self.last_linear(x)
         return x
-
+    
     def forward(self, input):
         x = self.features(input)
         x = self.logits(x)
@@ -230,5 +230,3 @@ def fbresnet152(num_classes=1000, pretrained='imagenet'):
         model.mean = settings['mean']
         model.std = settings['std']
     return model
-
-

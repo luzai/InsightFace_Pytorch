@@ -308,20 +308,20 @@ def my_worker_loop(dataset, index_queue, data_queue, done_event, collate_fn, see
 torch.utils.data.dataloader._worker_loop = my_worker_loop
 
 if __name__ == '__main__':
-    from Learner import TorchDataset, RandomIdSampler
-    from config import conf as gl_conf
+    # from Learner import TorchDataset, RandomIdSampler
+    # from config import conf as gl_conf
+    #
+    # ds = TorchDataset(gl_conf.use_data_folder)
+    # loader = torch.utils.data.DataLoader(
+    #     ds, batch_size=conf.batch_size, num_workers=conf.num_workers,
+    #     shuffle=False,
+    #     sampler=RandomIdSampler(ds.imgidx,
+    #                             ds.ids, ds.id2range),
+    #     drop_last=True,
+    #     pin_memory=True,
+    # )
+    # for data in loader:
+    #     print(data.keys())
     
-    ds = TorchDataset(gl_conf.use_data_folder)
-    loader = torch.utils.data.DataLoader(
-        ds, batch_size=conf.batch_size, num_workers=conf.num_workers,
-        shuffle=False,
-        sampler=RandomIdSampler(ds.imgidx,
-                                ds.ids, ds.id2range),
-        drop_last=True,
-        pin_memory=True,
-    )
-    for data in loader:
-        print(data.keys())
-    
-    # cleanup()
+    cleanup()
     # anaylze_imp('emore.r50.dop/')

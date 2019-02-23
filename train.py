@@ -28,19 +28,18 @@ if __name__ == '__main__':
     
     learner = face_learner(conf, )
     
-    ## for pretrain resume or evaluate
     learner.load_state(
-            resume_path=Path('work_space/asia.emore.r152/models/'),
-            load_optimizer=True,
-            load_head=True,
-            load_imp=False,
-            latest=True,
-        )
+        resume_path=Path('work_space/asia.emore.r50.2/models/'),
+        load_optimizer=False,
+        load_head=True,
+        load_imp=False,
+        latest=True,
+    )
     
-    learner.init_lr()
-    conf.tri_wei = 0
-    log_conf(conf)
-    learner.train(conf, 1, mode='finetune',name='ft')
+    # learner.init_lr()
+    # conf.tri_wei = 0
+    # log_conf(conf)
+    # learner.train(conf, 1, mode='finetune', name='ft')
     
     # learner.init_lr()
     # conf.tri_wei = 0

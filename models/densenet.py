@@ -10,10 +10,11 @@ import torch
 from models.model import Linear_block, Flatten, l2_norm
 from config import conf
 
+
 class DenseNet(nn.Module):
     def __init__(self,
                  structure,
-                 norm_act=InPlaceABN if conf.ipabn else ABN ,
+                 norm_act=InPlaceABN if conf.ipabn else ABN,
                  input_3x3=True,
                  growth=32,
                  theta=0.5,

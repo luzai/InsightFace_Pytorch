@@ -9,8 +9,8 @@ from torchvision import transforms as trans
 
 dist = False
 num_devs = 4
-# lz.init_dev(0)
-lz.init_dev(lz.get_dev(num_devs))
+# lz.init_dev((2,3))
+# lz.init_dev(lz.get_dev(num_devs))
 
 if dist:
     num_devs = 1
@@ -27,7 +27,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/asia.emore.r152.2')
+conf.work_path = Path('work_space/asia.emore.r50.3')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -61,7 +61,7 @@ conf.rand_ratio = 9 / 27
 conf.margin = 0.4
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
-conf.tri_wei = 0.5
+conf.tri_wei = 0
 conf.scale = 64.
 conf.start_eval = False
 conf.instances = 4
@@ -71,14 +71,16 @@ conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
 conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
-conf.net_depth = 152  # 100 121 169 201 264
+conf.net_depth = 50  # 100 121 169 201 264
 
 # conf.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # conf.test_transform = trans.Compose([
 #     trans.ToTensor(),
 #     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 # ])
-
+conf.use_redis = False
+conf.use_chkpnt = False
+conf.chs_first = True
 conf.prof = False
 conf.fast_load = True
 conf.fp16 = True
@@ -89,15 +91,12 @@ conf.kd = False
 conf.sftlbl_from_file = False
 conf.alpha = .95
 conf.temperature = 6
+
 conf.online_imp = False
-conf.batch_size = 130 * num_devs
-conf.ftbs_mult = 2
 conf.use_test = False
 
-conf.use_redis = False
-conf.use_chkpnt = False
-conf.chs_first = True
-
+conf.batch_size = 190 * num_devs
+conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
@@ -105,7 +104,7 @@ conf.num_recs = 1
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
-conf.start_epoch = 0  # 0
+conf.start_epoch = 5  # 0
 conf.use_opt = 'sgd'
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
@@ -113,10 +112,10 @@ conf.lr = 1e-1  # 3e-3  0.1 4e-2 5e-4  # tri 6e-4
 conf.lr_gamma = 0.1
 # conf.epochs = 25
 # conf.milestones = [14, 19, 22]
-# conf.epochs = 12
-# conf.milestones = [5, 8, 10]
-conf.epochs = 9
-conf.milestones = [2, 5, 7]
+conf.epochs = 12
+conf.milestones = [5, 8, 10]
+# conf.epochs = 9
+# conf.milestones = [2, 5, 7]
 conf.momentum = 0.9
 conf.pin_memory = True
 conf.num_workers = 24 if "amax" in hostname() else 66  # 4
@@ -132,7 +131,7 @@ class CrossEntropyLabelSmooth(nn.Module):
         epsilon (float): weight.
     """
     
-    def __init__(self,  epsilon=0.1,):
+    def __init__(self, epsilon=0.1, ):
         super(CrossEntropyLabelSmooth, self).__init__()
         self.epsilon = epsilon
         self.logsoftmax = nn.LogSoftmax(dim=1)
@@ -144,11 +143,11 @@ class CrossEntropyLabelSmooth(nn.Module):
             targets: ground truth labels with shape (num_classes)
         """
         log_probs = self.logsoftmax(inputs)
-        targets1= torch.zeros(log_probs.size()).scatter_(
+        targets1 = torch.zeros(log_probs.size()).scatter_(
             1, targets.unsqueeze(1).data.cpu(), 1).cuda()
         # targets2 = torch.cuda.FloatTensor(inputs.size()).fill_(0).scatter_(1, targets.unsqueeze(1).detach(), 1)
         targets3 = (1 - self.epsilon) * targets1 + \
-                  self.epsilon / inputs.shape[1]
+                   self.epsilon / inputs.shape[1]
         loss = (-targets3 * log_probs).mean(0).sum()
         return loss
 
