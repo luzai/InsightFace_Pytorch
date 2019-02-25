@@ -31,9 +31,10 @@ try:
     
     if gl_conf.fp16:
         amp.register_half_function(torch, 'prelu')
+        # amp.register_promote_function(torch, 'prelu')
         amp.register_half_function(torch, 'pow')
-        amp.register_half_function(torch, 'norm')
-        amp.register_half_function(torch, 'div')
+        # amp.register_half_function(torch, 'norm') # dangerous
+        pass
     amp_handle = amp.init(enabled=gl_conf.fp16)
 except ImportError:
     logging.error("Please install apex from https://www.github.com/nvidia/apex to run this example.")
@@ -197,6 +198,7 @@ class TorchDataset(object):
             self.teacher_embedding_db = lz.Database('work_space/teacher_embedding.h5', 'r')
         if gl_conf.use_test:
             self.rec_test = get_rec('/data2/share/glint_test/train.idx')
+            # todo ijbc ...
     
     def __len__(self):
         if gl_conf.local_rank is not None:
@@ -501,18 +503,10 @@ class FaceInfer():
         if conf.net_mode == 'mobilefacenet':
             self.model = MobileFaceNet(conf.embedding_size)
             print('MobileFaceNet model generated')
-        # elif conf.net_mode == 'nasnetamobile':
-        #     self.model = nasnetamobile(512)
-        # elif conf.net_mode == 'seresnext50':
-        #     self.model = se_resnext50_32x4d(512, )
-        # elif conf.net_mode == 'seresnext101':
-        #     self.model = se_resnext101_32x4d(512)
         elif conf.net_mode == 'ir_se' or conf.net_mode == 'ir':
             self.model = Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)
         else:
             raise ValueError(conf.net_mode)
-        #         embed()
-        #         pdb.set_trace()
         self.model = self.model.eval()
         dev = torch.device(f'cuda:{gpuid}')
         self.model = torch.nn.DataParallel(self.model,
@@ -735,6 +729,104 @@ class face_learner(object):
         self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
             self.dataset.root_path)  # todo postpone load eval
     
+    def train_simple(self, conf, epochs):
+        self.model.train()
+        loader = self.loader
+        self.evaluate_every = gl_conf.other_every or len(loader) // 3
+        self.save_every = gl_conf.other_every or len(loader) // 3
+        self.step = gl_conf.start_step
+        writer = self.writer
+        lz.timer.since_last_check('start train')
+        data_time = lz.AverageMeter()
+        loss_time = lz.AverageMeter()
+        accuracy = 0
+        
+        for e in range(conf.start_epoch, epochs):
+            lz.timer.since_last_check('epoch {} started'.format(e))
+            self.schedule_lr(e)
+            loader_enum = data_prefetcher(enumerate(loader))
+            while True:
+                ind_data, data = loader_enum.next()
+                if ind_data is None:
+                    logging.info(f'one epoch finish {e} {ind_data}')
+                    loader_enum = data_prefetcher(enumerate(loader))
+                    ind_data, data = loader_enum.next()
+                if (self.step + 1) % len(loader) == 0:
+                    self.step += 1
+                    break
+                imgs = data['imgs']
+                labels_cpu = data['labels_cpu']
+                labels = data['labels']
+                data_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
+                self.optimizer.zero_grad()
+                embeddings = self.model(imgs, mode='train')
+                thetas = self.head(embeddings, labels)
+                loss_xent = conf.ce_loss(thetas, labels)
+                if gl_conf.fp16:
+                    with self.optimizer.scale_loss(loss_xent) as scaled_loss:
+                        scaled_loss.backward()
+                else:
+                    loss_xent.backward()
+                with torch.no_grad():
+                    if gl_conf.mining == 'dop':
+                        update_dop_cls(thetas, labels_cpu, gl_conf.dop)
+                    if gl_conf.mining == 'rand.id':
+                        gl_conf.dop[labels_cpu.numpy()] = 1
+                gl_conf.explored[labels_cpu.numpy()] = 1
+                with torch.no_grad():
+                    acc_t = (thetas.argmax(dim=1) == labels)
+                    acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
+                self.optimizer.step()
+                loss_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
+                if self.step % self.board_loss_every == 0:
+                    logging.info(f'epoch {e}/{epochs} step {self.step}/{len(loader)}: ' +
+                                 f'xent: {loss_xent.item():.2e} ' +
+                                 f'data time: {data_time.avg:.2f} ' +
+                                 f'loss time: {loss_time.avg:.2f} ' +
+                                 f'acc: {acc:.2e} ' +
+                                 f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                    writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
+                    writer.add_scalar('loss/xent', loss_xent.item(), self.step)
+                    writer.add_scalar('info/acc', acc, self.step)
+                    writer.add_scalar('info/speed', gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                    writer.add_scalar('info/datatime', data_time.avg, self.step)
+                    writer.add_scalar('info/losstime', loss_time.avg, self.step)
+                    writer.add_scalar('info/epoch', e, self.step)
+                    dop = gl_conf.dop
+                    writer.add_histogram('top_imp', dop, self.step)
+                    writer.add_scalar('info/doprat',
+                                      np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
+                
+                if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
+                                                                                          self.loader.dataset.root_path,
+                                                                                          'agedb_30')
+                    self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor, writer)
+                    logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
+                                                                                          self.loader.dataset.root_path,
+                                                                                          'lfw')
+                    self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor, writer)
+                    logging.info(f'validation accuracy on lfw is {accuracy} ')
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
+                                                                                          self.loader.dataset.root_path,
+                                                                                          'cfp_fp')
+                    self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor, writer)
+                    logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
+                if self.step % self.save_every == 0 and self.step != 0:
+                    self.save_state(conf, accuracy)
+                
+                self.step += 1
+                if gl_conf.prof and self.step % 29 == 28:
+                    break
+            if gl_conf.prof and e > 5:
+                break
+        self.save_state(conf, accuracy, to_save_folder=True, extra='final')
+    
     def train_use_test(self, conf, epochs):
         self.model.train()
         loader = self.loader
@@ -771,11 +863,12 @@ class face_learner(object):
                     # imgs.requires_grad_(True)
                     loss_vat = conf.vat_loss_func(self.model, self.head, imgs)
                     # imgs.requires_grad_(False)
-                    if gl_conf.fp16:
-                        with self.optimizer.scale_loss(loss_vat) as scaled_loss:
-                            scaled_loss.backward()
-                    else:
-                        loss_vat.backward()
+                    if loss_vat != 0:
+                        if gl_conf.fp16:
+                            with self.optimizer.scale_loss(loss_vat) as scaled_loss:
+                                scaled_loss.backward()
+                        else:
+                            loss_vat.backward()
                 embeddings = self.model(imgs, mode='train')
                 thetas = self.head(embeddings, labels)
                 mask = data['is_trains'] == 1
@@ -855,7 +948,7 @@ class face_learner(object):
             if gl_conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-
+    
     def train_simple(self, conf, epochs):
         self.model.train()
         loader = self.loader
@@ -927,7 +1020,7 @@ class face_learner(object):
                     writer.add_histogram('top_imp', dop, self.step)
                     writer.add_scalar('info/doprat',
                                       np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
-            
+                
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
                                                                                           self.loader.dataset.root_path,
@@ -946,14 +1039,14 @@ class face_learner(object):
                     logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-            
+                
                 self.step += 1
                 if gl_conf.prof and self.step % 29 == 28:
                     break
             if gl_conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-
+    
     def train(self, conf, epochs, mode='train', name=None):
         self.model.train()
         if mode == 'train':
@@ -1251,7 +1344,7 @@ class face_learner(object):
                     save_path /
                     ('head_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
                                                                  extra)))
-            self.head.cuda()
+                self.head.cuda()
             torch.save(
                 self.optimizer.state_dict(),
                 save_path /
@@ -1590,7 +1683,7 @@ class face_learner(object):
                        F.cross_entropy(outputs, labels) * (1. - alpha)  # todo wrong here
             if gl_conf.tri_wei != 0:
                 loss_triplet = self.head_triplet(embeddings, labels)
-                loss = (1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet
+                loss = (1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet  # todo
             # Compute the smoothed loss
             avg_loss = beta * avg_loss + (1 - beta) * loss.item()
             self.writer.add_scalar('avg_loss', avg_loss, batch_num)
