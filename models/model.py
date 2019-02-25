@@ -9,7 +9,7 @@ import functools, logging
 from torch import nn
 import numpy as np
 
-upgrade = True # todo
+upgrade = True  # todo
 if gl_conf.use_chkpnt:
     BatchNorm2d = functools.partial(BatchNorm2d, momentum=1 - np.sqrt(0.9))
 
@@ -533,7 +533,8 @@ class Arcface(Module):
         cos_theta = torch.mm(embbedings, kernel_norm)
         cos_theta = cos_theta.clamp(-1, 1)
         if label is None:
-            return cos_theta * self.s
+            cos_theta *= self.s
+            return cos_theta
         output = cos_theta.clone()  # todo avoid copy ttl
         cos_theta_need = cos_theta[idx_, label]
         cos_theta_2 = torch.pow(cos_theta_need, 2)
@@ -545,9 +546,8 @@ class Arcface(Module):
         if torch.any(cond_mask).item():
             logging.info('this concatins a difficult sample')
         keep_val = (cos_theta_need - self.mm)  # when theta not in [0,pi], use cosface instead
-        cos_theta_m[cond_mask] = keep_val[cond_mask]
-        
-        output[idx_, label] = cos_theta_m
+        cos_theta_m[cond_mask] = keep_val[cond_mask].type_as(cos_theta_m)
+        output[idx_, label] = cos_theta_m.type_as(output)
         output *= self.s  # scale up in order to make softmax work, first introduced in normface
         # with torch.no_grad():
         #     o2 = self.forward_neff(embbedings, label)

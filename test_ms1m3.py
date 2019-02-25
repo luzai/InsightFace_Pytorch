@@ -1,13 +1,14 @@
 import cv2
-from PIL import Image
 import argparse
 from pathlib import Path
-import torch
-from config import get_config
-from mtcnn import MTCNN
-from Learner import face_learner
+import torch, logging
+from config import conf
 from utils import load_facebank, draw_box_name, prepare_facebank
+from Learner import l2_norm, FaceInfer, get_rec, unpack_auto
+from PIL import Image
+from torchvision import transforms as trans
 from lz import *
+import mxnet as mx
 
 """
 We use the same format as Megaface(http://megaface.cs.washington.edu) 
@@ -41,60 +42,63 @@ def save_mat(filename, m):
     return write_mat(open(filename, 'wb'), m)
 
 
-ijb_path = '/data2/share/ijbc/'
-ms1m_path = '/data1/share/'
+ms1m_path = '/data2/share/'
 ms1m_lmk_path = '/data1/share/testdata_lmk.txt'
-
-# for ind, imgfn in enumerate(glob.iglob(f'{ms1m_path}/*/*/*.jpg') ) :
-#     print(ind, imgfn)
-#     if ind>5:break
-
-# lmks = np.loadtxt('/data1/share/testdata_lmk.txt', dtype=object, delimiter=' ')
-# msgpack_dump(lmks, work_path + 'lmk.pk')
-# lmks = msgpack_load(work_path + 'lmk.pk')
-lmks = pd.read_csv('/data1/share/testdata_lmk.txt', sep=' ', header=None).to_records(index=False).tolist()
+lmks = pd.read_csv(ms1m_lmk_path, sep=' ', header=None).to_records(index=False).tolist()
+logging.info(f'len lmks {len(lmks)}')
+rec_test = get_rec('/data2/share/glint_test/train.idx')
+use_rec = True
 
 
-# chkpnt_path = Path('work_space/arcsft.bs2')
 def img2db():
-    chkpnt_path = Path('work_space/arcsft.triadap.s64.0.1')
-    model_path = chkpnt_path / 'save'
-    conf = get_config(training=False, work_path=chkpnt_path)
-    learner = face_learner(conf, inference=True)
-    learner.load_state(conf, None, True, True)
+    conf.need_log = False
+    conf.batch_size *= 2
+    learner = FaceInfer(conf, )
+    learner.load_state(
+        resume_path='work_space/asia.emore.r50.5/models/',
+        latest=True,
+    )
     learner.model.eval()
     logging.info('learner loaded')
     
-    from Learner import l2_norm
-    from PIL import Image
-    
     class DatasetMS1M3(torch.utils.data.Dataset):
         def __init__(self):
-            pass
+            self.test_transform = trans.Compose([
+                trans.ToTensor(),
+                trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+            ])
         
         def __getitem__(self, item):
-            data = lmks[item]
-            imgfn = data[0]
-            lmk = np.asarray(data[1:])
-            img = cvb.read_img(f'{ms1m_path}/{imgfn}')
+            if not use_rec:
+                data = lmks[item]
+                imgfn = data[0]
+                lmk = np.asarray(data[1:])
+                img = cvb.read_img(f'{ms1m_path}/{imgfn}')  # bgr
+                img = cvb.bgr2rgb(img) # rgb
+            else:
+                rec_test.lock.acquire()
+                s = rec_test.imgrec.read_idx(item + 1)
+                rec_test.lock.release()
+                header, img = unpack_auto(s, 'glint_test')
+                img = mx.image.imdecode(img) # rgb
+                img = np.array(img, dtype=np.float32)
             warp_img = preprocess(img, landmark=lmk)
-            # plt_imshow(img)
-            # plt.show()
-            # plt_imshow(warp_img)
-            # plt.show()
+            plt_imshow(img)
+            plt.show()
+            plt_imshow(warp_img)
+            plt.show()
             warp_img = Image.fromarray(warp_img)
             flip_img = torchvision.transforms.functional.hflip(warp_img)
-            warp_img = conf.test_transform(warp_img)
-            flip_img = conf.test_transform(flip_img)
+            warp_img = self.test_transform(warp_img)
+            flip_img = self.test_transform(flip_img)
             return {'img': warp_img,
-                    'flip_img': flip_img,
-                    }
+                    'flip_img': flip_img, }
         
         def __len__(self):
             return len(lmks)
     
     ds = DatasetMS1M3()
-    bs = 128 * 4 * 2
+    bs = 128 * 4
     loader = torch.utils.data.DataLoader(ds, batch_size=bs, num_workers=0, shuffle=False, pin_memory=True)
     db = Database(work_path + 'sfttri.h5', )
     for ind, data in enumerate(loader):

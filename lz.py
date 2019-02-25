@@ -1113,7 +1113,7 @@ def show_img(path):
     return fig
 
 
-def plt_imshow(img, ax=None, keep_ori_size=True):
+def plt_imshow(img, ax=None, keep_ori_size=False):
     img = to_img(img)
     if ax is None:
         h, w, c, = img.shape

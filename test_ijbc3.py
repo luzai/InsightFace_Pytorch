@@ -30,20 +30,19 @@ except:
 use_mxnet = False
 if use_mxnet:
     from recognition.embedding import Embedding
-    
     #     learner = Embedding( prefix='/home/zl/prj/models/r100_se_base+mhyset_0602-0724_ft_bninit_pk/r100_se_base+mhyset_0602-0724_ft_bninit_pk', epoch=45, ctx_id=7)
     #     learner = Embedding( prefix='/home/zl/prj/models/r100_loss4_mxnet/r100_loss4_mxnet', epoch=13, ctx_id=7)
     learner = Embedding(prefix='/home/zl/prj/models/MS1MV2-ResNet100-Arcface/MS1MV2-ResNet100-Arcface', epoch=22,
                         ctx_id=7)
 else:
-    from Learner import face_learner
+    from Learner import FaceInfer
     from config import conf
     
     conf.need_log = False
     conf.batch_size *= 2
-    learner = face_learner(conf, )
+    learner = FaceInfer(conf, )
     learner.load_state(
-        resume_path='work_space/emore.r152.cont/models/',
+        resume_path='work_space/asia.emore.r50.5/models/',
         latest=True,
     )
     learner.model.eval()

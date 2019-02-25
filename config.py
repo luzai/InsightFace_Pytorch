@@ -28,7 +28,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/asia.emore.r50.3.bak')
+conf.work_path = Path('work_space/asia.emore.r50.test')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -93,10 +93,10 @@ conf.alpha = .95
 conf.temperature = 6
 
 conf.online_imp = False
-conf.use_test = True
+conf.use_test = True  # todo 'ijbc' 'glint'
 conf.train_ratio = .7
 
-conf.batch_size = 250 * num_devs
+conf.batch_size = 145 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
 conf.other_every = None if not conf.prof else 51
@@ -110,12 +110,12 @@ conf.start_step = 0
 conf.use_opt = 'sgd'
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
-conf.lr = 1e-1  # 3e-3  0.1 4e-2 5e-4  # tri 6e-4
+conf.lr = 1e-3  # 3e-3  0.1 4e-2 5e-4  # tri 6e-4
 conf.lr_gamma = 0.1
 # conf.epochs = 25
 # conf.milestones = [14, 19, 22]
-conf.epochs = 12
-conf.milestones = [5, 8, 10]
+conf.epochs = 3
+conf.milestones = []
 # conf.epochs = 9
 # conf.milestones = [2, 5, 7]
 conf.momentum = 0.9
@@ -158,7 +158,7 @@ class CrossEntropyLabelSmooth(nn.Module):
 conf.ce_loss = CrossEntropyLoss()
 # conf.ce_loss = CrossEntropyLabelSmooth()
 if conf.use_test:
-    conf.vat_loss_func = VATLoss(xi=1e-6, eps=8., ip=1)
+    conf.vat_loss_func = VATLoss(xi=1e-6, eps=8, ip=1)
 
 training = True  # False means test
 if not training:

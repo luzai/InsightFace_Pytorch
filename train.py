@@ -28,13 +28,13 @@ if __name__ == '__main__':
     
     learner = face_learner(conf, )
     
-    # learner.load_state(
-    #     resume_path=Path('work_space/asia.emore.r50.2/models/'),
-    #     load_optimizer=False,
-    #     load_head=True,
-    #     load_imp=False,
-    #     latest=True,
-    # )
+    learner.load_state(
+        resume_path=Path('work_space/asia.emore.r50.5/models/'),
+        load_optimizer=True,
+        load_head=True,
+        load_imp=False,
+        latest=True,
+    )
     
     # learner.init_lr()
     # conf.tri_wei = 0
@@ -50,6 +50,7 @@ if __name__ == '__main__':
     conf.tri_wei = 0
     log_conf(conf)
     # learner.train(conf, conf.epochs)
+    # learner.train_simple(conf, conf.epochs)
     learner.train_use_test(conf, conf.epochs)
     
     # learner.validate(conf,)
