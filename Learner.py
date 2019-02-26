@@ -11,9 +11,6 @@ from utils import get_time, gen_plot, hflip_batch, separate_bn_paras, hflip
 from PIL import Image
 from torchvision import transforms as trans
 import os, random, logging, numbers, math
-import mxnet as mx
-from mxnet import ndarray as nd
-from mxnet import recordio
 import torch, os.path as osp
 from pathlib import Path
 from torch.utils.data import DataLoader
@@ -23,7 +20,13 @@ from torch import nn
 import torch.multiprocessing as mp
 from torch.utils.data.sampler import Sampler
 from torch.nn import functional as F
-
+try:
+    import mxnet as mx
+    from mxnet import ndarray as nd
+    from mxnet import recordio
+except ImportError:
+    logging.warning('if want to train, install mxnet')
+    gl_conf.training=False
 try:
     from apex.parallel import DistributedDataParallel as DDP
     from apex.fp16_utils import *
@@ -37,7 +40,7 @@ try:
         pass
     amp_handle = amp.init(enabled=gl_conf.fp16)
 except ImportError:
-    logging.error("Please install apex from https://www.github.com/nvidia/apex to run this example.")
+    logging.warning("if want to use fp16, install apex from https://www.github.com/nvidia/apex to run this example.")
     gl_conf.fp16 = False
 
 
@@ -110,6 +113,44 @@ def get_rec(p='/data2/share/faces_emore/train.idx'):
     self.ids = np.asarray(self.ids)
     self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
     return self
+
+
+class DatasetIJBC2(torch.utils.data.Dataset):
+    def __init__(self, ):
+        self.test_transform = trans.Compose([
+            trans.ToTensor(),
+            trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+        ])
+        IJBC_path = '/data1/share/IJB_release/' if 'amax' in lz.hostname() else '/home/zl/zl_data/IJB_release/'
+        img_list_path = IJBC_path + './IJBC/meta/ijbc_name_5pts_score.txt'
+        img_list = open(img_list_path)
+        files = img_list.readlines()
+        img_path = '/share/data/loose_crop'
+        if not osp.exists(img_path):
+            img_path = IJBC_path + './IJBC/loose_crop'
+        self.img_path = img_path
+        self.IJBC_path = IJBC_path
+        self.files = files
+    
+    def __len__(self):
+        return len(self.files)
+    
+    def __getitem__(self, item):
+        import cvbase as cvb
+        from PIL import Image
+        img_index = item
+        each_line = self.files[img_index]
+        name_lmk_score = each_line.strip().split(' ')
+        img_name = os.path.join(self.img_path, name_lmk_score[0])
+        img = cvb.read_img(img_name)
+        img = cvb.bgr2rgb(img)  # this is RGB
+        assert img is not None, img_name
+        lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
+        lmk = lmk.reshape((5, 2))
+        warp_img = lz.preprocess(img, landmark=lmk)
+        warp_img = Image.fromarray(warp_img)
+        img = self.test_transform(warp_img)
+        return img
 
 
 class TorchDataset(object):
@@ -197,8 +238,10 @@ class TorchDataset(object):
         if gl_conf.kd and gl_conf.sftlbl_from_file:
             self.teacher_embedding_db = lz.Database('work_space/teacher_embedding.h5', 'r')
         if gl_conf.use_test:
-            self.rec_test = get_rec('/data2/share/glint_test/train.idx')
-            # todo ijbc ...
+            if gl_conf.use_test == 'ijbc':
+                self.rec_test = DatasetIJBC2()
+            else:
+                self.rec_test = get_rec('/data2/share/glint_test/train.idx')
     
     def __len__(self):
         if gl_conf.local_rank is not None:
@@ -251,13 +294,17 @@ class TorchDataset(object):
         # index += 1  # noneed,  here it index (imgidx) start from 1,.rec start from 1
         # assert index != 0 and index < len(self) + 1 # index can > len(self)
         if gl_conf.use_test and np.random.rand() > gl_conf.train_ratio:
-            index = np.random.randint(1, max(self.rec_test.imgidx))
-            self.rec_test.lock.acquire()
-            s = self.rec_test.imgrec.read_idx(index)
-            self.rec_test.lock.release()
-            header, img = unpack_auto(s, 'glint_test')
-            imgs = self.imdecode(img)
-            imgs = self.preprocess_img(imgs)
+            if gl_conf.use_test == 'ijbc':
+                index = np.random.randint(0, len(self.rec_test))
+                imgs = self.rec_test[index]
+            else:
+                index = np.random.randint(1, max(self.rec_test.imgidx)+1)
+                self.rec_test.lock.acquire()
+                s = self.rec_test.imgrec.read_idx(index)
+                self.rec_test.lock.release()
+                header, img = unpack_auto(s, 'glint_test')
+                imgs = self.imdecode(img)
+                imgs = self.preprocess_img(imgs)
             return {'imgs': np.array(imgs, dtype=np.float32), 'labels': -1, 'indexes': index,
                     'ind_inds': -1, 'is_trains': False}
         succ = False
@@ -532,8 +579,15 @@ class FaceInfer():
             modelp = save_path / 'model_{}'.format(fixed_str)
         logging.info(f'you are using gpu, load model, {modelp}')
         model_state_dict = torch.load(modelp, map_location=lambda storage, loc: storage)
-        #         embed()
         model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
+        if gl_conf.cvt_ipabn:
+            import copy
+            model_state_dict2 = copy.deepcopy(model_state_dict)
+            for k in model_state_dict2.keys():
+                if 'running_mean' in k:
+                    name = k.replace('running_mean', 'weight')
+                    model_state_dict2[name] = torch.abs(model_state_dict[name])
+            model_state_dict = model_state_dict2
         if list(model_state_dict.keys())[0].startswith('module'):
             self.model.load_state_dict(model_state_dict, strict=True, )
         else:
@@ -1257,10 +1311,6 @@ class face_learner(object):
                                  f'acc: {acc:.2e} ' +
                                  f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
-                    writer.add_scalar('loss/ttl',
-                                      ((1 - gl_conf.tri_wei) * loss.item() +
-                                       gl_conf.tri_wei * loss_tri.item()) / (1 - gl_conf.tri_wei),
-                                      self.step)
                     writer.add_scalar('loss/xent', loss.item(), self.step)
                     if gl_conf.tri_wei != 0:
                         writer.add_scalar('loss/triplet', loss_triplet.item(), self.step)

@@ -1,5 +1,11 @@
-# InsightFace_Pytorch
-Pytorch0.4 codes for InsightFace
+# OPPO AI -- Face Recognition
+
+## Environment:
+
+- Ubuntu 16.04
+- pytorch=0.4.1 
+- Anaconda3, python3.6  
+ 
 
 - - -
 ## 1. Intro

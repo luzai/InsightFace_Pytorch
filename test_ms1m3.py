@@ -74,19 +74,19 @@ def img2db():
                 imgfn = data[0]
                 lmk = np.asarray(data[1:])
                 img = cvb.read_img(f'{ms1m_path}/{imgfn}')  # bgr
-                img = cvb.bgr2rgb(img) # rgb
+                img = cvb.bgr2rgb(img)  # rgb
+                warp_img = preprocess(img, landmark=lmk)
             else:
                 rec_test.lock.acquire()
                 s = rec_test.imgrec.read_idx(item + 1)
                 rec_test.lock.release()
                 header, img = unpack_auto(s, 'glint_test')
-                img = mx.image.imdecode(img) # rgb
-                img = np.array(img, dtype=np.float32)
-            warp_img = preprocess(img, landmark=lmk)
-            plt_imshow(img)
-            plt.show()
-            plt_imshow(warp_img)
-            plt.show()
+                img = mx.image.imdecode(img).asnumpy()  # rgb
+                warp_img = np.array(img, dtype=np.uint8)
+            #plt_imshow(img)
+            #plt.show()
+            #plt_imshow(warp_img)
+            #plt.show()
             warp_img = Image.fromarray(warp_img)
             flip_img = torchvision.transforms.functional.hflip(warp_img)
             warp_img = self.test_transform(warp_img)

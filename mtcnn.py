@@ -9,6 +9,8 @@ import cvbase as cvb
 from lz import *
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+
 # device = 'cpu'
 
 class MTCNN():
@@ -45,34 +47,39 @@ class MTCNN():
             faces.append(Image.fromarray(warped_face))
         return boxes, faces
     
-    def align_best(self, img, limit=None, min_face_size=20.0, ori_img=None):
-        boxes, landmarks = self.detect_faces(img, min_face_size)
-        img = to_numpy(img)
-        if limit:
-            boxes = boxes[:limit]
-            landmarks = landmarks[:limit]
-        nrof_faces = len(boxes)
-        boxes = np.asarray(boxes)
-        if nrof_faces > 0:
-            det = boxes[:, 0:4]
-            img_size = np.asarray(img.shape)[0:2]
-            bindex = 0
-            if nrof_faces > 1:
-                bounding_box_size = (det[:, 2] - det[:, 0]) * (det[:, 3] - det[:, 1])
-                img_center = img_size / 2
-                offsets = np.vstack(
-                    [(det[:, 0] + det[:, 2]) / 2 - img_center[1], (det[:, 1] + det[:, 3]) / 2 - img_center[0]])
-                offset_dist_squared = np.sum(np.power(offsets, 2.0), 0)
-                bindex = np.argmax(
-                    bounding_box_size - offset_dist_squared * 2.0)  # some extra weight on the centering
-            boxes = boxes[bindex, 0:4]
-            landmarks = landmarks[bindex, :]
-            facial5points = [[landmarks[j], landmarks[j + 5]] for j in range(5)]
-            warped_face = warp_and_crop_face(np.array(img), facial5points, self.refrence, crop_size=(112, 112))
-            return to_image(warped_face)
-        else:
+    def align_best(self, img, limit=None, min_face_size=20.0, ):
+        try:
+            boxes, landmarks = self.detect_faces(img, min_face_size, thresholds=[0.1, 0.1, 0.9])
+            img = to_numpy(img)
+            if limit:
+                boxes = boxes[:limit]
+                landmarks = landmarks[:limit]
+            nrof_faces = len(boxes)
+            boxes = np.asarray(boxes)
+            if nrof_faces > 0:
+                det = boxes[:, 0:4]
+                img_size = np.asarray(img.shape)[0:2]
+                bindex = 0
+                if nrof_faces > 1:
+                    bounding_box_size = (det[:, 2] - det[:, 0]) * (det[:, 3] - det[:, 1])
+                    img_center = img_size / 2
+                    offsets = np.vstack(
+                        [(det[:, 0] + det[:, 2]) / 2 - img_center[1], (det[:, 1] + det[:, 3]) / 2 - img_center[0]])
+                    offset_dist_squared = np.sum(np.power(offsets, 2.0), 0)
+                    bindex = np.argmax(
+                        bounding_box_size - offset_dist_squared * 2.0)  # some extra weight on the centering
+                boxes = boxes[bindex, 0:4]
+                landmarks = landmarks[bindex, :]
+                facial5points = [[landmarks[j], landmarks[j + 5]] for j in range(5)]
+                warped_face = warp_and_crop_face(np.array(img), facial5points, self.refrence, crop_size=(112, 112))
+                return to_image(warped_face)
+            else:
+                logging.warning(f'no face detected')
+                return to_image(img).resize((112, 112), Image.BILINEAR)
+        except Exception as e:
+            logging.warning(f'face detect fail, err {e}')
             return to_image(img).resize((112, 112), Image.BILINEAR)
-    
+
     def detect_faces(self, image, min_face_size=20.0,
                      thresholds=[0.6, 0.7, 0.8],
                      # thresholds=[0.6, 0.7, 0.9],

@@ -6,12 +6,11 @@ from vat import VATLoss
 # todo label smooth
 # todo batch read redis
 
-from torchvision import transforms as trans
 
 dist = False
 num_devs = 1
-# lz.init_dev(0)
-lz.init_dev(lz.get_dev(num_devs))
+lz.init_dev(3)
+# lz.init_dev(lz.get_dev(num_devs))
 
 if dist:
     num_devs = 1
@@ -28,7 +27,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/asia.emore.r50.test')
+conf.work_path = Path('work_space/asia.emore.r50.test.ijbc')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -93,10 +92,10 @@ conf.alpha = .95
 conf.temperature = 6
 
 conf.online_imp = False
-conf.use_test = True  # todo 'ijbc' 'glint'
+conf.use_test = 'ijbc'  # 'ijbc' 'glint' False
 conf.train_ratio = .7
 
-conf.batch_size = 145 * num_devs
+conf.batch_size = 150 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
 conf.other_every = None if not conf.prof else 51

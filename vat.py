@@ -52,7 +52,7 @@ class VATLoss(nn.Module):
                 fea_hat = model(x + self.xi * d)
                 pred_hat = head(fea_hat)
                 logp_hat = F.log_softmax(pred_hat, dim=1)
-                adv_distance = F.kl_div(logp_hat, pred, reduction='batchmean') / 1e2
+                adv_distance = F.kl_div(logp_hat, pred, reduction='batchmean')
                 # d = torch.autograd.grad(outputs=adv_distance, inputs=d,
                 #                         create_graph=False, retain_graph=False, only_inputs=True)[0].detach()
                 # d = _l2_normalize(d)

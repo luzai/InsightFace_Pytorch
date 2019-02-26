@@ -27,7 +27,7 @@ logging.info('learner loaded')
 
 def imgp2face(img_path1):
     img1 = io.imread(img_path1)  # this is rgb
-    img1 = img1[..., ::-1]
+    img1 = img1[..., ::-1] # bgr
     img1 = Image.fromarray(img1)
     face = mtcnn.align_best(img1, conf.face_limit, 16)
     # todo better align

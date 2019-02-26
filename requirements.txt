@@ -1,11 +1,11 @@
 h5py
 tensorboardX
 tabulate
-# tensorflow-gpu
-# torch
+tensorflow-gpu
+torch
 tensorboard
 tqdm
-mxnet-cu90
+# mxnet-cu90
 tqdm
 easydict
 scikit-learn

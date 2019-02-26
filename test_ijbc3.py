@@ -30,8 +30,6 @@ except:
 use_mxnet = False
 if use_mxnet:
     from recognition.embedding import Embedding
-    #     learner = Embedding( prefix='/home/zl/prj/models/r100_se_base+mhyset_0602-0724_ft_bninit_pk/r100_se_base+mhyset_0602-0724_ft_bninit_pk', epoch=45, ctx_id=7)
-    #     learner = Embedding( prefix='/home/zl/prj/models/r100_loss4_mxnet/r100_loss4_mxnet', epoch=13, ctx_id=7)
     learner = Embedding(prefix='/home/zl/prj/models/MS1MV2-ResNet100-Arcface/MS1MV2-ResNet100-Arcface', epoch=22,
                         ctx_id=7)
 else:
@@ -47,10 +45,6 @@ else:
     )
     learner.model.eval()
 
-# logging.info('learner loaded')
-
-# use_topk = 999
-# df_pair = df_pair.iloc[:use_topk, :]
 unique_tid = np.unique(df_pair.iloc[:, :2].values.flatten())
 from mtcnn import get_reference_facial_points, warp_and_crop_face
 import torch.utils.data, torchvision.transforms.functional
@@ -94,9 +88,9 @@ class DatasetIJBC2(torch.utils.data.Dataset):
                 bb = f.read()
             if use_redis:
                 self.r.set(f'ijbc/imgs/{name_lmk_score[0]}', bb)
-        img = cvb.img_from_bytes(bb)  # also RGB!!
+        img = cvb.img_from_bytes(bb)  # also BGR
         #         img = cvb.read_img(img_name)
-        img = cvb.bgr2rgb(img)  # this is BGR!!
+        img = cvb.bgr2rgb(img)  # this is RGB
         assert img is not None, img_name
         lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
         lmk = lmk.reshape((5, 2))
@@ -116,7 +110,6 @@ class DatasetIJBC2(torch.utils.data.Dataset):
 
 
 ds = DatasetIJBC2(flip=False)
-
 bs = 512
 loader = torch.utils.data.DataLoader(ds, batch_size=bs,
                                      num_workers=12 if 'amax' in hostname() else 44,

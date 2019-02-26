@@ -30,7 +30,7 @@ if __name__ == '__main__':
     
     learner.load_state(
         resume_path=Path('work_space/asia.emore.r50.5/models/'),
-        load_optimizer=True,
+        load_optimizer=False,
         load_head=True,
         load_imp=False,
         latest=True,
