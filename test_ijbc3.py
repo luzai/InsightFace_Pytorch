@@ -40,7 +40,7 @@ else:
     conf.batch_size *= 2
     learner = FaceInfer(conf, )
     learner.load_state(
-        resume_path='work_space/asia.emore.r50.5/models/',
+        resume_path='work_space/asia.emore.r50.test.ijbc/models/',
         latest=True,
     )
     learner.model.eval()

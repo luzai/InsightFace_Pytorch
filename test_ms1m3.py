@@ -47,7 +47,7 @@ ms1m_lmk_path = '/data1/share/testdata_lmk.txt'
 lmks = pd.read_csv(ms1m_lmk_path, sep=' ', header=None).to_records(index=False).tolist()
 logging.info(f'len lmks {len(lmks)}')
 rec_test = get_rec('/data2/share/glint_test/train.idx')
-use_rec = True
+use_rec = False
 
 
 def img2db():

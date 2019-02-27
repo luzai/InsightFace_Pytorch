@@ -32,7 +32,7 @@ def save_mat(filename, m):
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data_dir', type=str, default='fakeimgnet/train')
+parser.add_argument('--data_dir', type=str, default='images_aligned_sample')
 # parser.add_argument('--batch_size', type=int, default=64)
 args = parser.parse_args()
 
@@ -53,13 +53,17 @@ conf.cvt_ipabn = True
 
 learner = FaceInfer(conf, )
 learner.load_state(
-    resume_path='work_space/asia.emore.r50.5/models/',
+    resume_path='work_space/asia.emore.r50.5/save/',
     latest=True,
 )
 learner.model.eval()
+ind = 0
 for imgfn in itertools.chain(
         glob.glob(args.data_dir + '/**/*.jpg', recursive=True),
         glob.glob(args.data_dir + '/**/*.JPEG', recursive=True)):
+    ind += 1
+    if ind % 10 == 0:
+        print(f'proc {ind}, {imgfn}')
     feafn = imgfn.replace(root_folder_name, root_folder_name + '_OPPOFeatures') + '_OPPO.bin'
     dst_folder = osp.dirname(feafn)
     lz.mkdir_p(dst_folder, delete=False)

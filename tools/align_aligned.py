@@ -1,7 +1,6 @@
 import sys, pandas as pd
 from PIL import Image
 
-sys.path.insert(0, '/home/xinglu/prj/InsightFace_Pytorch/')
 ijb_path = '/data2/share/ijbc/'
 test1_path = ijb_path + '/IJB-C/protocols/test1/'
 img_path = ijb_path + 'IJB/IJB-C/images/'
