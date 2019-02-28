@@ -9,7 +9,6 @@ import functools, logging
 from torch import nn
 import numpy as np
 
-upgrade = True  # todo
 if gl_conf.use_chkpnt:
     BatchNorm2d = functools.partial(BatchNorm2d, momentum=1 - np.sqrt(0.9))
 
@@ -37,7 +36,7 @@ class SEModule(Module):
         self.avg_pool = AdaptiveAvgPool2d(1)
         self.fc1 = Conv2d(
             channels, channels // reduction, kernel_size=1, padding=0, bias=False)
-        self.relu = PReLU(channels // reduction) if upgrade else ReLU(inplace=True)
+        self.relu = PReLU(channels // reduction) if gl_conf.upgrade_irse else ReLU(inplace=True)
         self.fc2 = Conv2d(
             channels // reduction, channels, kernel_size=1, padding=0, bias=False)
         self.sigmoid = Sigmoid()
@@ -77,7 +76,7 @@ def bn2d(depth):
         return BatchNorm2d(depth)
 
 
-# todo @deprecated
+# todo gl_conf.upgrade_irse
 class bottleneck_IR(Module):
     def __init__(self, in_channel, depth, stride):
         super(bottleneck_IR, self).__init__()
@@ -87,12 +86,18 @@ class bottleneck_IR(Module):
             self.shortcut_layer = Sequential(
                 Conv2d(in_channel, depth, (1, 1), stride, bias=False),
                 BatchNorm2d(depth))
-        self.res_layer = Sequential(
-            *bn_act(in_channel, False),
-            Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
-            *bn_act(depth, True),
-            Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
-            *bn_act(depth, False))
+        if gl_conf.upgrade_irse:
+            self.res_layer = Sequential(
+                *bn_act(in_channel, False),
+                Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
+                *bn_act(depth, True),
+                Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
+                *bn_act(depth, False))
+        else:
+            self.res_layer = Sequential(
+                BatchNorm2d(in_channel),
+                Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False), PReLU(depth),
+                Conv2d(depth, depth, (3, 3), stride, 1, bias=False), BatchNorm2d(depth))
     
     def forward(self, x):
         shortcut = self.shortcut_layer(x)
@@ -103,16 +108,16 @@ class bottleneck_IR(Module):
 class bottleneck_IR_SE(Module):
     def __init__(self, in_channel, depth, stride):
         super(bottleneck_IR_SE, self).__init__()
-        if upgrade and in_channel == depth and stride == 1:
+        if gl_conf.upgrade_irse and in_channel == depth and stride == 1:
             self.shortcut_layer = None
-        elif not upgrade and in_channel == depth:
+        elif not gl_conf.upgrade_irse and in_channel == depth:
             self.shortcut_layer = MaxPool2d(kernel_size=1, stride=stride)
         else:
             self.shortcut_layer = Sequential(
                 Conv2d(in_channel, depth, (1, 1), stride, bias=False),
                 *bn_act(depth, False)
             )
-        if upgrade:
+        if gl_conf.upgrade_irse:
             self.res_layer = Sequential(
                 *bn_act(in_channel, False),
                 Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
@@ -122,7 +127,6 @@ class bottleneck_IR_SE(Module):
                 SEModule(depth, 16)
             )
         else:
-            # todo deprecated
             self.res_layer = Sequential(
                 BatchNorm2d(in_channel),
                 Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
@@ -525,12 +529,26 @@ class Arcface(Module):
         self.sin_m = np.sin(m)
         self.mm = self.sin_m * m  # issue 1
         self.threshold = math.cos(pi - m)
+        self.device_id = list(range(gl_conf.num_devs))
     
     def forward_eff(self, embbedings, label=None):
         nB = embbedings.shape[0]
         idx_ = torch.arange(0, nB, dtype=torch.long)
-        kernel_norm = l2_norm(self.kernel, axis=0)
-        cos_theta = torch.mm(embbedings, kernel_norm)
+        if gl_conf.num_devs == 0:
+            kernel_norm = l2_norm(self.kernel, axis=0)
+            cos_theta = torch.mm(embbedings, kernel_norm)
+        else:
+            x = embbedings
+            sub_weights = torch.chunk(self.kernel, gl_conf.num_devs, dim=1)
+            temp_x = embbedings.cuda(self.device_id[0])
+            weight = sub_weights[0].cuda(self.device_id[0])
+            cos_theta = torch.mm(temp_x, F.normalize(weight))
+            for i in range(1, len(self.device_id)):
+                temp_x = x.cuda(self.device_id[i])
+                weight = sub_weights[i].cuda(self.device_id[i])
+                cos_theta = torch.cat((cos_theta,
+                                    torch.mm(temp_x, F.normalize(weight)).cuda(self.device_id[0])),
+                                   dim=1)
         cos_theta = cos_theta.clamp(-1, 1)
         if label is None:
             cos_theta *= self.s
@@ -549,8 +567,6 @@ class Arcface(Module):
         cos_theta_m[cond_mask] = keep_val[cond_mask].type_as(cos_theta_m)
         output[idx_, label] = cos_theta_m.type_as(output)
         output *= self.s  # scale up in order to make softmax work, first introduced in normface
-        # with torch.no_grad():
-        #     o2 = self.forward_neff(embbedings, label)
         return output
     
     def forward_neff(self, embbedings, label):

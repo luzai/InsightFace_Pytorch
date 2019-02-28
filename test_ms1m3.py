@@ -3,8 +3,24 @@ import argparse
 from pathlib import Path
 import torch, logging
 from config import conf
-from utils import load_facebank, draw_box_name, prepare_facebank
+conf.need_log = False
+conf.batch_size *= 2
+conf.fp16 = False
+conf.ipabn = False
+conf.cvt_ipabn = True
+conf.upgrade_irse = False
+conf.net_mode = 'ir'
+conf.net_depth = 50
 from Learner import l2_norm, FaceInfer, get_rec, unpack_auto
+learner = FaceInfer(conf, )
+# learner.load_state(
+#         resume_path='work_space/asia.emore.r50.5/models/',
+#         latest=True,
+#     )
+learner.load_model_only('work_space/backbone_ir50_ms1m_epoch120.pth')
+# learner.load_model_only('work_space/backbone_ir50_asia.pth')
+learner.model.eval()
+logging.info('learner loaded')
 from PIL import Image
 from torchvision import transforms as trans
 from lz import *
@@ -47,19 +63,10 @@ ms1m_lmk_path = '/data1/share/testdata_lmk.txt'
 lmks = pd.read_csv(ms1m_lmk_path, sep=' ', header=None).to_records(index=False).tolist()
 logging.info(f'len lmks {len(lmks)}')
 rec_test = get_rec('/data2/share/glint_test/train.idx')
-use_rec = False
+use_rec = True
 
 
-def img2db():
-    conf.need_log = False
-    conf.batch_size *= 2
-    learner = FaceInfer(conf, )
-    learner.load_state(
-        resume_path='work_space/asia.emore.r50.5/models/',
-        latest=True,
-    )
-    learner.model.eval()
-    logging.info('learner loaded')
+def img2db(name):
     
     class DatasetMS1M3(torch.utils.data.Dataset):
         def __init__(self):
@@ -83,10 +90,10 @@ def img2db():
                 header, img = unpack_auto(s, 'glint_test')
                 img = mx.image.imdecode(img).asnumpy()  # rgb
                 warp_img = np.array(img, dtype=np.uint8)
-            #plt_imshow(img)
-            #plt.show()
-            #plt_imshow(warp_img)
-            #plt.show()
+            # plt_imshow(img)
+            # plt.show()
+            # plt_imshow(warp_img)
+            # plt.show()
             warp_img = Image.fromarray(warp_img)
             flip_img = torchvision.transforms.functional.hflip(warp_img)
             warp_img = self.test_transform(warp_img)
@@ -98,23 +105,26 @@ def img2db():
             return len(lmks)
     
     ds = DatasetMS1M3()
-    bs = 128 * 4
+    bs = 512
     loader = torch.utils.data.DataLoader(ds, batch_size=bs, num_workers=0, shuffle=False, pin_memory=True)
-    db = Database(work_path + 'sfttri.h5', )
+    db = Database(work_path + name + '.h5', )
     for ind, data in enumerate(loader):
         if ind % 9 == 0:
-            logging.info(f'ind {ind}')
+            logging.info(f'ind {ind}/{len(loader)}')
         warp_img = data['img']
         flip_img = data['flip_img']
         with torch.no_grad():
-            fea = l2_norm(learner.model(warp_img) + learner.model(flip_img)).cpu().numpy()
+            from sklearn.preprocessing import normalize
+            fea = learner.model(warp_img) + learner.model(flip_img)
+            fea = fea.cpu().numpy()
+            fea = normalize(fea)
         db[f'{ind}'] = fea
     
     db.close()
 
 
-def db2np():
-    db = Database(work_path + 'sfttri.h5', 'r')
+def db2np(name):
+    db = Database(work_path + name + '.h5', 'r')
     res = np.empty((len(lmks), 512), dtype=np.float32)
     for ind in db.keys():
         bs = db[ind].shape[0]
@@ -122,8 +132,8 @@ def db2np():
         res[iind * bs: iind * bs + bs, :] = db[ind]
     db.close()
     
-    save_mat(work_path + 'sfttri.bin', res)
-    msgpack_dump(res, work_path + 'sfttri.pk', )
+    save_mat(work_path + name + '.bin', res)
+    msgpack_dump(res, work_path + name + '.pk', )
 
 
 def read_mat(f):
@@ -154,5 +164,7 @@ def rand2np():
 
 
 if __name__ == '__main__':
-    img2db()
-    db2np()
+    name = 'sfttri'
+    # rm(name)
+    img2db(name)
+    db2np(name)

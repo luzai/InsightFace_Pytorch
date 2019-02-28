@@ -1,12 +1,4 @@
-import cv2
-from PIL import Image
-import argparse
-from pathlib import Path
-from config import conf
-from mtcnn import MTCNN
-from Learner import face_learner
 from lz import *
-from pathlib import Path
 import lz
 from torchvision import transforms as trans
 import redis
@@ -30,19 +22,30 @@ except:
 use_mxnet = False
 if use_mxnet:
     from recognition.embedding import Embedding
+    
     learner = Embedding(prefix='/home/zl/prj/models/MS1MV2-ResNet100-Arcface/MS1MV2-ResNet100-Arcface', epoch=22,
                         ctx_id=7)
 else:
-    from Learner import FaceInfer
     from config import conf
     
     conf.need_log = False
     conf.batch_size *= 2
+    conf.fp16 = False
+    conf.ipabn = False
+    conf.cvt_ipabn = True
+    conf.upgrade_irse = False
+    conf.net_mode = 'ir'
+    conf.net_depth = 50
+    
+    from Learner import FaceInfer
+    
     learner = FaceInfer(conf, )
-    learner.load_state(
-        resume_path='work_space/asia.emore.r50.test.ijbc/models/',
-        latest=True,
-    )
+    # learner.load_state(
+    #     resume_path='work_space/asia.emore.r50.test.ijbc/models/',
+    #     latest=True,
+    # )
+    # learner.load_model_only('work_space/backbone_ir50_ms1m_epoch120.pth')
+    learner.load_model_only('work_space/backbone_ir50_asia.pth')
     learner.model.eval()
 
 unique_tid = np.unique(df_pair.iloc[:, :2].values.flatten())
@@ -110,7 +113,7 @@ class DatasetIJBC2(torch.utils.data.Dataset):
 
 
 ds = DatasetIJBC2(flip=False)
-bs = 512
+bs = 600
 loader = torch.utils.data.DataLoader(ds, batch_size=bs,
                                      num_workers=12 if 'amax' in hostname() else 44,
                                      shuffle=False,

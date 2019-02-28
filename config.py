@@ -8,7 +8,7 @@ from vat import VATLoss
 
 
 dist = False
-num_devs = 1
+num_devs = 2
 # lz.init_dev(3)
 lz.init_dev(lz.get_dev(num_devs))
 
@@ -27,7 +27,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/asia.emore.r50.test.ijbc')
+conf.work_path = Path('work_space/asia.emore.r50.test.ijbc.cont')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -77,6 +77,7 @@ conf.net_depth = 50  # 100 121 169 201 264
 #     trans.ToTensor(),
 #     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 # ])
+conf.upgrade_irse = True
 conf.use_redis = False
 conf.use_chkpnt = False
 conf.chs_first = True
@@ -92,10 +93,10 @@ conf.alpha = .95
 conf.temperature = 6
 
 conf.online_imp = False
-conf.use_test = 'ijbc'  # 'ijbc' 'glint' False
+conf.use_test = False # 'ijbc' 'glint' False
 conf.train_ratio = .7
 
-conf.batch_size = 150 * num_devs
+conf.batch_size = 96 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
 conf.other_every = None if not conf.prof else 51
@@ -109,7 +110,7 @@ conf.start_step = 0
 conf.use_opt = 'sgd'
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
-conf.lr = 1e-3  # 3e-3  0.1 4e-2 5e-4  # tri 6e-4
+conf.lr = 1e-4  # 3e-3  0.1 4e-2 5e-4  # tri 6e-4
 conf.lr_gamma = 0.1
 # conf.epochs = 25
 # conf.milestones = [14, 19, 22]

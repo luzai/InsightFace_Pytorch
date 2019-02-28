@@ -20,22 +20,23 @@ from torch import nn
 import torch.multiprocessing as mp
 from torch.utils.data.sampler import Sampler
 from torch.nn import functional as F
+
 try:
     import mxnet as mx
     from mxnet import ndarray as nd
     from mxnet import recordio
 except ImportError:
     logging.warning('if want to train, install mxnet')
-    gl_conf.training=False
+    gl_conf.training = False
 try:
     from apex.parallel import DistributedDataParallel as DDP
     from apex.fp16_utils import *
     from apex import amp
     
     if gl_conf.fp16:
-        amp.register_half_function(torch, 'prelu')
-        # amp.register_promote_function(torch, 'prelu')
-        amp.register_half_function(torch, 'pow')
+        # amp.register_half_function(torch, 'prelu')
+        amp.register_promote_function(torch, 'prelu')
+        # amp.register_half_function(torch, 'pow')
         # amp.register_half_function(torch, 'norm') # dangerous
         pass
     amp_handle = amp.init(enabled=gl_conf.fp16)
@@ -298,7 +299,7 @@ class TorchDataset(object):
                 index = np.random.randint(0, len(self.rec_test))
                 imgs = self.rec_test[index]
             else:
-                index = np.random.randint(1, max(self.rec_test.imgidx)+1)
+                index = np.random.randint(1, max(self.rec_test.imgidx) + 1)
                 self.rec_test.lock.acquire()
                 s = self.rec_test.imgrec.read_idx(index)
                 self.rec_test.lock.release()
@@ -558,6 +559,15 @@ class FaceInfer():
         dev = torch.device(f'cuda:{gpuid}')
         self.model = torch.nn.DataParallel(self.model,
                                            device_ids=[gpuid], output_device=dev).to(dev)
+    
+    def load_model_only(self, fpath):
+        model_state_dict = torch.load(fpath, map_location=lambda storage, loc: storage)
+        model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
+        if list(model_state_dict.keys())[0].startswith('module'):
+            self.model.load_state_dict(model_state_dict, strict=True, )
+        else:
+            self.model.module.load_state_dict(model_state_dict, strict=True, )
+        
     
     def load_state(self, fixed_str=None,
                    resume_path=None, latest=True,
