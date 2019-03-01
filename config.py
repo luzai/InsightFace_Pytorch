@@ -3,12 +3,13 @@ import lz
 from lz import *
 from torch.nn import CrossEntropyLoss
 from vat import VATLoss
+
 # todo label smooth
 # todo batch read redis
 
 
 dist = False
-num_devs = 2
+num_devs = 3
 # lz.init_dev(3)
 lz.init_dev(lz.get_dev(num_devs))
 
@@ -58,7 +59,7 @@ conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
 # conf.eps_greed = .3  # todo
 conf.rand_ratio = 9 / 27
 
-conf.margin = 0.4
+conf.margin = 0.5
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
 conf.tri_wei = 0
@@ -93,10 +94,10 @@ conf.alpha = .95
 conf.temperature = 6
 
 conf.online_imp = False
-conf.use_test = False # 'ijbc' 'glint' False
-conf.train_ratio = .7
+conf.use_test = True  # 'ijbc' 'glint' False
+# conf.train_ratio = .7  # todo
 
-conf.batch_size = 96 * num_devs
+conf.batch_size = 145 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
 conf.other_every = None if not conf.prof else 51
@@ -110,14 +111,14 @@ conf.start_step = 0
 conf.use_opt = 'sgd'
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
-conf.lr = 1e-4  # 3e-3  0.1 4e-2 5e-4  # tri 6e-4
+conf.lr = 1e-3  # 3e-3  0.1 4e-2 5e-4  # tri 6e-4
 conf.lr_gamma = 0.1
-# conf.epochs = 25
-# conf.milestones = [14, 19, 22]
 conf.epochs = 3
 conf.milestones = []
 # conf.epochs = 9
 # conf.milestones = [2, 5, 7]
+# conf.epochs = 12
+# conf.milestones = [5, 8, 10]
 conf.momentum = 0.9
 conf.pin_memory = True
 conf.num_workers = 24 if "amax" in hostname() else 66  # 4

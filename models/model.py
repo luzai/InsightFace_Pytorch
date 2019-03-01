@@ -506,7 +506,7 @@ from torch.nn.utils import weight_norm
 
 class Arcface(Module):
     # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599    
-    def __init__(self, embedding_size=512, classnum=51332, s=gl_conf.scale, m=gl_conf.margin):
+    def __init__(self, embedding_size=gl_conf.embedding_size, classnum=None, s=gl_conf.scale, m=gl_conf.margin):
         super(Arcface, self).__init__()
         self.classnum = classnum
         # if not use_kernel2:
@@ -542,12 +542,12 @@ class Arcface(Module):
             sub_weights = torch.chunk(self.kernel, gl_conf.num_devs, dim=1)
             temp_x = embbedings.cuda(self.device_id[0])
             weight = sub_weights[0].cuda(self.device_id[0])
-            cos_theta = torch.mm(temp_x, F.normalize(weight))
+            cos_theta = torch.mm(temp_x, F.normalize(weight, dim=0))
             for i in range(1, len(self.device_id)):
                 temp_x = x.cuda(self.device_id[i])
                 weight = sub_weights[i].cuda(self.device_id[i])
                 cos_theta = torch.cat((cos_theta,
-                                    torch.mm(temp_x, F.normalize(weight)).cuda(self.device_id[0])),
+                                    torch.mm(temp_x, F.normalize(weight, dim=0)).cuda(self.device_id[0])),
                                    dim=1)
         cos_theta = cos_theta.clamp(-1, 1)
         if label is None:
