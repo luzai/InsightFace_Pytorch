@@ -540,7 +540,7 @@ class Arcface(Module):
         else:
             x = embbedings
             sub_weights = torch.chunk(self.kernel, gl_conf.num_devs, dim=1)
-            temp_x = embbedings.cuda(self.device_id[0])
+            temp_x = embbedings.cuda(self.device_id[0], ) # todo non_blocking=True
             weight = sub_weights[0].cuda(self.device_id[0])
             cos_theta = torch.mm(temp_x, F.normalize(weight, dim=0))
             for i in range(1, len(self.device_id)):

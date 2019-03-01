@@ -157,26 +157,28 @@ class DatasetIJBC2(torch.utils.data.Dataset):
 
 class TestDataset(object):
     def __init__(self):
-        if gl_conf.use_test:
-            if gl_conf.use_test == 'ijbc':
-                self.rec_test = DatasetIJBC2()
-                self.imglen = len(self.rec_test)
-            else:
-                self.rec_test = get_rec('/data2/share/glint_test/train.idx')
-                self.imglen = max(self.rec_test.imgidx) + 1
-    
+        assert gl_conf.use_test
+        if gl_conf.use_test == 'ijbc':
+            self.rec_test = DatasetIJBC2()
+            self.imglen = len(self.rec_test)
+        elif gl_conf.use_test == 'glint':
+            self.rec_test = get_rec('/data2/share/glint_test/train.idx')
+            self.imglen = max(self.rec_test.imgidx) + 1
+        else:
+            raise ValueError(f'{gl_conf.use_test}')
+            
     def _get_single_item(self, index):
         if gl_conf.use_test == 'ijbc':
-            index = np.random.randint(0, self.imglen)
             imgs = self.rec_test[index]
-        else:
-            index = np.random.randint(1, self.imglen)
+        elif gl_conf.use_test =='glint':
             self.rec_test.lock.acquire()
             s = self.rec_test.imgrec.read_idx(index)
             self.rec_test.lock.release()
             header, img = unpack_auto(s, 'glint_test')
             imgs = self.imdecode(img)
             imgs = self.preprocess_img(imgs)
+        else:
+            raise ValueError(f'{gl_conf.use_test}')
         return {'imgs': np.array(imgs, dtype=np.float32), 'labels': -1, 'indexes': index,
                 'ind_inds': -1, 'is_trains': False}
     
