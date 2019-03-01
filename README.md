@@ -3,7 +3,7 @@
 ## Environment:
 
 - Ubuntu 16.04
-- pytorch=0.4.1 
+- pytorch=0.4.1 or pytorch=0.1 (Both compatible)
 - Anaconda3, python3.6  
  
 ## How to test: 

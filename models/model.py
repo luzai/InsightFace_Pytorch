@@ -499,24 +499,23 @@ class SEBlock(nn.Module):
 from torch.nn.utils import weight_norm
 
 
-# use_kernel2 = False  # kernel2 not work!
 # nB = gl_conf.batch_size
 # idx_ = torch.arange(0, nB, dtype=torch.long)
-
 
 class Arcface(Module):
     # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599    
     def __init__(self, embedding_size=gl_conf.embedding_size, classnum=None, s=gl_conf.scale, m=gl_conf.margin):
         super(Arcface, self).__init__()
         self.classnum = classnum
-        # if not use_kernel2:
-        self.kernel = Parameter(torch.Tensor(embedding_size, classnum))
-        self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
-        # else:
-        #     self.kernel = weight_norm(nn.Linear(embedding_size, classnum, bias=False))
-        #     self.kernel.weight_g.data = torch.ones((classnum, 1))
-        #     self.kernel.weight_v.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
-        # initial kernel
+        kernel = Parameter(torch.Tensor(embedding_size, classnum))
+        kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
+        kernel = torch.chunk(kernel, gl_conf.num_devs, dim=1)
+        self.kernel = kernel
+        self.device_id = list(range(gl_conf.num_devs))
+        for ind in range(gl_conf.num_devs):
+            devid_ = self.device_id[ind]
+            self.kernel[ind] = self.kernel[ind].cuda(devid_)
+        
         if gl_conf.fp16:
             m = np.float16(m)
             pi = np.float16(np.pi)
@@ -529,7 +528,6 @@ class Arcface(Module):
         self.sin_m = np.sin(m)
         self.mm = self.sin_m * m  # issue 1
         self.threshold = math.cos(pi - m)
-        self.device_id = list(range(gl_conf.num_devs))
     
     def forward_eff(self, embbedings, label=None):
         nB = embbedings.shape[0]
@@ -539,16 +537,17 @@ class Arcface(Module):
             cos_theta = torch.mm(embbedings, kernel_norm)
         else:
             x = embbedings
-            sub_weights = torch.chunk(self.kernel, gl_conf.num_devs, dim=1)
-            temp_x = embbedings.cuda(self.device_id[0], ) # todo non_blocking=True
+            sub_weights = self.kernel
+            temp_x = embbedings.cuda(self.device_id[0], )  # todo non_blocking=True
             weight = sub_weights[0].cuda(self.device_id[0])
             cos_theta = torch.mm(temp_x, F.normalize(weight, dim=0))
             for i in range(1, len(self.device_id)):
                 temp_x = x.cuda(self.device_id[i])
-                weight = sub_weights[i].cuda(self.device_id[i])
-                cos_theta = torch.cat((cos_theta,
-                                    torch.mm(temp_x, F.normalize(weight, dim=0)).cuda(self.device_id[0])),
-                                   dim=1)
+                weight = sub_weights[i]
+                cos_theta = torch.cat(
+                    (cos_theta,
+                     torch.mm(temp_x, F.normalize(weight, dim=0)).cuda(self.device_id[0])),
+                    dim=1)
         cos_theta = cos_theta.clamp(-1, 1)
         if label is None:
             cos_theta *= self.s

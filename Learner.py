@@ -564,7 +564,7 @@ def update_dop_cls(thetas, labels, dop):
 
 
 class FaceInfer():
-    def __init__(self, conf, gpuid=0):
+    def __init__(self, conf, gpuid=(0,)):
         if conf.net_mode == 'mobilefacenet':
             self.model = MobileFaceNet(conf.embedding_size)
             print('MobileFaceNet model generated')
@@ -573,9 +573,8 @@ class FaceInfer():
         else:
             raise ValueError(conf.net_mode)
         self.model = self.model.eval()
-        dev = torch.device(f'cuda:{gpuid}')
         self.model = torch.nn.DataParallel(self.model,
-                                           device_ids=[gpuid], output_device=dev).to(dev)
+                                           device_ids=list(gpuid), output_device=gpuid[0]).to(gpuid[0])
     
     def load_model_only(self, fpath):
         model_state_dict = torch.load(fpath, map_location=lambda storage, loc: storage)

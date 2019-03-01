@@ -8,7 +8,8 @@ from mtcnn import MTCNN
 import itertools
 
 cv_type_to_dtype = {
-    5: np.dtype('float32')
+    5: np.dtype('float32'),
+    6: np.dtype('float64')
 }
 
 dtype_to_cv_type = {v: k for k, v in cv_type_to_dtype.items()}
@@ -46,13 +47,14 @@ test_transform = trans.Compose([
     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
 conf.need_log = False
-# conf.batch_size *= 2
 conf.fp16 = False
 conf.ipabn = False
 conf.cvt_ipabn = True
+conf.net_depth = 50
 
 learner = FaceInfer(conf, )
 learner.load_state(
+    # resume_path='work_space/emore.r152.cont/save/',
     resume_path='work_space/asia.emore.r50.5/save/',
     latest=True,
 )

@@ -1,4 +1,4 @@
-import torch
+import torch, logging
 import torch.nn as nn
 import torch.nn.functional as functional
 
@@ -15,7 +15,7 @@ class ABN(nn.Module):
 
     This gathers a `BatchNorm2d` and an activation function in a single module
     """
-
+    
     def __init__(self, num_features, eps=1e-5, momentum=0.1, affine=True, activation="leaky_relu", slope=0.01):
         """Creates an Activated Batch Normalization module
 
@@ -50,18 +50,18 @@ class ABN(nn.Module):
         self.register_buffer('running_mean', torch.zeros(num_features))
         self.register_buffer('running_var', torch.ones(num_features))
         self.reset_parameters()
-
+    
     def reset_parameters(self):
         nn.init.constant_(self.running_mean, 0)
         nn.init.constant_(self.running_var, 1)
         if self.affine:
             nn.init.constant_(self.weight, 1)
             nn.init.constant_(self.bias, 0)
-
+    
     def forward(self, x):
         x = functional.batch_norm(x, self.running_mean, self.running_var, self.weight, self.bias,
                                   self.training, self.momentum, self.eps)
-
+        
         if self.activation == ACT_RELU:
             return functional.relu(x, inplace=True)
         elif self.activation == ACT_LEAKY_RELU:
@@ -70,7 +70,7 @@ class ABN(nn.Module):
             return functional.elu(x, inplace=True)
         else:
             return x
-
+    
     def __repr__(self):
         rep = '{name}({num_features}, eps={eps}, momentum={momentum},' \
               ' affine={affine}, activation={activation}'
@@ -81,50 +81,62 @@ class ABN(nn.Module):
         return rep.format(name=self.__class__.__name__, **self.__dict__)
 
 
-class InPlaceABN(ABN):
-    """InPlace Activated Batch Normalization"""
-
-    def __init__(self, num_features, eps=1e-5, momentum=0.1, affine=True, activation="leaky_relu", slope=0.01):
-        """Creates an InPlace Activated Batch Normalization module
-
-        Parameters
-        ----------
-        num_features : int
-            Number of feature channels in the input and output.
-        eps : float
-            Small constant to prevent numerical issues.
-        momentum : float
-            Momentum factor applied to compute running statistics as.
-        affine : bool
-            If `True` apply learned scale and shift transformation after normalization.
-        activation : str
-            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
-        slope : float
-            Negative slope for the `leaky_relu` activation.
+if torch.__version__.startswith('1'):
+   
+    class InPlaceABN(ABN):
+        """InPlace Activated Batch Normalization"""
+    
+        def __init__(self, num_features, eps=1e-5, momentum=0.1, affine=True, activation="leaky_relu", slope=0.01):
+            """Creates an InPlace Activated Batch Normalization module
+    
+            Parameters
+            ----------
+            num_features : int
+                Number of feature channels in the input and output.
+            eps : float
+                Small constant to prevent numerical issues.
+            momentum : float
+                Momentum factor applied to compute running statistics as.
+            affine : bool
+                If `True` apply learned scale and shift transformation after normalization.
+            activation : str
+                Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
+            slope : float
+                Negative slope for the `leaky_relu` activation.
+            """
+            super(InPlaceABN, self).__init__(num_features, eps, momentum, affine, activation, slope)
+    
+        def forward(self, x):
+            return inplace_abn(x, self.weight, self.bias, self.running_mean, self.running_var,
+                               self.training, self.momentum, self.eps, self.activation, self.slope)
+    
+    
+    class InPlaceABNSync(ABN):
+        """InPlace Activated Batch Normalization with cross-GPU synchronization
+        This assumes that it will be replicated across GPUs using the same mechanism as in `nn.DistributedDataParallel`.
         """
-        super(InPlaceABN, self).__init__(num_features, eps, momentum, affine, activation, slope)
-
-    def forward(self, x):
-        return inplace_abn(x, self.weight, self.bias, self.running_mean, self.running_var,
-                           self.training, self.momentum, self.eps, self.activation, self.slope)
-
-
-class InPlaceABNSync(ABN):
-    """InPlace Activated Batch Normalization with cross-GPU synchronization
-    This assumes that it will be replicated across GPUs using the same mechanism as in `nn.DistributedDataParallel`.
-    """
-
-    def forward(self, x):
-        return inplace_abn_sync(x, self.weight, self.bias, self.running_mean, self.running_var,
-                                   self.training, self.momentum, self.eps, self.activation, self.slope)
-
-    def __repr__(self):
-        rep = '{name}({num_features}, eps={eps}, momentum={momentum},' \
-              ' affine={affine}, activation={activation}'
-        if self.activation == "leaky_relu":
-            rep += ', slope={slope})'
-        else:
-            rep += ')'
-        return rep.format(name=self.__class__.__name__, **self.__dict__)
+    
+        def forward(self, x):
+            return inplace_abn_sync(x, self.weight, self.bias, self.running_mean, self.running_var,
+                                       self.training, self.momentum, self.eps, self.activation, self.slope)
+    
+        def __repr__(self):
+            rep = '{name}({num_features}, eps={eps}, momentum={momentum},' \
+                  ' affine={affine}, activation={activation}'
+            if self.activation == "leaky_relu":
+                rep += ', slope={slope})'
+            else:
+                rep += ')'
+            return rep.format(name=self.__class__.__name__, **self.__dict__)
 
 
+else:
+    logging.warning(f'pytorch 0.4 only allow inference')
+    
+    
+    class InPlaceABN(ABN):
+        pass
+    
+    
+    class InPlaceABNSync(ABN):
+        pass

@@ -50,8 +50,8 @@ if __name__ == '__main__':
     conf.tri_wei = 0
     log_conf(conf)
     # learner.train(conf, conf.epochs)
-    # learner.train_simple(conf, conf.epochs)
-    learner.train_use_test(conf, conf.epochs)
+    learner.train_simple(conf, conf.epochs)
+    # learner.train_use_test(conf, conf.epochs)
     
     # learner.validate(conf,)
     # def calc_importance():

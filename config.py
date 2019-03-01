@@ -9,9 +9,9 @@ from vat import VATLoss
 
 
 dist = False
-num_devs = 3
-# lz.init_dev(3)
-lz.init_dev(lz.get_dev(num_devs))
+num_devs = 2
+lz.init_dev((3,2))
+# lz.init_dev(lz.get_dev(num_devs))
 
 if dist:
     num_devs = 1
@@ -94,10 +94,10 @@ conf.alpha = .95
 conf.temperature = 6
 
 conf.online_imp = False
-conf.use_test = True  # 'ijbc' 'glint' False
+conf.use_test = False  # 'ijbc' 'glint' False
 # conf.train_ratio = .7  # todo
 
-conf.batch_size = 145 * num_devs
+conf.batch_size = 4 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
 conf.other_every = None if not conf.prof else 51
