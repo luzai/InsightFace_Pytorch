@@ -20,6 +20,7 @@ except:
     df_dump(df_name, ijbcp, 'name')
 
 use_mxnet = False
+bs = 600
 if use_mxnet:
     from recognition.embedding import Embedding
     
@@ -29,23 +30,24 @@ else:
     from config import conf
     
     conf.need_log = False
-    conf.batch_size *= 2
+    conf.batch_size *= 2 * conf.num_devs
+    bs = conf.batch_size
     conf.fp16 = False
     conf.ipabn = False
     conf.cvt_ipabn = True
-    conf.upgrade_irse = False
-    conf.net_mode = 'ir'
+    # conf.upgrade_irse = False
+    # conf.net_mode = 'ir'
     conf.net_depth = 50
     
     from Learner import FaceInfer
     
-    learner = FaceInfer(conf, )
-    # learner.load_state(
-    #     resume_path='work_space/asia.emore.r50.test.ijbc/models/',
-    #     latest=True,
-    # )
+    learner = FaceInfer(conf, gpuid=range(conf.num_devs))
+    learner.load_state(
+        resume_path='work_space/asia.emore.r50.test.ijbc.2/models/',
+        latest=True,
+    )
     # learner.load_model_only('work_space/backbone_ir50_ms1m_epoch120.pth')
-    learner.load_model_only('work_space/backbone_ir50_asia.pth')
+    # learner.load_model_only('work_space/backbone_ir50_asia.pth')
     learner.model.eval()
 
 unique_tid = np.unique(df_pair.iloc[:, :2].values.flatten())
@@ -113,7 +115,7 @@ class DatasetIJBC2(torch.utils.data.Dataset):
 
 
 ds = DatasetIJBC2(flip=False)
-bs = 600
+
 loader = torch.utils.data.DataLoader(ds, batch_size=bs,
                                      num_workers=12 if 'amax' in hostname() else 44,
                                      shuffle=False,
