@@ -509,12 +509,10 @@ class Arcface(Module):
         self.classnum = classnum
         kernel = Parameter(torch.Tensor(embedding_size, classnum))
         kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
-        kernel = torch.chunk(kernel, gl_conf.num_devs, dim=1)
+        # kernel = torch.chunk(kernel, gl_conf.num_devs, dim=1)
+        # self.device_id = list(range(gl_conf.num_devs))
+        # kernel = tuple(kernel[ind].cuda(self.device_id[ind]) for ind in range(gl_conf.num_devs))
         self.kernel = kernel
-        self.device_id = list(range(gl_conf.num_devs))
-        for ind in range(gl_conf.num_devs):
-            devid_ = self.device_id[ind]
-            self.kernel[ind] = self.kernel[ind].cuda(devid_)
         
         if gl_conf.fp16:
             m = np.float16(m)
@@ -537,13 +535,13 @@ class Arcface(Module):
             cos_theta = torch.mm(embbedings, kernel_norm)
         else:
             x = embbedings
-            sub_weights = self.kernel
-            temp_x = embbedings.cuda(self.device_id[0], )  # todo non_blocking=True
+            sub_weights = torch.chunk(self.kernel, gl_conf.num_devs, dim=1)
+            temp_x = embbedings.cuda(self.device_id[0])
             weight = sub_weights[0].cuda(self.device_id[0])
             cos_theta = torch.mm(temp_x, F.normalize(weight, dim=0))
             for i in range(1, len(self.device_id)):
                 temp_x = x.cuda(self.device_id[i])
-                weight = sub_weights[i]
+                weight = sub_weights[i].cuda(self.device_id[i])
                 cos_theta = torch.cat(
                     (cos_theta,
                      torch.mm(temp_x, F.normalize(weight, dim=0)).cuda(self.device_id[0])),

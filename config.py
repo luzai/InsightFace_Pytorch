@@ -9,7 +9,7 @@ from vat import VATLoss
 
 
 dist = False
-num_devs = 3
+num_devs = 1
 # lz.init_dev(3)
 lz.init_dev(lz.get_dev(num_devs))
 
