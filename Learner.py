@@ -166,11 +166,11 @@ class TestDataset(object):
             self.imglen = max(self.rec_test.imgidx) + 1
         else:
             raise ValueError(f'{gl_conf.use_test}')
-            
+    
     def _get_single_item(self, index):
         if gl_conf.use_test == 'ijbc':
             imgs = self.rec_test[index]
-        elif gl_conf.use_test =='glint':
+        elif gl_conf.use_test == 'glint':
             self.rec_test.lock.acquire()
             s = self.rec_test.imgrec.read_idx(index)
             self.rec_test.lock.release()
@@ -792,11 +792,23 @@ class face_learner(object):
                 {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
                 {'params': paras_only_bn}
             ], lr=conf.lr, momentum=conf.momentum)
-        else:
+        elif conf.use_opt == 'sgd':
             self.optimizer = optim.SGD([
-                {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': gl_conf.weight_decay},
+                {'params': paras_wo_bn + [*self.head.parameters()],
+                 'weight_decay': gl_conf.weight_decay},
                 {'params': paras_only_bn},
             ], lr=conf.lr, momentum=conf.momentum)
+        elif conf.use_opt == 'adabound':
+            from tools.adabound import AdaBound
+            self.optimizer = AdaBound([
+                {'params': paras_wo_bn + [*self.head.parameters()],
+                 'weight_decay': gl_conf.weight_decay},
+                {'params': paras_only_bn},
+            ], lr=conf.lr, betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
+                gamma=1e-3, final_lr=.1,
+            )
+        else:
+            raise ValueError(f'{conf.use_opt}')
         if gl_conf.fp16:
             if gl_conf.use_test:
                 nloss = 2
@@ -960,7 +972,7 @@ class face_learner(object):
                         ind_data, imgs_test_data = loader_enum.next()
                     imgs_test = imgs_test_data['imgs'].cuda()
                 ## get loss and backward
-                self.optimizer.zero_grad() # why must put here
+                self.optimizer.zero_grad()  # why must put here
                 if gl_conf.use_test:
                     loss_vat = conf.vat_loss_func(self.model, self.head, imgs_test)
                     if loss_vat != 0:
