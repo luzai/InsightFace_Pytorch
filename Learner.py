@@ -1,5 +1,5 @@
+# -*- coding: future_fstrings -*-
 import lz
-from data.data_pipe import get_val_data, get_val_pair
 from models import Backbone, MobileFaceNet, CSMobileFaceNet, l2_norm, Arcface, MySoftmax, TripletLoss
 import models
 import numpy as np
@@ -26,7 +26,7 @@ try:
     from mxnet import ndarray as nd
     from mxnet import recordio
 except ImportError:
-    logging.warning('if want to train, install mxnet')
+    logging.warning('if want to train, install mxnet for read rec data')
     gl_conf.training = False
 try:
     from apex.parallel import DistributedDataParallel as DDP
@@ -152,6 +152,31 @@ class DatasetIJBC2(torch.utils.data.Dataset):
         warp_img = lz.preprocess(img, landmark=lmk)
         warp_img = Image.fromarray(warp_img)
         img = self.test_transform(warp_img)
+        return img
+
+
+class MegaFaceDisDS(torch.utils.data.Dataset):
+    def __init__(self):
+        megaface_path = '/data1/share/megaface/'
+        # files_scrub = open(f'{megaface_path}/facescrub_lst') .readlines()
+        # files_scrub = [f'{megaface_path}/facescrub_images/{f}' for f in files_scrub]
+        files_scrub = []
+        files_dis = open('f{megaface_path}/megaface_lst').readlines()
+        files_dis = [f'{megaface_path}/facescrub_images/{f}' for f in files_dis]
+        self.files = files_dis + files_scrub
+        self.test_transform = trans.Compose([
+            trans.ToTensor(),
+            trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+        ])
+    
+    def __len__(self):
+        return len(self.files)
+    
+    def __getitem__(self, item):
+        import cvbase as cvb
+        img = cvb.read_img(self.files[item])
+        img = cvb.bgr2rgb(img)  # this is RGB
+        img = self.test_transform(img)
         return img
 
 
@@ -590,9 +615,9 @@ class FaceInfer():
         from pathlib import Path
         save_path = Path(resume_path)
         modelp = save_path / '{}'.format(fixed_str)
-        if not osp.exists(modelp):
+        if not modelp.exists():
             modelp = save_path / 'model_{}'.format(fixed_str)
-        if not osp.exists(modelp):
+        if not (modelp).exists():
             fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
             if latest:
                 step = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
@@ -603,7 +628,7 @@ class FaceInfer():
             fixed_str = fixed_strs[step_ind].replace('model_', '')
             modelp = save_path / 'model_{}'.format(fixed_str)
         logging.info(f'you are using gpu, load model, {modelp}')
-        model_state_dict = torch.load(modelp, map_location=lambda storage, loc: storage)
+        model_state_dict = torch.load(str(modelp), map_location=lambda storage, loc: storage)
         model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
         if gl_conf.cvt_ipabn:
             import copy
@@ -817,6 +842,7 @@ class face_learner(object):
             self.optimizer = amp_handle.wrap_optimizer(self.optimizer, num_loss=nloss)
         logging.info(f'optimizers generated {self.optimizer}')
         self.board_loss_every = gl_conf.board_loss_every
+        from data.data_pipe import get_val_data
         self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
             self.dataset.root_path)  # todo postpone load eval
         self.head.train()
@@ -1469,9 +1495,9 @@ class face_learner(object):
         from pathlib import Path
         save_path = Path(resume_path)
         modelp = save_path / '{}'.format(fixed_str)
-        if not osp.exists(modelp):
+        if not (modelp).exists():
             modelp = save_path / 'model_{}'.format(fixed_str)
-        if not osp.exists(modelp):
+        if not (modelp).exists():
             fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
             if latest:
                 step = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
@@ -1497,14 +1523,15 @@ class face_learner(object):
         else:
             self.model.module.load_state_dict(model_state_dict, strict=True)
         
-        if load_head and osp.exists(save_path / 'head_{}'.format(fixed_str)):
+        if load_head:
+            assert osp.exists(save_path / 'head_{}'.format(fixed_str))
             logging.info(f'load head from {modelp}')
             head_state_dict = torch.load(save_path / 'head_{}'.format(fixed_str))
             self.head.load_state_dict(head_state_dict)
         if load_optimizer:
             logging.info(f'load opt from {modelp}')
             self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
-        if load_imp and osp.exists(save_path / f'extra_{fixed_str.replace(".pth", ".pk")}'):
+        if load_imp and (save_path / f'extra_{fixed_str.replace(".pth", ".pk")}').exists():
             extra = lz.msgpack_load(save_path / f'extra_{fixed_str.replace(".pth", ".pk")}')
             gl_conf.dop = extra['dop'].copy()
             gl_conf.id2range_dop = extra['id2range_dop'].copy()

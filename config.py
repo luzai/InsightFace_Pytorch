@@ -1,3 +1,5 @@
+# -*- coding: future_fstrings -*-
+
 from pathlib import Path
 import lz
 from lz import *
@@ -6,7 +8,6 @@ from vat import VATLoss
 
 # todo label smooth
 # todo batch read redis
-
 
 dist = False
 num_devs = 1
@@ -108,7 +109,7 @@ conf.save_path = conf.work_path / 'save'
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
 conf.start_epoch = 0
 conf.start_step = 0
-conf.use_opt = 'adabound'
+conf.use_opt = 'sgd'
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
 conf.lr = 1e-3

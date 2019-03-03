@@ -1,4 +1,5 @@
-import lz, argparse, torchvision, struct, numpy as np
+# -*- coding: future_fstrings -*-
+import lz, argparse, torchvision, struct, numpy as np, logging, cv2
 import torch, glob, cvbase as cvb, os.path as osp
 from torchvision import transforms as trans
 from config import conf
@@ -34,7 +35,7 @@ def save_mat(filename, m):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_dir', type=str, default='images_aligned_sample')
-# parser.add_argument('--batch_size', type=int, default=64)
+parser.add_argument('--batch_size', type=int, default=64)
 args = parser.parse_args()
 
 root_folder_name = [name for name in args.data_dir.split('/') if name != '.'][0]
@@ -46,6 +47,7 @@ test_transform = trans.Compose([
     trans.ToTensor(),
     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
+
 conf.need_log = False
 conf.fp16 = False
 conf.ipabn = False

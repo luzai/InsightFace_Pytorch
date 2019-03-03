@@ -1,3 +1,5 @@
+# -*- coding: future_fstrings -*-
+
 import numpy as np
 import torch
 from PIL import Image
@@ -35,21 +37,9 @@ class MTCNN():
         # cvb.show_img(warped_face)
         return Image.fromarray(warped_face)
     
-    def align_multi(self, img, limit=None, min_face_size=20.0):
-        boxes, landmarks = self.detect_faces(img, min_face_size)
-        if limit:
-            boxes = boxes[:limit]
-            landmarks = landmarks[:limit]
-        faces = []
-        for landmark in landmarks:
-            facial5points = [[landmark[j], landmark[j + 5]] for j in range(5)]
-            warped_face = warp_and_crop_face(np.array(img), facial5points, self.refrence, crop_size=(112, 112))
-            faces.append(Image.fromarray(warped_face))
-        return boxes, faces
-    
-    def align_best(self, img, limit=None, min_face_size=20.0, ):
+    def align_best(self, img, limit=None, min_face_size=50., ):
         try:
-            boxes, landmarks = self.detect_faces(img, min_face_size, thresholds=[0.1, 0.1, 0.9])
+            boxes, landmarks = self.detect_faces(img, min_face_size,)
             img = to_numpy(img)
             if limit:
                 boxes = boxes[:limit]
@@ -79,10 +69,10 @@ class MTCNN():
         except Exception as e:
             logging.warning(f'face detect fail, err {e}')
             return to_image(img).resize((112, 112), Image.BILINEAR)
-
-    def detect_faces(self, image, min_face_size=20.0,
-                     thresholds=[0.6, 0.7, 0.8],
-                     # thresholds=[0.6, 0.7, 0.9],
+    
+    def detect_faces(self, image, min_face_size=50.,
+                     # thresholds=[0.7, 0.7, 0.8],
+                     thresholds=[0.1, 0.1, 0.9],
                      nms_thresholds=[0.7, 0.7, 0.7]):
         """
         Arguments:
@@ -152,7 +142,7 @@ class MTCNN():
             offsets = output[0].cpu().data.numpy()  # shape [n_boxes, 4]
             probs = output[1].cpu().data.numpy()  # shape [n_boxes, 2]
             thresh = thresholds[1]
-            keep = np.where(probs[:, 1] > thresholds[1])[0]
+            keep = np.where(probs[:, 1] > thresh)[0]
             # while keep.shape[0] == 0:
             #     thresh -= 0.01
             #     keep = np.where(probs[:, 1] > thresh)[0]
@@ -180,7 +170,7 @@ class MTCNN():
             probs = output[2].cpu().data.numpy()  # shape [n_boxes, 2]
             
             thresh = thresholds[2]
-            keep = np.where(probs[:, 1] > thresholds[2])[0]
+            keep = np.where(probs[:, 1] > thresh)[0]
             if len(keep) == 0:
                 return [], []
             # while keep.shape[0] == 0:

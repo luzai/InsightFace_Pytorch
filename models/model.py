@@ -1,3 +1,5 @@
+# -*- coding: future_fstrings -*-
+
 from torch.nn import Linear, Conv2d, BatchNorm1d, BatchNorm2d, PReLU, ReLU, Sigmoid, Dropout2d, Dropout, AvgPool2d, \
     MaxPool2d, AdaptiveAvgPool2d, Sequential, Module, Parameter
 import torch.nn.functional as F
@@ -510,7 +512,7 @@ class Arcface(Module):
         kernel = Parameter(torch.Tensor(embedding_size, classnum))
         kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
         # kernel = torch.chunk(kernel, gl_conf.num_devs, dim=1)
-        # self.device_id = list(range(gl_conf.num_devs))
+        self.device_id = list(range(gl_conf.num_devs))
         # kernel = tuple(kernel[ind].cuda(self.device_id[ind]) for ind in range(gl_conf.num_devs))
         self.kernel = kernel
         

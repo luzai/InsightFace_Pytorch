@@ -9,8 +9,11 @@ import numpy as np
 import cv2
 import bcolz
 import pickle
-import torch
-import mxnet as mx
+import torch, logging
+try:
+    import mxnet as mx
+except ImportError:
+    logging.warning('if want to train, install mxnet for read rec data')
 from tqdm import tqdm
 
 

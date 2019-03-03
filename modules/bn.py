@@ -1,3 +1,5 @@
+# -*- coding: future_fstrings -*-
+
 import torch, logging
 import torch.nn as nn
 import torch.nn.functional as functional

@@ -29,7 +29,7 @@ if __name__ == '__main__':
     learner = face_learner(conf, )
     
     learner.load_state(
-        resume_path=Path('work_space/asia.emore.r50.5/models/'),
+        resume_path=Path('work_space/asia.emore.r50.5/save/'),
         load_optimizer=False,
         load_head=True,
         load_imp=False,

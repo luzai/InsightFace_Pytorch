@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
+# -*- coding: future_fstrings -*-
 
 import matplotlib
-
 # matplotlib.use('Gtk3Agg')
 # matplotlib.use('TkAgg')
 # matplotlib.use('Agg')
@@ -87,14 +87,16 @@ if os.environ.get('chainer', "1") == "1":
 
 if os.environ.get('pytorch', "1") == "1":
     tic = time.time()
+    os.environ["MKL_NUM_THREADS"] = "32"
+    os.environ["OMP_NUM_THREADS"] = "32"
+    os.environ["NCCL_DEBUG"] = "INFO"
+    # os.environ["NCCL_DEBUG_SUBSYS"] = "ALL"
     import torch
     import torchvision
     import torch.utils.data
     from torch import nn
     import torch.nn.functional as F
     
-    os.environ["NCCL_DEBUG"] = "INFO"
-    # os.environ["NCCL_DEBUG_SUBSYS"] = "ALL"
     old_repr = torch.Tensor.__repr__
     torch.Tensor.__repr__ = lambda obj: (f'th {tuple(obj.shape)} {obj.type()} '
                                          f'{old_repr(obj)} '
@@ -145,8 +147,8 @@ InteractiveShell.ast_node_interactivity = "all"
 
 ## ndarray will be pretty
 np.set_string_function(lambda arr: f'np {arr.shape} {arr.dtype} '
-f'{arr.__str__()} '
-f'dtype:{arr.dtype} shape:{arr.shape} np', repr=True)
+                                   f'{arr.__str__()} '
+                                   f'dtype:{arr.dtype} shape:{arr.shape} np', repr=True)
 
 ## print(ndarray) will be pretty (and pycharm dbg)
 # np.set_string_function(lambda arr: f'np {arr.shape} {arr.dtype} \n'

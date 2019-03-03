@@ -28,3 +28,4 @@ scikit-image
 opencv-python
 lmdb
 redis
+future-fstrings
