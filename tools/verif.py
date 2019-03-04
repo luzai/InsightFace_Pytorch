@@ -1,66 +1,52 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
-from __future__ import print_function
+from lz import *
 import numpy as np
 import sys
 import os, logging
+import lz
 
-GPU_id = 0
-os.environ["CUDA_VISIBLE_DEVICES"] = str(GPU_id)
-
-# if use pycaffe
-# caffe_root = "/home/wanghuan/Caffe/Caffe_default/python" # change this to your own pycaffe path
-# sys.path.insert(0, caffe_root)
-# import caffe
-# caffe.set_mode_gpu()
-# caffe.set_device(GPU_id)
-
-from FaceVerification import FaceVerification as verif
+lz.init_dev(get_dev())
+from tools.FaceVerification import FaceVerification as verif
 
 # To see the verification example, change the paths below to your own,
 # and change the path in `same_pairs.txt` and `diff_pairs.txt` to your own.
-path_same_pairs = "images_aligned_sample/same_pairs.txt"
-path_diff_pairs = "images_aligned_sample/diff_pairs.txt"
-
+# path_same_pairs = "images_aligned_sample/same_pairs.txt"
+# path_diff_pairs = "images_aligned_sample/diff_pairs.txt"
+path_pairs = "images_aligned_2018Autumn/pairs1_nolabel.txt"
 
 def main():
-    same_pairs = np.loadtxt(path_same_pairs, dtype="str", delimiter="  ")
-    diff_pairs = np.loadtxt(path_diff_pairs, dtype="str", delimiter="  ")
-    result_same = []
-    result_diff = []
+    same_pairs = np.loadtxt(path_pairs, dtype="str", delimiter="  ")
+    results = []
     num_same = len(same_pairs)
-    num_diff = len(diff_pairs)
-
+    dists = []
     cnt_s = 0
     for sp in same_pairs:
-        try:
-            pred = verif(sp[0], sp[1])
-            result_same.append(pred)
-            cnt_s += 1
-            print("same", cnt_s, sp[0], sp[1], pred, sep="  ")
-        except:
-            logging.error("Sth wrong, continue loop ..")
-            continue
-
-    cnt_d = 0
-    for dp in diff_pairs:
-        try:
-            pred = (verif(dp[0], dp[1]))
-            result_diff.append((verif(dp[0], dp[1])))
-            cnt_d += 1
-            print("diff", cnt_d, dp[0], dp[1], pred, sep="  ")
-        except:
-            logging.error("Sth wrong, continue loop ..")
-            continue
-
-    num_right_same = cnt_s - np.logical_xor(result_same, [1] * cnt_s).sum()
-    num_right_diff = cnt_d - np.logical_xor(result_diff, [0] * cnt_d).sum()
-    print("{0} pairs got right in {1} same pairs, {2} pairs got right in {3} diff pairs".format(
-        num_right_same, cnt_s, num_right_diff,
-        cnt_d)
-    )
-    print("verification accuracy: "
-          "{:.4f}".format(float(num_right_same + num_right_diff) / (cnt_s + cnt_d)))
+        cnt_s += 1
+        pred, dist = verif(f'images_aligned_2018Autumn/{sp[0]}', f'images_aligned_2018Autumn/{sp[1]}')
+        results.append(pred)
+        dists.append(dist)
+        print(cnt_s, sp[0], sp[1], pred, sep="  ")
+    
+    results = np.array(results)
+    dists = np.array(dists)
+    thresh = np.median(dists)
+    # thresh = 1.5
+    results[dists > thresh] = 0
+    results[dists <= thresh] = 1
+    pred = results
+    gt = open('images_aligned_2018Autumn/pairs1.txt').readlines()
+    gt = [g.strip('\n') for g in gt]
+    gts = [g.split('  ') for g in gt]
+    gt = [g[-1][-1] for g in gts]
+    pred = np.array(pred, dtype=int)
+    gt = np.array(gt, int)
+    print((gt == pred).sum() / gt.shape[0])
+    
+    np.savetxt('21831128-11831037+pairs1.txt', np.asarray(results), fmt='%d')
+    plt.plot(np.sort(dists))
+    plt.show()
+    plt.hist(dists, bins=50)
+    plt.show()
 
 
 if __name__ == "__main__":

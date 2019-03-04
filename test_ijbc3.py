@@ -31,7 +31,7 @@ else:
     
     conf.need_log = False
     conf.batch_size *= 2 * conf.num_devs
-    bs = conf.batch_size
+    bs = min(conf.batch_size, bs)
     conf.fp16 = False
     conf.ipabn = False
     conf.cvt_ipabn = True
@@ -43,7 +43,7 @@ else:
     
     learner = FaceInfer(conf, gpuid=range(conf.num_devs))
     learner.load_state(
-        resume_path='work_space/asia.emore.r50.test.ijbc.2/models/',
+        resume_path='work_space/asia.emore.r50.test.ijbc.3/models/',
         latest=True,
     )
     # learner.load_model_only('work_space/backbone_ir50_ms1m_epoch120.pth')
@@ -214,6 +214,5 @@ roc_auc = auc(fpr, tpr)
 print(roc_auc)
 logging.info('finish ')
 
-from IPython import embed
-
-embed()
+# from IPython import embed
+# embed()

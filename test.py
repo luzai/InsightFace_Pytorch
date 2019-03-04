@@ -73,7 +73,7 @@ for imgfn in itertools.chain(
     lz.mkdir_p(dst_folder, delete=False)
     img = cvb.read_img(imgfn)  # bgr
     img1 = Image.fromarray(img)
-    face = mtcnn.align_best(img1, limit=None, min_face_size=16)
+    face = mtcnn.align_best(img1, limit=None, min_face_size=16, imgfn=imgfn)
     face = np.asarray(face)
     face = cvb.bgr2rgb(face)  # rgb
     face = Image.fromarray(face)

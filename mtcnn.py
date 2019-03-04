@@ -37,7 +37,7 @@ class MTCNN():
         # cvb.show_img(warped_face)
         return Image.fromarray(warped_face)
     
-    def align_best(self, img, limit=None, min_face_size=50., ):
+    def align_best(self, img, limit=None, min_face_size=20., **kwargs):
         try:
             boxes, landmarks = self.detect_faces(img, min_face_size,)
             img = to_numpy(img)
@@ -64,13 +64,13 @@ class MTCNN():
                 warped_face = warp_and_crop_face(np.array(img), facial5points, self.refrence, crop_size=(112, 112))
                 return to_image(warped_face)
             else:
-                logging.warning(f'no face detected')
+                logging.warning(f'no face detected, {kwargs} ')
                 return to_image(img).resize((112, 112), Image.BILINEAR)
         except Exception as e:
             logging.warning(f'face detect fail, err {e}')
             return to_image(img).resize((112, 112), Image.BILINEAR)
     
-    def detect_faces(self, image, min_face_size=50.,
+    def detect_faces(self, image, min_face_size=20.,
                      # thresholds=[0.7, 0.7, 0.8],
                      thresholds=[0.1, 0.1, 0.9],
                      nms_thresholds=[0.7, 0.7, 0.7]):

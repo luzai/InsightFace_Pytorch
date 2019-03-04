@@ -3,7 +3,7 @@ from PIL import Image
 import argparse
 from pathlib import Path
 import torch
-from config import get_config
+from config import conf
 from mtcnn import MTCNN
 from Learner import face_learner
 from utils import load_facebank, draw_box_name, prepare_facebank
@@ -17,13 +17,10 @@ if __name__ == '__main__':
     parser.add_argument("-c", "--score", help="whether show the confidence score", action="store_true")
     args = parser.parse_args()
 
-    conf = get_config(False)
-
     mtcnn = MTCNN()
     print('mtcnn loaded')
 
     learner = face_learner(conf, True)
-    learner.threshold = args.threshold
     if conf.device.type == 'cpu':
         learner.load_state(conf, 'cpu_final.pth', True, True)
     else:

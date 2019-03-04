@@ -305,7 +305,7 @@ class TorchDataset(object):
             return len(self.imgidx) // torch.distributed.get_world_size()
         else:
             #             logging.info(f'ask me len {len(self.imgidx)} {self.imgidx}')
-            return len(self.imgidx)  # todo we may want to less
+            return len(self.imgidx) // gl_conf.epoch_less_iter
     
     def __getitem__(self, indices, ):
         # if isinstance(indices, (tuple, list)) and len(indices[0])==3:
@@ -830,7 +830,7 @@ class face_learner(object):
                  'weight_decay': gl_conf.weight_decay},
                 {'params': paras_only_bn},
             ], lr=conf.lr, betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
-                gamma=1e-3, final_lr=.1,
+                gamma=1e-3, final_lr=gl_conf.final_lr,
             )
         else:
             raise ValueError(f'{conf.use_opt}')
@@ -958,8 +958,8 @@ class face_learner(object):
                 collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
             )
             loader_test_enum = data_prefetcher(enumerate(loader))
-        self.evaluate_every = gl_conf.other_every or len(loader) // 3
-        self.save_every = gl_conf.other_every or len(loader) // 3
+        self.evaluate_every = gl_conf.other_every or len(loader) // (3*gl_conf.epoch_less_iter)
+        self.save_every = gl_conf.other_every or len(loader) // (3*gl_conf.epoch_less_iter)
         self.step = gl_conf.start_step
         writer = self.writer
         lz.timer.since_last_check('start train')
