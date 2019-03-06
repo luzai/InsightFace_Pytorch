@@ -9,7 +9,7 @@ from mtcnn import MTCNN
 import itertools
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data_dir', type=str, default='/data/xinglu/prj/images_aligned_2018Autumn')
+parser.add_argument('--data_dir', type=str, default='/data1/xinglu/prj/images_aligned_2018Autumn')
 parser.add_argument('--batch_size', type=int, default=64)
 args = parser.parse_args()
 
