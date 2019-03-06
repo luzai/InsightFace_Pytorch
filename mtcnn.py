@@ -20,7 +20,7 @@ class MTCNN():
         self.pnet = PNet().to(device)
         self.rnet = RNet().to(device)
         self.onet = ONet().to(device)
-        self.onet.eval()
+        self.pnet.eval()
         self.rnet.eval()
         self.onet.eval()
         self.refrence = get_reference_facial_points(default_square=True)
