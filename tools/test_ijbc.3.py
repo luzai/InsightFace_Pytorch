@@ -30,7 +30,7 @@ else:
     from config import conf
     
     conf.need_log = False
-    conf.batch_size *= 2 * conf.num_devs
+    conf.batch_size *= 4 * conf.num_devs
     bs = min(conf.batch_size, bs)
     conf.fp16 = False
     conf.ipabn = False
@@ -43,7 +43,7 @@ else:
     
     learner = FaceInfer(conf, gpuid=range(conf.num_devs))
     learner.load_state(
-        resume_path='work_space/asia.emore.r50.test.ijbc.3/models/',
+        resume_path='work_space/asia.emore.r50.test.ijbc.4/models/',
         latest=True,
     )
     # learner.load_model_only('work_space/backbone_ir50_ms1m_epoch120.pth')
@@ -100,6 +100,7 @@ class DatasetIJBC2(torch.utils.data.Dataset):
         lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
         lmk = lmk.reshape((5, 2))
         warp_img = preprocess(img, landmark=lmk)
+        # cvb.write_img(warp_img, f'/share/data/aligned/{name_lmk_score[0]}', )
         warp_img = to_image(warp_img)
         faceness_score = float(name_lmk_score[-1])
         if self.flip:
@@ -111,17 +112,23 @@ class DatasetIJBC2(torch.utils.data.Dataset):
         else:
             img = np.array(np.transpose(warp_img, (2, 0, 1)))
             img = lz.to_torch(img).float()
+        
         return img, faceness_score, item, name_lmk_score[0]
 
 
 ds = DatasetIJBC2(flip=False)
 
 loader = torch.utils.data.DataLoader(ds, batch_size=bs,
-                                     num_workers=12 if 'amax' in hostname() else 44,
+                                     num_workers=24 if 'amax' in hostname() else 44,
                                      shuffle=False,
                                      pin_memory=True, )
-
+# for ind, data in enumerate((loader)):
+#     if ind % 9 == 0:
+#         logging.info(f'ok {ind} {len(loader)}')
+#     pass
+# exit(0)
 for ind, data in enumerate((loader)):
+    
     (img, faceness_score, items, names) = data
     if ind % 9 == 0:
         logging.info(f'ok {ind} {len(loader)}')
@@ -185,8 +192,9 @@ for c, s in enumerate(sublists):
 
 from sklearn.metrics import roc_curve
 
+msgpack_dump(score, 'work_space/t.pk')
 print(score.max(), score.min())
-_ = plt.hist(score)
+# _ = plt.hist(score)
 fpr, tpr, _ = roc_curve(label, score)
 
 # plt.figure()
