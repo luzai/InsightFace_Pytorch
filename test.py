@@ -34,19 +34,62 @@ def save_mat(filename, m):
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data_dir', type=str, default='images_aligned_sample')
+parser.add_argument('--data_dir', type=str, default='/data/xinglu/prj/images_aligned_2018Autumn')
 parser.add_argument('--batch_size', type=int, default=64)
 args = parser.parse_args()
 
-root_folder_name = [name for name in args.data_dir.split('/') if name != '.'][0]
+assert osp.exists(args.data_dir), "The input dir not exist"
+root_folder_name = args.data_dir.split('/')[-1]
+src_folder = args.data_dir.replace(root_folder_name, root_folder_name + '_OPPOFaces')
+# try:
+assert osp.exists(src_folder), "Please run python crop_face_oppo.py --data_dir DATASET first"
+# except:
+#     lz.shell("")
 dst_folder = args.data_dir.replace(root_folder_name, root_folder_name + '_OPPOFeatures')
 lz.mkdir_p(dst_folder, delete=False)
 
-mtcnn = MTCNN()
-test_transform = trans.Compose([
-    trans.ToTensor(),
-    trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
-])
+
+class TestData(torch.utils.data.Dataset):
+    def __init__(self):
+        self.imgfn_iter = itertools.chain(
+            glob.glob(args.data_dir + '/**/*.jpg', recursive=True),
+            glob.glob(args.data_dir + '/**/*.JPEG', recursive=True))
+        try:
+            self.length = lz.msgpack_load(src_folder + '/nimgs.pk')
+        except:
+            logging.info(
+                "After crop_face_oppo.py runned, *_OPPOFaces/nimgs.pk will be generetd, which logs the number of imgs. However no such file find now. We will guess the number of imgs. If any problem occurs, please rerun crop_face_oppo.py")
+            self.length = int(10 * 10 ** 6)  # assume ttl test img less than 10M
+    
+    def __len__(self):
+        return self.length
+    
+    def __getitem__(self, item=None):
+        try:
+            imgfn = next(self.imgfn_iter)
+            finish = 0
+            img = cvb.read_img(imgfn)  # bgr
+            img = cvb.bgr2rgb(img)
+        except StopIteration:
+            # logging.info(f'folder iter end')
+            imgfn = ""
+            finish = 1
+            img = np.zeros((112, 112, 3), dtype=np.uint8)
+        mirror = img[..., ::-1].copy()
+        img = conf.test_transform(img)
+        mirror = conf.test_transform(mirror)
+        return {'imgfn': imgfn,
+                "finish": finish,
+                'img': img,
+                'img_flip': mirror}
+
+
+loader = torch.utils.data.DataLoader(TestData(), batch_size=args.batch_size,
+                                     num_workers=24,
+                                     shuffle=False,
+                                     pin_memory=True,
+                                     drop_last=False
+                                     )
 
 conf.need_log = False
 conf.fp16 = False
@@ -61,25 +104,20 @@ learner.load_state(
     latest=True,
 )
 learner.model.eval()
-ind = 0
-for imgfn in itertools.chain(
-        glob.glob(args.data_dir + '/**/*.jpg', recursive=True),
-        glob.glob(args.data_dir + '/**/*.JPEG', recursive=True)):
-    ind += 1
-    if ind % 10 == 0:
-        print(f'proc {ind}, {imgfn}')
-    feafn = imgfn.replace(root_folder_name, root_folder_name + '_OPPOFeatures') + '_OPPO.bin'
-    dst_folder = osp.dirname(feafn)
-    lz.mkdir_p(dst_folder, delete=False)
-    img = cvb.read_img(imgfn)  # bgr
-    img1 = Image.fromarray(img)
-    face = mtcnn.align_best(img1, limit=None, min_face_size=16, imgfn=imgfn)
-    face = np.asarray(face)
-    face = cvb.bgr2rgb(face)  # rgb
-    face = Image.fromarray(face)
-    mirror = torchvision.transforms.functional.hflip(face)
+from sklearn.preprocessing import normalize
+
+for ind, data in enumerate(loader):
+    if (data['finish'] == 1).all().item():
+        logging.info('finish')
+        break
+    img = data['img'].cuda()
+    img_flip = data['img_flip'].cuda()
     with torch.no_grad():
-        fea = learner.model(test_transform(face).cuda().unsqueeze(0))
-        fea_mirror = learner.model(test_transform(mirror).cuda().unsqueeze(0))
-        fea = l2_norm(fea + fea_mirror).cpu().numpy().reshape(512, 1)
-    save_mat(feafn, fea)
+        fea = learner.model(img)
+        fea_mirror = learner.model(img_flip)
+        fea += fea_mirror
+        fea = fea.cpu().numpy()
+    fea = normalize(fea, axis=1)
+    for imgfn_, fea_ in zip(data['imgfn'], fea):
+        feafn_ = imgfn_.replace(root_folder_name, root_folder_name + '_OPPOFeatures') + '_OPPO.bin'
+        save_mat(feafn_, fea_)
