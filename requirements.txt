@@ -30,3 +30,4 @@ opencv-python
 lmdb
 redis
 future-fstrings
+dlib==19.10

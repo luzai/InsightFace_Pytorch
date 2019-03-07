@@ -16,6 +16,12 @@ We are not sure whether the program is bug-free. If there is any mistake, please
 
 ## Version 2 update 
 - compatible with python3.6
+- Make sure future-fstrings is installed 
 
 ## Version 3 update 
-- Accelerate feature extraction part of test stage  
+- Accelerate feature extraction part for test stage
+
+## Version 4 update 
+- Accelerate face cropping part 
+- dlib==19.10 may take some time to be installed, please be patient 
+- If the input image resolution is large, use '--batch_size' to reduce batch size.

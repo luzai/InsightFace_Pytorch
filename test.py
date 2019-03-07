@@ -20,7 +20,8 @@ root_folder_name = args.data_dir.split('/')[-1]
 src_folder = args.data_dir.replace(root_folder_name, root_folder_name + '_OPPOFaces')
 if not osp.exists(src_folder):
     logging.info('first crop face, an alternative way is run python crop_face_oppo.py --data_dir DATASET. ')
-    from crop_face_oppo import crop_face
+    from crop_face_oppo_fast import crop_face
+    # from crop_face_oppo import crop_face
     
     crop_face(args)
 
@@ -68,7 +69,7 @@ imgfn_iter = itertools.chain(
     glob.glob(src_folder + '/**/*.jpg', recursive=True),
     glob.glob(src_folder + '/**/*.JPEG', recursive=True))
 loader = torch.utils.data.DataLoader(TestData(imgfn_iter), batch_size=args.batch_size,
-                                     num_workers=12,
+                                     num_workers=0,
                                      shuffle=False,
                                      pin_memory=True,
                                      drop_last=False

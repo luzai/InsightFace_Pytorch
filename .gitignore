@@ -2,3 +2,9 @@ work_space
 log*
 __pycache__
 .idea
+*.dat
+*.npy
+*.pth.tar
+*.pkl
+.ipynb_checkpoints
+*.ipynb
