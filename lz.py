@@ -325,7 +325,7 @@ def mkdir_p(path, delete=True):
     if delete and osp.exists(path):
         rm(path)
     if not osp.exists(path):
-        shell('mkdir -p ' + path)
+        shell(f"mkdir -p '{path}'")
 
 
 class Logger(object):
@@ -1005,8 +1005,7 @@ def msgpack_dumps(obj, **kwargs):
 
 
 def msgpack_load(file, **kwargs):
-    # logging.info(f'load {file}')
-    # however this is not thread safe
+    assert osp.exists(file)
     import msgpack, gc, msgpack_numpy as m
     gc.disable()
     kwargs.setdefault('allow_np', True)
@@ -1173,7 +1172,7 @@ def rm(path, block=True):
         cmd = 'mv {} {} '.format(path, dst_path)
         return shell(cmd, block=block)
     else:
-        return shell(f'trash -r {path}', block=block)
+        return shell(f'trash -r "{path}"', block=block)
 
 
 def show_img(path):
@@ -1183,12 +1182,14 @@ def show_img(path):
     return fig
 
 
-def plt_imshow(img, ax=None, keep_ori_size=False):
+def plt_imshow(img, ax=None, keep_ori_size=False, inp_mode = 'rgb'):
     img = to_img(img)
+    if inp_mode == 'bgr':
+        img = img[..., ::-1]
     if ax is None:
         h, w, c, = img.shape
-        inchh = h / 96
-        inchw = w / 96
+        inchh = h / 100
+        inchw = w / 100
         if keep_ori_size:
             plt.figure(figsize=(inchw, inchh,))
         else:
@@ -1587,7 +1588,7 @@ def preprocess(img, bbox=None, landmark=None, **kwargs):
         if image_size[1] == 112:
             src[:, 0] += 8.0
         dst = landmark.astype(np.float32)
-        dst = dst.reshape(5, 2)  # todo
+        dst = dst.reshape(5, 2)  # todo, this means dst mast be 5 row
         tform = trans.SimilarityTransform()
         tform.estimate(dst, src)
         M = tform.params[0:2, :]
@@ -1869,6 +1870,59 @@ class AverageMeter(object):
         # self.sum += val * n
         # self.count += n
         # self.avg = self.sum / self.count
+
+def extend_bbox(img_proc, bbox,
+                up=.0,
+                down=.0,
+                rightleft=0.,
+                ):
+    x1, y1, x2, y2 = bbox[:4]
+    img_shape = img_proc.shape
+    row = y1
+    col = x1
+    height = y2 - y1
+    width = x2 - x1
+    rowc = row + height / 2
+    colc = col + width / 2
+    height = (1. + up + down) * height
+    width = (1 + 2 * rightleft) * width
+    row = rowc - height / (1. + up + down) * (.5 + up / 2 + down / 2)
+    col = colc - width / 2
+    row = max(row, 0)
+    col = max(col, 0)
+    height = min(height, img_shape[0] - row)
+    width = min(width, img_shape[1] - col)
+    row, col, height, width = map(lambda x: int(round(x)), [row, col, height, width])
+    img_crop = img_proc[row:row + height, col:col + width, :]
+    return img_crop, np.asarray([col, row, col + width, row + height])
+
+
+def to_landmark5(landmark):
+    assert landmark.shape[0] == 68 or landmark.shape[0] == 5
+    assert landmark.shape[1] == 2
+    if landmark.shape[0] == 68:
+        landmark5 = np.zeros((5, 2), dtype=np.float32)
+        landmark5[0] = (landmark[36] + landmark[39]) / 2
+        landmark5[1] = (landmark[42] + landmark[45]) / 2
+        landmark5[2] = landmark[30]
+        landmark5[3] = landmark[48]
+        landmark5[4] = landmark[54]
+    else:
+        landmark5 = landmark
+    return landmark5
+
+
+def update_rcparams():
+    from matplotlib import rcParams
+    params = {
+        'axes.labelsize': 20,
+        'legend.fontsize': 11,
+        'xtick.labelsize': 11,
+        'ytick.labelsize': 11,
+        'text.usetex': True,
+        # 'figure.figsize': [10, 5]
+    }
+    rcParams.update(params)
 
 
 if __name__ == '__main__':

@@ -36,7 +36,7 @@ if __name__ == '__main__':
     
     learner.load_state(
         # resume_path=Path('work_space/asia.emore.r50.test.ijbc.3/models/'),
-        resume_path=Path('work_space/emore.r152.cont/save/'),
+        resume_path=Path('work_space/emore.r152.ada.chkpnt/models/'),
         load_optimizer=False,
         load_head=True,
         load_imp=False,
@@ -55,10 +55,9 @@ if __name__ == '__main__':
     # learner.train(conf, 1, name='xent')
     
     learner.init_lr()
-    conf.tri_wei = 0
     log_conf(conf)
-    # learner.train(conf, conf.epochs)
-    learner.train_simple(conf, conf.epochs)
+    learner.train(conf, conf.epochs)
+    # learner.train_simple(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)
     
     # learner.validate(conf,)

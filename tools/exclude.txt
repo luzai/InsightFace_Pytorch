@@ -1,0 +1,9 @@
+work_space
+log*
+__pycache__
+.idea
+.git
+21831128-11831037+pairs1.txt
+optimizer*.pth
+head*.pth
+extra*.pk

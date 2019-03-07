@@ -9,7 +9,7 @@ DST=$ROOT/$NAME
 MODEL=asia.emore.r50.5
 
 rm $DST/* -rf
-rsync -avzxXP $FROM/ $DST/ --exclude='work_space/'
+rsync -avzxXP $FROM/ $DST/ --exclude-from='tools/exclude.txt'
 rm $DST/.git $DST/.idea log* __pycache__ -rf
 #python tmp.py
 
@@ -22,5 +22,5 @@ rm optimizer* head* -rf
 popd
 
 cd $ROOT
-rm $NAME.zip
+rm -rf $NAME.zip
 zip -r $NAME.zip $NAME

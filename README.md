@@ -1,4 +1,4 @@
-# OPPO AI -- Face Recognition
+# OPPO AI -- Face Recognition -- Version 3 
 
 ## Environment:
 
@@ -8,10 +8,14 @@
  
 ## How to test: 
 
-- Please run `pip install future-fstrings` if using python3.5. (Has been included in `requirements.txt`)
 - Install pytorch and other requirements by `pip install requirements.txt`. 
 - `cd ROOT_PATH`. Make sure execute following cmd in the root directory of project. 
-- `ln -s OPPO_DATASET ./`
-- `python test.py --data_dir OPPO_DATASET`. We contain a image folder `images_aligned_sample` for demonstration, thus `python test.py --data_dir images_aligned_sample` should run successfully. 
+- `python test.py --data_dir OPPO_DATASET`. We contain a image folder `images_aligned_sample` for demonstration, thus `python test.py --data_dir images_aligned_sample` should run successfully. Relative path or absolute path are both accepted. 
 
 We are not sure whether the program is bug-free. If there is any mistake, please inform us(xingluwang@zju.edu.cn). Thank you!
+
+## Version 2 update 
+- compatible with python3.6
+
+## Version 3 update 
+- Accelerate feature extraction part of test stage  

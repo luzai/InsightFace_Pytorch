@@ -8,8 +8,7 @@ from tools.FaceVerification import FaceVerification as verif
 os.chdir(lz.root_path)
 # To see the verification example, change the paths below to your own,
 # and change the path in `same_pairs.txt` and `diff_pairs.txt` to your own.
-path_pairs = "images_aligned_2018Autumn/pairs1_nolabel.txt"
-
+path_pairs = "../images_aligned_2018Autumn/pairs1_nolabel.txt"
 
 def main():
     same_pairs = np.loadtxt(path_pairs, dtype="str", delimiter="  ")
@@ -37,7 +36,7 @@ def main():
     results[dists > thresh] = 0
     results[dists <= thresh] = 1
     pred = results
-    gt = open('images_aligned_2018Autumn/pairs1.txt').readlines()
+    gt = open('../images_aligned_2018Autumn/pairs1.txt').readlines()
     gt = [g.strip('\n') for g in gt]
     gts = [g.split('  ') for g in gt]
     gt = [g[-1][-1] for g in gts]

@@ -29,7 +29,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/emore.r152.ada.chkpnt')
+conf.work_path = Path('work_space/emore.r152.ada.chkpnt.2')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -63,7 +63,7 @@ conf.rand_ratio = 9 / 27
 conf.margin = 0.5
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
-conf.tri_wei = 0
+conf.tri_wei = 0.1
 conf.scale = 64.
 conf.start_eval = False
 conf.instances = 4
@@ -73,7 +73,7 @@ conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
 conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
-conf.net_depth = 50  # 100 121 169 201 264
+conf.net_depth = 152  # 100 121 169 201 264
 
 conf.test_transform = trans.Compose([
     trans.ToTensor(),
@@ -88,7 +88,7 @@ conf.prof = False
 conf.fast_load = True
 conf.fp16 = False
 conf.ipabn = False
-conf.cvt_ipabn = True
+conf.cvt_ipabn = False
 
 conf.kd = False
 conf.sftlbl_from_file = False
@@ -99,7 +99,7 @@ conf.online_imp = False
 conf.use_test = False  # 'ijbc' 'glint' False
 # conf.train_ratio = .7  # todo
 
-conf.batch_size = 80 * num_devs
+conf.batch_size = 75 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
 conf.other_every = None if not conf.prof else 51
@@ -123,7 +123,7 @@ conf.epoch_less_iter = 1
 # conf.milestones = [5, 8, 10]
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.num_workers = 24 if "amax" in hostname() else 66  # 4
+conf.num_workers = 12 if "amax" in hostname() else 66  # 4
 
 
 # todo may use kl_div to speed up
