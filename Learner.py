@@ -1505,6 +1505,7 @@ class face_learner(object):
             else:  # best
                 step = [fixed_str.split('_')[-3].split(':')[-1] for fixed_str in fixed_strs]
             step = np.asarray(step, dtype=float)
+            assert step.shape[0]>0, f"{resume_path} chk!"
             step_ind = step.argmax()
             fixed_str = fixed_strs[step_ind].replace('model_', '')
             modelp = save_path / 'model_{}'.format(fixed_str)

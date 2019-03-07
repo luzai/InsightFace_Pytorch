@@ -7,31 +7,7 @@ from PIL import Image
 from Learner import FaceInfer, l2_norm
 from mtcnn import MTCNN
 import itertools
-
-cv_type_to_dtype = {
-    5: np.dtype('float32'),
-    6: np.dtype('float64')
-}
-
-dtype_to_cv_type = {v: k for k, v in cv_type_to_dtype.items()}
-
-
-def write_mat(f, m):
-    """Write mat m to file f"""
-    if len(m.shape) == 1:
-        rows = m.shape[0]
-        cols = 1
-    else:
-        rows, cols = m.shape
-    header = struct.pack('iiii', rows, cols, cols * 4, dtype_to_cv_type[m.dtype])
-    f.write(header)
-    f.write(m.data)
-
-
-def save_mat(filename, m):
-    """Saves mat m to the given filename"""
-    return write_mat(open(filename, 'wb'), m)
-
+from lz import save_mat
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_dir', type=str, default='/data/xinglu/prj/images_aligned_2018Autumn')
@@ -121,7 +97,7 @@ for ind, data in enumerate(loader):
         fea = fea.cpu().numpy()
     fea = normalize(fea, axis=1)
     for imgfn_, fea_ in zip(data['imgfn'], fea):
-        feafn_ = imgfn_.replace(root_folder_name+'_OPPOFaces', root_folder_name + '_OPPOFeatures') + '_OPPO.bin'
+        feafn_ = imgfn_.replace(root_folder_name + '_OPPOFaces', root_folder_name + '_OPPOFeatures') + '_OPPO.bin'
         dst_folder = osp.dirname(feafn_)
         lz.mkdir_p(dst_folder, delete=False)
         save_mat(feafn_, fea_)

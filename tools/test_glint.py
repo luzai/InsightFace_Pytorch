@@ -31,7 +31,7 @@ else:
     from config import conf
     from recognition.embedding import Embedding
     from Learner import l2_norm, FaceInfer, get_rec, unpack_auto
-
+    
     learner = Embedding(
         prefix='/home/xinglu/prj/insightface/logs/MS1MV2-ResNet100-Arcface/model', epoch=0, ctx_id=0)
 logging.info('learner loaded')
@@ -145,6 +145,7 @@ def db2np(name):
     
     save_mat(work_path + name + '.bin', res)
     msgpack_dump(res, work_path + name + '.pk', )
+
 
 if __name__ == '__main__':
     name = 'mxnet'

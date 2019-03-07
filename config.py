@@ -29,7 +29,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/asia.emore.r50.test.ijbc.4')
+conf.work_path = Path('work_space/emore.r152.ada.chkpnt')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -82,13 +82,13 @@ conf.test_transform = trans.Compose([
 
 conf.upgrade_irse = True
 conf.use_redis = False
-conf.use_chkpnt = False
+conf.use_chkpnt = True
 conf.chs_first = True
 conf.prof = False
 conf.fast_load = True
 conf.fp16 = False
-conf.ipabn = True
-conf.cvt_ipabn = False
+conf.ipabn = False
+conf.cvt_ipabn = True
 
 conf.kd = False
 conf.sftlbl_from_file = False
@@ -96,10 +96,10 @@ conf.alpha = .95
 conf.temperature = 6
 
 conf.online_imp = False
-conf.use_test = 'ijbc'  # 'ijbc' 'glint' False todo megaface
+conf.use_test = False  # 'ijbc' 'glint' False
 # conf.train_ratio = .7  # todo
 
-conf.batch_size = 100 * num_devs
+conf.batch_size = 80 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
 conf.other_every = None if not conf.prof else 51
@@ -109,23 +109,21 @@ conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
 conf.start_epoch = 0
-conf.start_step = 9000//3
-conf.use_opt = 'sgd'
+conf.start_step = 0
+conf.use_opt = 'adabound'
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
-conf.final_lr = 1e-1
-conf.lr = 1e-3
+conf.final_lr = 1e-2
+conf.lr = 1e-4
 conf.lr_gamma = 0.1
 conf.epochs = 2
 conf.milestones = [1]
-conf.epoch_less_iter = 3
-# conf.epochs = 9
-# conf.milestones = [2, 5, 7]
+conf.epoch_less_iter = 1
 # conf.epochs = 12
 # conf.milestones = [5, 8, 10]
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.num_workers = 24 if "amax" in hostname() else 66
+conf.num_workers = 24 if "amax" in hostname() else 66  # 4
 
 
 # todo may use kl_div to speed up
