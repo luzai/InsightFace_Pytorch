@@ -8,17 +8,21 @@ import torch.cuda.comm as comm
 from torch.autograd.function import once_differentiable
 from torch.utils.cpp_extension import load
 if torch.__version__.startswith('1'):
-    _src_path = path.join(path.dirname(path.abspath(__file__)), "src")
-    _backend = load(name="inplace_abn",
-                    extra_cflags=["-O3"],
-                    sources=[path.join(_src_path, f) for f in [
-                        "inplace_abn.cpp",
-                        "inplace_abn_cpu.cpp",
-                        "inplace_abn_cuda.cu",
-                        "inplace_abn_cuda_half.cu"
-                    ]],
-                    extra_cuda_cflags=["--expt-extended-lambda"])
-    
+    try:
+        _src_path = path.join(path.dirname(path.abspath(__file__)), "src")
+        _backend = load(name="inplace_abn",
+                        extra_cflags=["-O3"],
+                        sources=[path.join(_src_path, f) for f in [
+                            "inplace_abn.cpp",
+                            "inplace_abn_cpu.cpp",
+                            "inplace_abn_cuda.cu",
+                            "inplace_abn_cuda_half.cu"
+                        ]],
+                        extra_cuda_cflags=["--expt-extended-lambda"])
+    except:
+        logging.warning(f'do you install pytorch from pip, rather than conda, only allow train without ipabn')
+        __all__ = []
+        pass
     # Activation names
     ACT_RELU = "relu"
     ACT_LEAKY_RELU = "leaky_relu"
@@ -243,6 +247,6 @@ if torch.__version__.startswith('1'):
     
     __all__ = ["inplace_abn", "inplace_abn_sync", "ACT_RELU", "ACT_LEAKY_RELU", "ACT_ELU", "ACT_NONE"]
 else:
-    logging.warning(f'using pytorch 0.4, only allow inference')
+    logging.warning(f'using pytorch 0.4, only allow train without ipabn')
     __all__ = []
 
