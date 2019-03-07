@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
+# -*- coding: future_fstrings -*-
 
 from lz import *
 from config import conf
-from Learner import face_learner
+# conf.net_depth = 152
+# conf.fp16 = False
+# conf.ipabn = False
+# conf.cvt_ipabn = True
+# conf.batch_size *=4
 import argparse
 from pathlib import Path
 import lz
@@ -25,17 +30,20 @@ if __name__ == '__main__':
         torch.cuda.set_device(conf.local_rank)
         torch.distributed.init_process_group(backend='nccl',
                                              init_method="env://")
-    
+   
+    from Learner import face_learner
     learner = face_learner(conf, )
     
     learner.load_state(
-        resume_path=Path('work_space/asia.emore.r50.test.ijbc.3/models/'),
-        load_optimizer=True,
+        # resume_path=Path('work_space/asia.emore.r50.test.ijbc.3/models/'),
+        resume_path=Path('work_space/emore.r152.cont/save/'),
+        load_optimizer=False,
         load_head=True,
         load_imp=False,
         latest=True,
     )
-    
+    # learner.calc_img_feas(out='work_space/emore.fea.3.h5')
+
     # learner.init_lr()
     # conf.tri_wei = 0
     # log_conf(conf)
@@ -68,8 +76,6 @@ if __name__ == '__main__':
     #
     #
     # calc_importance()
-    
-    # learner.calc_feature(out='work_space/ms1m.rv1.fc7.pk')
     
     # log_lrs, losses = learner.find_lr(conf,
     #                                   # final_value=100,

@@ -52,8 +52,8 @@ lz.mkdir_p(dst_folder, delete=False)
 class TestData(torch.utils.data.Dataset):
     def __init__(self):
         self.imgfn_iter = itertools.chain(
-            glob.glob(args.data_dir + '/**/*.jpg', recursive=True),
-            glob.glob(args.data_dir + '/**/*.JPEG', recursive=True))
+            glob.glob(src_folder + '/**/*.jpg', recursive=True),
+            glob.glob(src_folder + '/**/*.JPEG', recursive=True))
         try:
             self.length = lz.msgpack_load(src_folder + '/nimgs.pk')
         except:
@@ -110,6 +110,8 @@ for ind, data in enumerate(loader):
     if (data['finish'] == 1).all().item():
         logging.info('finish')
         break
+    if ind % 10 == 0:
+        print(f'proc batch {ind}')
     img = data['img'].cuda()
     img_flip = data['img_flip'].cuda()
     with torch.no_grad():
@@ -119,5 +121,7 @@ for ind, data in enumerate(loader):
         fea = fea.cpu().numpy()
     fea = normalize(fea, axis=1)
     for imgfn_, fea_ in zip(data['imgfn'], fea):
-        feafn_ = imgfn_.replace(root_folder_name, root_folder_name + '_OPPOFeatures') + '_OPPO.bin'
+        feafn_ = imgfn_.replace(root_folder_name+'_OPPOFaces', root_folder_name + '_OPPOFeatures') + '_OPPO.bin'
+        dst_folder = osp.dirname(feafn_)
+        lz.mkdir_p(dst_folder, delete=False)
         save_mat(feafn_, fea_)

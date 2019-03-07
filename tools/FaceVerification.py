@@ -6,7 +6,7 @@ from skimage import io
 import cv2, logging, torchvision, numpy as np
 from PIL import Image
 from pathlib import Path
-import torch
+import torch, lz
 from mtcnn import MTCNN
 
 # conf_str = 'th.ms1m.fan'
@@ -29,15 +29,19 @@ else:
 
 if 'th' in conf_str:
     from config import conf
-
+    
     conf.need_log = False
     conf.ipabn = False
     conf.cvt_ipabn = True
+    conf.net_depth = 50
     from Learner import face_learner, FaceInfer
     from models.model import l2_norm
     
     learner = FaceInfer(conf, )
-    learner.load_state(conf, resume_path='work_space/asia.emore.r50.5/models')
+    learner.load_state(conf,
+                       resume_path=root_path + 'work_space/asia.emore.r50.5/models'
+                       # resume_path= root_path+'work_space/emore.r152.cont/models'
+                       )
     learner.model.eval()
     logging.info('learner loaded')
 else:
@@ -77,7 +81,7 @@ def imgp2face_fan(img_path1):
 def imgp2face(img_path1):
     img1 = io.imread(img_path1)  # this is rgb
     img1 = img1[..., ::-1]  # this is bgr
-    face = mtcnn.align_best(img1, conf.face_limit, 16, imgfn=img_path1)  # bgr
+    face = mtcnn.align_best(img1, min_face_size=16, imgfn=img_path1)  # bgr
     face = to_numpy(face)
     face = face[..., ::-1].copy()  # rgb
     face = to_img(face)

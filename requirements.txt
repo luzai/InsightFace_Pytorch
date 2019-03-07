@@ -1,7 +1,7 @@
 h5py
 tensorboardX
 tabulate
-tensorflow-gpu
+# tensorflow-gpu
 torch
 tensorboard
 tqdm
@@ -10,6 +10,7 @@ tqdm
 easydict
 scikit-learn
 ipython
+matplotlib
 pandas
 bcolz
 numpy

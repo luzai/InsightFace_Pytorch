@@ -5,13 +5,13 @@ import lz
 from lz import *
 from torch.nn import CrossEntropyLoss
 from tools.vat import VATLoss
-
+from torchvision import  transforms as trans
 # todo label smooth
 # todo batch read redis
 
 dist = False
-# num_devs = 1
-lz.init_dev(3)
+num_devs = 1
+# lz.init_dev(0)
 lz.init_dev(lz.get_dev(num_devs))
 
 if dist:
@@ -42,7 +42,7 @@ glint_test = conf.data_path / 'glint_test'
 alpha_f64 = conf.data_path / 'alpha_f64'
 alpha_jk = conf.data_path / 'alpha_jk'
 
-conf.use_data_folder = asia_emore  # emore_folder  # conf.glint_folder #  conf.ms1m_folder #alpha_f64
+conf.use_data_folder = emore_folder  # emore_folder  # glint_folder #  ms1m_folder alpha_f64
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 
 if conf.use_data_folder == ms1m_folder:
@@ -75,10 +75,11 @@ conf.drop_ratio = 0.4
 conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
 conf.net_depth = 50  # 100 121 169 201 264
 
-# conf.test_transform = trans.Compose([
-#     trans.ToTensor(),
-#     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
-# ])
+conf.test_transform = trans.Compose([
+    trans.ToTensor(),
+    trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+])
+
 conf.upgrade_irse = True
 conf.use_redis = False
 conf.use_chkpnt = False
@@ -108,23 +109,23 @@ conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
 conf.start_epoch = 0
-conf.start_step = 0
-conf.use_opt = 'adabound'
+conf.start_step = 9000//3
+conf.use_opt = 'sgd'
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
-conf.final_lr = 1e-2
-conf.lr = 1e-4
+conf.final_lr = 1e-1
+conf.lr = 1e-3
 conf.lr_gamma = 0.1
 conf.epochs = 2
 conf.milestones = [1]
-conf.epoch_less_iter = 8
+conf.epoch_less_iter = 3
 # conf.epochs = 9
 # conf.milestones = [2, 5, 7]
 # conf.epochs = 12
 # conf.milestones = [5, 8, 10]
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.num_workers = 24 if "amax" in hostname() else 66  # 4
+conf.num_workers = 24 if "amax" in hostname() else 66
 
 
 # todo may use kl_div to speed up

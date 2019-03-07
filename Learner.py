@@ -400,6 +400,7 @@ class TorchDataset(object):
 
 class Dataset_val(torch.utils.data.Dataset):
     def __init__(self, path, name, transform=None):
+        from data.data_pipe import get_val_pair
         self.carray, self.issame = get_val_pair(path, name)
         self.carray = self.carray[:, ::-1, :, :]  # BGR 2 RGB!
         self.transform = transform
@@ -958,8 +959,8 @@ class face_learner(object):
                 collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
             )
             loader_test_enum = data_prefetcher(enumerate(loader))
-        self.evaluate_every = gl_conf.other_every or len(loader) // (3*gl_conf.epoch_less_iter)
-        self.save_every = gl_conf.other_every or len(loader) // (3*gl_conf.epoch_less_iter)
+        self.evaluate_every = gl_conf.other_every or len(loader) // (3 * gl_conf.epoch_less_iter)
+        self.save_every = gl_conf.other_every or len(loader) // (3 * gl_conf.epoch_less_iter)
         self.step = gl_conf.start_step
         writer = self.writer
         lz.timer.since_last_check('start train')
@@ -1647,7 +1648,7 @@ class face_learner(object):
             if ind_data > limits:
                 break
     
-    def calc_logits(self, out='work_space/teacher_embedding.h5'):
+    def calc_teacher_logits(self, out='work_space/teacher_embedding.h5'):
         db = lz.Database(out, 'a')
         conf = gl_conf
         loader = DataLoader(
@@ -1673,7 +1674,40 @@ class face_learner(object):
         db.flush()
         db.close()
     
-    def calc_feature(self, out='t.pk'):
+    def calc_img_feas(self, out='t.h5'):
+        conf = gl_conf
+        self.model.eval()
+        loader = DataLoader(
+            self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
+            shuffle=False, sampler=SeqSampler(), drop_last=False,
+            pin_memory=True,
+            collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
+        )
+        import h5py
+        from sklearn.preprocessing import normalize
+        
+        f = h5py.File(out, 'w')
+        chunksize = 80 * 10 ** 3
+        dst = f.create_dataset("feas", (chunksize, 512), maxshape=(None, 512), dtype='f2')
+        ind_dst = 0
+        for ind_data, data in data_prefetcher(enumerate(loader)):
+            if ind_data % 99 == 0:
+                logging.info(f'{ind_data} / {len(loader)}')
+                # break
+            imgs = data['imgs']
+            with torch.no_grad():
+                # embeddings = self.model(imgs, normalize=False).half().cpu().numpy().astype(np.float16)
+                embeddings = self.model(imgs, normalize=False).cpu().numpy()
+                embeddings = normalize(embeddings, axis=1).astype(np.float16)
+                bs = embeddings.shape[0]
+                if ind_dst+bs > dst.shape[0]:
+                    dst.resize((dst.shape[0] + chunksize, 512), )
+                dst[ind_dst:ind_dst+bs,:] = embeddings
+                ind_dst+=bs
+        f.flush()
+        f.close()
+        
+    def calc_fc_feas(self, out='t.pk'):
         conf = gl_conf
         self.model.eval()
         loader = DataLoader(
@@ -1694,6 +1728,7 @@ class face_learner(object):
             labels = data['labels_cpu'].numpy()
             labels_unique = np.unique(labels)
             with torch.no_grad():
+                # embeddings = self.model(imgs, normalize=False).half().cpu().numpy().astype(np.float16)
                 embeddings = self.model(imgs, normalize=False).cpu().numpy()
             for la in labels_unique:
                 features_tmp[la].append(embeddings[labels == la].mean(axis=0))

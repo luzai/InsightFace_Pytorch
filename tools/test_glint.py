@@ -89,8 +89,8 @@ class DatasetMS1M3(torch.utils.data.Dataset):
 
 def img2db(name):
     ds = DatasetMS1M3()
-    bs = 16
-    loader = torch.utils.data.DataLoader(ds, batch_size=bs, num_workers=1, shuffle=False, pin_memory=True)
+    bs = 128
+    loader = torch.utils.data.DataLoader(ds, batch_size=bs, num_workers=12, shuffle=False, pin_memory=True)
     
     # ds2 = DatasetMS1M3(use_rec=False)
     # loader2 = torch.utils.data.DataLoader(ds2, batch_size=bs, num_workers=0, shuffle=False, pin_memory=True)
@@ -126,7 +126,7 @@ def img2db(name):
             flip_img = data['flip_img'].cpu().numpy()
             img_feat = learner.gets(warp_img)
             img_feat += learner.gets(flip_img)
-            fea = img_feat.numpy()
+            fea = img_feat
             fea = normalize(fea)
         
         db[f'{ind}'] = fea

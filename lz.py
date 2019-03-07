@@ -863,6 +863,30 @@ def df_load(path, name='df'):
     import pandas as pd
     return pd.read_hdf(path, name)
 
+import struct
+
+cv_type_to_dtype = {
+    5: np.dtype('float32')
+}
+
+dtype_to_cv_type = {v: k for k, v in cv_type_to_dtype.items()}
+
+
+
+def read_mat(f):
+    """
+    Reads an OpenCV mat from the given file opened in binary mode
+    """
+    rows, cols, stride, type_ = struct.unpack('iiii', f.read(4 * 4))
+    mat = np.fromstring(f.read(rows * stride), dtype=cv_type_to_dtype[type_])
+    return mat.reshape(rows, cols)
+
+
+def load_mat(filename):
+    """
+    Reads a OpenCV Mat from the given filename
+    """
+    return read_mat(open(filename, 'rb'))
 
 def yaml_load(file, **kwargs):
     from yaml import Loader
