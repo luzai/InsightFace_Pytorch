@@ -8,11 +8,13 @@ import cv2, cvbase as cvb
 import dlib
 from align_utils.ddfa import ToTensorGjz, NormalizeGjz, str2bool
 import scipy.io as sio
-from align_utils.inference import get_suffix, parse_roi_box_from_landmark, crop_img, predict_68pts, dump_to_ply, dump_vertex, \
+from align_utils.inference import get_suffix, parse_roi_box_from_landmark, crop_img, predict_68pts, dump_to_ply, \
+    dump_vertex, \
     draw_landmarks, predict_dense, parse_roi_box_from_bbox, get_colors, write_obj_with_colors
 import argparse, itertools, glob
 import torch.backends.cudnn as cudnn, lz
 from torchvision import transforms as trans
+from torch.multiprocessing import Process, Queue, Lock
 
 STD_SIZE = 120
 default_args = dict(
@@ -32,7 +34,7 @@ class TestData(torch.utils.data.Dataset):
             glob.glob(src_folder + '/**/*.JPEG', recursive=True))
         logging.info('globbing the dir and obtaining the img list, may take some time ... ')
         self.imgfns = list(self.imgfn_iter)
-        # todo for performance measure
+        #  for performance measure
         # imgfns = self.imgfns.copy()
         # for i in range(10):
         #     self.imgfns.extend(imgfns.copy())
@@ -83,6 +85,19 @@ class TestData(torch.utils.data.Dataset):
                 }
 
 
+def consumer(queue, lock):
+    while True:
+        imgfn, param, roi_box, dst_imgfn = queue.get()
+        pts68 = [predict_68pts(param[i], roi_box[i]) for i in range(param.shape[0])]
+        for img_fp, pts68_, dst in zip(imgfn, pts68, dst_imgfn):
+            img_ori = cvb.read_img(img_fp)
+            pts5 = to_landmark5(pts68_[:2, :].transpose())
+            warped = preprocess(img_ori, landmark=pts5)
+            # plt_imshow(warped, inp_mode='bgr');  plt.show()
+            lz.mkdir_p(osp.dirname(dst), delete=False)
+            cvb.write_img(warped, dst)
+
+
 def crop_face(args):
     for k, v in default_args.items():
         setattr(args, k, v)
@@ -93,7 +108,7 @@ def crop_face(args):
     lz.mkdir_p(dst_folder, delete=False)
     ds = TestData(src_folder)
     loader = torch.utils.data.DataLoader(ds, batch_size=args.batch_size,
-                                         num_workers=24,
+                                         num_workers=args.num_workers,
                                          shuffle=False,
                                          pin_memory=True,
                                          drop_last=False
@@ -116,6 +131,15 @@ def crop_face(args):
     model.eval()
     
     # 2. load dlib model for face detection and landmark used for face cropping
+    queue = Queue()
+    lock = Lock()
+    consumers = []
+    for i in range(args.num_consumers):
+        p = Process(target=consumer, args=(queue, lock))
+        p.daemon = True
+        consumers.append(p)
+    for c in consumers:
+        c.start()
     # 3. forward
     ttl_nimgs = 0
     ttl_imgs = []
@@ -127,17 +151,18 @@ def crop_face(args):
         
         data_meter.update(lz.timer.since_last_check(verbose=False))
         if (data['finish'] == 1).all().item():
-            logging.infp('finish')
+            logging.info('finish')
             break
         if ind % 10 == 0:
             logging.info(
-                f'proc batch {ind}, data: {data_meter.avg:.2f}, model: {model_meter.avg:.2f}, post: {post_meter.avg:.2f}')
+                f'proc batch {ind}, data time: {data_meter.avg:.2f}, model: {model_meter.avg:.2f}, post: {post_meter.avg:.2f}')
         mask = data['finish'] == 0
         input = data['img'][mask]
         input_np = input.numpy()
         roi_box = data['roi_box'][mask].numpy()
         imgfn = np.asarray(data['imgfn'])[mask.numpy().astype(bool)]
-        # ttl_imgs.extend(imgfn.tolist())
+        dst_imgfn = [img_fp.replace(root_folder_name, root_folder_name + '_OPPOFaces') for img_fp in imgfn]
+        ttl_imgs.extend(dst_imgfn)
         ttl_nimgs += mask.sum().item()
         with torch.no_grad():
             if args.mode == 'gpu':
@@ -145,43 +170,45 @@ def crop_face(args):
             param = model(input)
             param = param.squeeze().cpu().numpy().astype(np.float32)
         model_meter.update(lz.timer.since_last_check(verbose=False))
-        pts68 = [predict_68pts(param[i], roi_box[i]) for i in range(param.shape[0])]
-        pts68_proc = [predict_68pts(param[i], [0, 0, STD_SIZE, STD_SIZE]) for i in range(param.shape[0])]
-        # todo async it
-        for img_fp, pts68_, pts68_proc_, img_ in zip(imgfn, pts68, pts68_proc, input_np):
-            ## this may need opt to async read write
-            # img_ori = cvb.read_img(img_fp)
-            # pts5 = to_landmark5(pts68_[:2, :].transpose())
-            # warped = preprocess(img_ori, landmark=pts5)
-            # # plt_imshow(warped, inp_mode='bgr');  plt.show()
-            # dst = img_fp.replace(root_folder_name, root_folder_name + '_OPPOFaces')
-            # lz.mkdir_p(osp.dirname(dst), delete=False)
-            # cvb.write_img(warped, dst)
-            
-            ## this may cause black margin
-            pts5 = to_landmark5(pts68_proc_[:2, :].transpose())
-            warped = preprocess(to_img(img_), landmark=pts5)
-            # plt_imshow(warped, inp_mode='bgr'); plt.show()
-            dst = img_fp.replace(root_folder_name, root_folder_name + '_OPPOFaces')
-            cvb.write_img(warped, dst)
-            ttl_imgs.append(dst)
-            if args.dump_res:
-                img_ori = cvb.read_img(img_fp)
-                pts_res = [pts68_]
-                dst = img_fp.replace(root_folder_name, root_folder_name + '_kpts.demo')
-                lz.mkdir_p(osp.dirname(dst), delete=False)
-                draw_landmarks(img_ori, pts_res,
-                               wfp=dst,
-                               show_flg=args.show_flg)
+        queue.put((imgfn, param, roi_box, dst_imgfn))
+        # pts68 = [predict_68pts(param[i], roi_box[i]) for i in range(param.shape[0])]
+        # pts68_proc = [predict_68pts(param[i], [0, 0, STD_SIZE, STD_SIZE]) for i in range(param.shape[0])]
+        # for img_fp, pts68_, pts68_proc_, img_, dst in zip(imgfn, pts68, pts68_proc, input_np, dst_imgfn):
+        #     ## this may need opt to async read write
+        #     img_ori = cvb.read_img(img_fp)
+        #     pts5 = to_landmark5(pts68_[:2, :].transpose())
+        #     warped = preprocess(img_ori, landmark=pts5)
+        #     # plt_imshow(warped, inp_mode='bgr');  plt.show()
+        #     lz.mkdir_p(osp.dirname(dst), delete=False)
+        #     cvb.write_img(warped, dst)
+        #
+        #     ## this may cause black margin
+        #     # pts5 = to_landmark5(pts68_proc_[:2, :].transpose())
+        #     # warped = preprocess(to_img(img_), landmark=pts5)
+        #     # # plt_imshow(warped, inp_mode='bgr'); plt.show()
+        #     # dst = img_fp.replace(root_folder_name, root_folder_name + '_OPPOFaces')
+        #     # cvb.write_img(warped, dst)
+        #     if args.dump_res:
+        #         img_ori = cvb.read_img(img_fp)
+        #         pts_res = [pts68_]
+        #         dst = img_fp.replace(root_folder_name, root_folder_name + '_kpts.demo')
+        #         lz.mkdir_p(osp.dirname(dst), delete=False)
+        #         draw_landmarks(img_ori, pts_res,
+        #                        wfp=dst,
+        #                        show_flg=args.show_flg)
         post_meter.update(lz.timer.since_last_check(verbose=False))
     lz.msgpack_dump(ttl_imgs, dst_folder + '/' + 'all_imgs.pk')
     del model, input
     torch.cuda.empty_cache()
+    while not queue.empty():
+        time.sleep(1)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='3DDFA inference pipeline')
     parser.add_argument('--data_dir', type=str, default='/data1/xinglu/prj/images_aligned_2018Autumn')
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch_size', type=int, default=256)
+    parser.add_argument('--num_workers', type=int, default=12)
+    parser.add_argument('--num_consumers', type=int, default=6)
     args = parser.parse_args()
     crop_face(args)

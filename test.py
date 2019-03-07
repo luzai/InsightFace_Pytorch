@@ -11,7 +11,9 @@ from lz import save_mat
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_dir', type=str, default='/home/xinglu/prj/images_aligned_2018Autumn')
-parser.add_argument('--batch_size', type=int, default=512)
+parser.add_argument('--batch_size', type=int, default=256)
+parser.add_argument('--num_workers', type=int, default=12)
+parser.add_argument('--num_consumers', type=int, default=6)
 parser.add_argument('--gpus', type=str, default="0")  # todo allow multiple gpu
 args = parser.parse_args()
 
@@ -69,7 +71,7 @@ imgfn_iter = itertools.chain(
     glob.glob(src_folder + '/**/*.jpg', recursive=True),
     glob.glob(src_folder + '/**/*.JPEG', recursive=True))
 loader = torch.utils.data.DataLoader(TestData(imgfn_iter), batch_size=args.batch_size,
-                                     num_workers=0,
+                                     num_workers=args.num_workers,
                                      shuffle=False,
                                      pin_memory=True,
                                      drop_last=False

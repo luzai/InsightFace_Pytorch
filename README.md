@@ -25,3 +25,4 @@ We are not sure whether the program is bug-free. If there is any mistake, please
 - Accelerate face cropping part 
 - dlib==19.10 may take some time to be installed, please be patient 
 - If the input image resolution is large, use '--batch_size' to reduce batch size.
+- The default arguments `num_consumers`, `num_workers` are 6 and 12, which is a mild. If we want to speed up testing further, we may increase these arguments.
