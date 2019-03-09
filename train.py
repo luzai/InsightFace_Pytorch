@@ -3,11 +3,14 @@
 
 from lz import *
 from config import conf
-# conf.net_depth = 152
-# conf.fp16 = False
-# conf.ipabn = False
-# conf.cvt_ipabn = True
-# conf.batch_size *=4
+
+conf.net_depth = 152
+conf.fp16 = False
+conf.ipabn = False
+conf.cvt_ipabn = False
+# conf.batch_size = 4
+# conf.need_log = False
+conf.tri_wei = .1
 import argparse
 from pathlib import Path
 import lz
@@ -30,20 +33,21 @@ if __name__ == '__main__':
         torch.cuda.set_device(conf.local_rank)
         torch.distributed.init_process_group(backend='nccl',
                                              init_method="env://")
-   
+    
     from Learner import face_learner
+    
     learner = face_learner(conf, )
     
     learner.load_state(
-        # resume_path=Path('work_space/asia.emore.r50.test.ijbc.3/models/'),
-        resume_path=Path('work_space/emore.r152.ada.chkpnt/models/'),
+        # resume_path=Path('work_space/asia.emore.r50.test.ijbc.2/models/'),
+        resume_path=Path('work_space/emore.r152.ada.chkpnt.2/models/'),
         load_optimizer=False,
         load_head=True,
         load_imp=False,
         latest=True,
     )
-    # learner.calc_img_feas(out='work_space/emore.fea.3.h5')
-
+    learner.calc_feas(out='work_space/emore.r152.fea.h5')
+    exit(0)
     # learner.init_lr()
     # conf.tri_wei = 0
     # log_conf(conf)

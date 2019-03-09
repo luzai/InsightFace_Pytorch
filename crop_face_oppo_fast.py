@@ -24,7 +24,7 @@ default_args = dict(
     dlib_bbox=True,
 )
 
-lz.init_dev(lz.get_dev(1))
+# lz.init_dev(lz.get_dev(1))
 
 
 class TestData(torch.utils.data.Dataset):
@@ -210,5 +210,6 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--num_workers', type=int, default=12)
     parser.add_argument('--num_consumers', type=int, default=6)
+    # todo gpus
     args = parser.parse_args()
     crop_face(args)

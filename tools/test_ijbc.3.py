@@ -2,7 +2,7 @@ from lz import *
 import lz
 from torchvision import transforms as trans
 import redis
-
+os.chdir(lz.root_path)
 use_redis = False
 IJBC_path = '/data1/share/IJB_release/' if 'amax' in hostname() else '/home/zl/zl_data/IJB_release/'
 ijbcp = IJBC_path + 'ijbc.info.h5'
@@ -34,16 +34,16 @@ else:
     bs = min(conf.batch_size, bs)
     conf.fp16 = False
     conf.ipabn = False
-    conf.cvt_ipabn = True
+    conf.cvt_ipabn = False
     # conf.upgrade_irse = False
     # conf.net_mode = 'ir'
-    conf.net_depth = 50
+    conf.net_depth = 152
     
     from Learner import FaceInfer
     
     learner = FaceInfer(conf, gpuid=range(conf.num_devs))
     learner.load_state(
-        resume_path='work_space/asia.emore.r50.test.ijbc.4/models/',
+        resume_path='work_space/emore.r152.ada.chkpnt.2/save/',
         latest=True,
     )
     # learner.load_model_only('work_space/backbone_ir50_ms1m_epoch120.pth')
@@ -119,7 +119,7 @@ class DatasetIJBC2(torch.utils.data.Dataset):
 ds = DatasetIJBC2(flip=False)
 
 loader = torch.utils.data.DataLoader(ds, batch_size=bs,
-                                     num_workers=24 if 'amax' in hostname() else 44,
+                                     num_workers=12 if 'amax' in hostname() else 44,
                                      shuffle=False,
                                      pin_memory=True, )
 # for ind, data in enumerate((loader)):

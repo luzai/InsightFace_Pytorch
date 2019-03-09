@@ -685,11 +685,12 @@ class TripletLoss(Module):
         an_wei = F.softmax(-dans.detach(), dim=1)
         dist_ap = (daps * ap_wei).sum(dim=1)
         dist_an = (dans * an_wei).sum(dim=1)
-        loss = F.softplus(dist_ap - dist_an).mean()
+        loss_indiv=F.softplus(dist_ap - dist_an)
+        loss = loss_indiv.mean()
         if not return_info:
             return loss
         else:
-            info = {'dap': dist_ap.mean().item(), 'dan': dist_an.mean().item()}
+            info = {'dap': dist_ap.mean().item(), 'dan': dist_an.mean().item(), 'indiv':loss_indiv}
             return loss, info
     
     def forward_slow(self, inputs, targets):

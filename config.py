@@ -5,7 +5,8 @@ import lz
 from lz import *
 from torch.nn import CrossEntropyLoss
 from tools.vat import VATLoss
-from torchvision import  transforms as trans
+from torchvision import transforms as trans
+
 # todo label smooth
 # todo batch read redis
 
@@ -29,7 +30,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/emore.r152.ada.chkpnt.2')
+conf.work_path = Path('work_space/emore.r152.ada.chkpnt.3')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -42,7 +43,7 @@ glint_test = conf.data_path / 'glint_test'
 alpha_f64 = conf.data_path / 'alpha_f64'
 alpha_jk = conf.data_path / 'alpha_jk'
 
-conf.use_data_folder = emore_folder  # emore_folder  # glint_folder #  ms1m_folder alpha_f64
+conf.use_data_folder = emore_folder  # asia_emore emore_folder  # glint_folder #  ms1m_folder alpha_f64
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 
 if conf.use_data_folder == ms1m_folder:
@@ -113,17 +114,17 @@ conf.start_step = 0
 conf.use_opt = 'adabound'
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
-conf.final_lr = 1e-2
-conf.lr = 1e-4
+conf.final_lr = 1e-1
+conf.lr = 1e-3
 conf.lr_gamma = 0.1
-conf.epochs = 2
-conf.milestones = [1]
+conf.epochs = 4
+conf.milestones = [1, 2, 3]
 conf.epoch_less_iter = 1
 # conf.epochs = 12
 # conf.milestones = [5, 8, 10]
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.num_workers = 12 if "amax" in hostname() else 66  # 4
+conf.num_workers = 0  # if "amax" in hostname() else 66  # 4
 
 
 # todo may use kl_div to speed up
