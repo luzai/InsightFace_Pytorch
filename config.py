@@ -11,7 +11,7 @@ from torchvision import transforms as trans
 # todo batch read redis
 
 dist = False
-num_devs = 1
+num_devs = 3
 # lz.init_dev(0)
 lz.init_dev(lz.get_dev(num_devs))
 
@@ -118,7 +118,7 @@ conf.final_lr = 1e-1
 conf.lr = 1e-3
 conf.lr_gamma = 0.1
 conf.epochs = 4
-conf.milestones = [1, 2, 3]
+conf.milestones = [2, 3]
 conf.epoch_less_iter = 1
 # conf.epochs = 12
 # conf.milestones = [5, 8, 10]

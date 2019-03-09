@@ -2,6 +2,7 @@
 # -*- coding: future_fstrings -*-
 
 from lz import *
+import lz
 from config import conf
 
 conf.net_depth = 152
@@ -13,7 +14,6 @@ conf.cvt_ipabn = False
 conf.tri_wei = .1
 import argparse
 from pathlib import Path
-import lz
 
 if not conf.online_imp:
     torch.backends.cudnn.benchmark = True
@@ -46,8 +46,8 @@ if __name__ == '__main__':
         load_imp=False,
         latest=True,
     )
-    learner.calc_feas(out='work_space/emore.r152.fea.h5')
-    exit(0)
+    # learner.calc_img_feas(out='work_space/emore.r152.fea.h5')
+    # exit(0)
     # learner.init_lr()
     # conf.tri_wei = 0
     # log_conf(conf)

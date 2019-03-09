@@ -1,5 +1,6 @@
 # -*- coding: future_fstrings -*-
 import lz
+from lz import *
 from models import Backbone, MobileFaceNet, CSMobileFaceNet, l2_norm, Arcface, MySoftmax, TripletLoss
 import models
 import numpy as np
@@ -11,7 +12,6 @@ from utils import get_time, gen_plot, hflip_batch, separate_bn_paras, hflip
 from PIL import Image
 from torchvision import transforms as trans
 import os, random, logging, numbers, math
-import torch, os.path as osp
 from pathlib import Path
 from torch.utils.data import DataLoader
 from config import conf as gl_conf
@@ -561,21 +561,14 @@ class SeqSampler(Sampler):
         self.ids = list(self.ids)
         
         # estimate number of examples in an epoch
-        self.length = 0
-        for pid in self.ids:
-            idxs = self.index_dic[pid]
-            num = len(idxs)
-            if num < self.num_instances:
-                num = self.num_instances
-            self.length += num - num % self.num_instances
+        self.nimgs_lst = [len(idxs) for idxs in self.index_dic.values()]
+        self.length = sum(self.nimgs_lst)
     
     def __len__(self):
-        # todo dist
         return self.length
     
     def __iter__(self):
         for pid in self.id2range:
-            # range_ = self.id2range[pid]
             for ind_ind in range(len(self.index_dic[pid])):
                 ind = self.index_dic[pid][ind_ind]
                 yield ind, pid, ind_ind
@@ -657,31 +650,31 @@ if gl_conf.fast_load:
             if gl_conf.fp16:
                 self.mean = self.mean.half()
                 self.std = self.std.half()
+            self.buffer = []
             self.preload()
         
         def preload(self):
             try:
-                self.ind_loader, self.data_loader = next(self.loader)
+                ind_loader, data_loader = next(self.loader)
+                with torch.cuda.stream(self.stream):
+                    data_loader['imgs'] = data_loader['imgs'].cuda()
+                    data_loader['labels_cpu'] = data_loader['labels']
+                    data_loader['labels'] = data_loader['labels'].cuda()
+                    if gl_conf.fp16:
+                        data_loader['imgs'] = data_loader['imgs'].half()
+                    else:
+                        data_loader['imgs'] = data_loader['imgs'].float()
+                    data_loader['imgs'] = data_loader['imgs'].sub_(self.mean).div_(self.std)
+                self.buffer.append((ind_loader, data_loader))
             except StopIteration:
-                self.ind_loader = None
-                self.data_loader = None
+                self.buffer.append((None, None))
                 return
-            with torch.cuda.stream(self.stream):
-                self.data_loader['imgs'] = self.data_loader['imgs'].cuda()
-                self.data_loader['labels_cpu'] = self.data_loader['labels']
-                self.data_loader['labels'] = self.data_loader['labels'].cuda()
-                # With Amp, it isn't necessary to manually convert data to half.
-                # Type conversions are done internally on the fly within patched torch functions.
-                if gl_conf.fp16:
-                    self.data_loader['imgs'] = self.data_loader['imgs'].half()
-                else:
-                    self.data_loader['imgs'] = self.data_loader['imgs'].float()
-                self.data_loader['imgs'] = self.data_loader['imgs'].sub_(self.mean).div_(self.std)
         
         def next(self):
             torch.cuda.current_stream().wait_stream(self.stream)
             self.preload()
-            return self.ind_loader, self.data_loader
+            res = self.buffer.pop(0)
+            return res
         
         __next__ = next
         
@@ -1505,7 +1498,7 @@ class face_learner(object):
             else:  # best
                 step = [fixed_str.split('_')[-3].split(':')[-1] for fixed_str in fixed_strs]
             step = np.asarray(step, dtype=float)
-            assert step.shape[0]>0, f"{resume_path} chk!"
+            assert step.shape[0] > 0, f"{resume_path} chk!"
             step_ind = step.argmax()
             fixed_str = fixed_strs[step_ind].replace('model_', '')
             modelp = save_path / 'model_{}'.format(fixed_str)
@@ -1690,24 +1683,53 @@ class face_learner(object):
         f = h5py.File(out, 'w')
         chunksize = 80 * 10 ** 3
         dst = f.create_dataset("feas", (chunksize, 512), maxshape=(None, 512), dtype='f2')
+        dst_gtri = f.create_dataset("gtri", (chunksize, 512), maxshape=(None, 512), dtype='f2')
+        dst_gxent = f.create_dataset("gxent", (chunksize, 512), maxshape=(None, 512), dtype='f2')
+        dst_tri = f.create_dataset("tri", (chunksize,), maxshape=(None,), dtype='f2')
+        dst_xent = f.create_dataset("xent", (chunksize,), maxshape=(None,), dtype='f2')
+        dst_gtri_norm = f.create_dataset("gtri_norm", (chunksize,), maxshape=(None,), dtype='f2')
+        dst_gxent_norm = f.create_dataset("gxent_norm", (chunksize,), maxshape=(None,), dtype='f2')
+        dst_img = f.create_dataset("img", (chunksize, 3, 112, 112), maxshape=(None, 3, 112, 112), dtype='f2')
+        
         ind_dst = 0
         for ind_data, data in data_prefetcher(enumerate(loader)):
-            if ind_data % 99 == 0:
-                logging.info(f'{ind_data} / {len(loader)}')
-                # break
             imgs = data['imgs']
+            labels_cpu = data['labels_cpu']
+            labels = data['labels']
+            bs = imgs.shape[0]
+            if ind_dst + bs > dst.shape[0]:
+                dst.resize((dst.shape[0] + chunksize, 512), )
+                dst_gxent.resize((dst.shape[0] + chunksize, 512), )
+                dst_xent.resize((dst.shape[0] + chunksize,), )
+                dst_xent[dst.shape[0]:dst.shape[0] + chunksize][...] = -1
+                dst_gxent_norm.resize((dst.shape[0] + chunksize,), )
+                dst_img.resize((dst.shape[0] + chunksize, 3, 112, 112))
+            assert (data['indexes'].numpy() == np.arange(ind_dst + 1, ind_dst + bs + 1)).all()
+            
             with torch.no_grad():
-                # embeddings = self.model(imgs, normalize=False).half().cpu().numpy().astype(np.float16)
-                embeddings = self.model(imgs, normalize=False).cpu().numpy()
-                embeddings = normalize(embeddings, axis=1).astype(np.float16)
-                bs = embeddings.shape[0]
-                if ind_dst+bs > dst.shape[0]:
-                    dst.resize((dst.shape[0] + chunksize, 512), )
-                dst[ind_dst:ind_dst+bs,:] = embeddings
-                ind_dst+=bs
+                embeddings = self.model(imgs, normalize=True)
+            embeddings.requires_grad_(True)
+            thetas = self.head(embeddings, labels)
+            loss_xent = gl_conf.ce_loss(thetas, labels)
+            grad_xent = torch.autograd.grad(loss_xent,
+                                            embeddings,
+                                            retain_graph=True,
+                                            create_graph=False, only_inputs=True,
+                                            allow_unused=True)[0].detach()
+            with torch.no_grad():
+                dst[ind_dst:ind_dst + bs, :] =normalize(embeddings.cpu().numpy(), axis=1).astype(np.float16)
+                dst_img[ind_dst:ind_dst + bs, :, :, :] = imgs.cpu().numpy()
+                dst_gxent[ind_dst:ind_dst + bs, :] = grad_xent.cpu().numpy().astype(np.float16)
+                dst_gxent_norm[ind_dst:ind_dst + bs] = grad_xent.norm(dim=1).cpu().numpy()
+                dst_xent[ind_dst:ind_dst + bs] = nn.CrossEntropyLoss(reduction='none')(thetas, labels).cpu().numpy()
+            ind_dst += bs
+            
+            if ind_data % 99 == 0:
+                logging.info(f'{ind_data} / {len(loader)}, {loss_xent.item()} {grad_xent.norm(dim=1)[0].item()}')
+                break
         f.flush()
         f.close()
-        
+    
     def calc_fc_feas(self, out='t.pk'):
         conf = gl_conf
         self.model.eval()
@@ -1889,31 +1911,16 @@ class face_learner(object):
 
 
 if __name__ == '__main__':
+    
     pass
     # # test thread safe
-    
     ds = TorchDataset(lz.share_path2 + '/faces_ms1m_112x112')
     print(len(ds))
-    
-    # def read(ds):
-    #     ind = random.randint(len(ds) - 10, len(ds) - 1)
-    #     # ind = random.randint(1, 2)
-    #     data = ds[ind]
-    #     # logging.info(data['imgs'].shape)
-    #     print(ind, data['imgs'].shape)
-    #
-    #
-    # import torch.multiprocessing as mp
-    #
-    # ps = []
-    # for _ in range(100):
-    #     p = mp.Process(target=read, args=(ds))
-    #     p.start()
-    #     ps.append(p)
-    #
-    # for p in ps:
-    #     p.join()
-    
+    loader = torch.utils.data.DataLoader(ds, sampler=SeqSampler(), batch_size=32,
+                                         num_workers=12, shuffle=False)
+    for data in loader:
+        print(data['indexes'])
+        time.sleep(1)
     # # test random id smpler
     # lz.timer.since_last_check('start')
     # smpler = RandomIdSampler()
