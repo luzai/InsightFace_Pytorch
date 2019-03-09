@@ -73,48 +73,68 @@ def unpack_auto(s, fp):
         return unpack_f64(s)
 
 
-# todo merge this
-class Obj():
-    pass
-
-
-def get_rec(p='/data2/share/faces_emore/train.idx'):
-    self = Obj()
-    self.imgrecs = []
-    path_imgidx = p
-    path_imgrec = path_imgidx.replace('.idx', '.rec')
-    self.imgrecs.append(
-        recordio.MXIndexedRecordIO(
-            path_imgidx, path_imgrec,
+class RecManager():
+    '''
+    emore as example
+    self.ids 0 ... 85k
+    self.imgidx 0 ... 5.8M
+    self.id2idxs 0 --> [0,10)
+    self.imgrec
+    self.num_classes
+    self.num_imgs
+    '''
+    
+    def __init__(self, path_imgidx='/data2/share/faces_emore/train.idx'):
+        path_imgidx = str(path_imgidx).replace('train.idx', '').replace('train.rec', '') + '/train.idx'
+        self.path_imgidx = path_imgidx
+        self.path_imgrec = path_imgidx.replace('.idx', '.rec')
+        self.imgrec = recordio.MXIndexedRecordIO(
+            path_imgidx, self.path_imgrec,
             'r')
-    )
-    self.lock = mp.Lock()
-    self.imgrec = self.imgrecs[0]
-    s = self.imgrec.read_idx(0)
-    header, _ = recordio.unpack(s)
-    assert header.flag > 0, 'ms1m or glint ...'
-    print('header0 label', header.label)
-    self.header0 = (int(header.label[0]), int(header.label[1]))
-    self.id2range = {}
-    self.imgidx = []
-    self.ids = []
-    ids_shif = int(header.label[0])
-    for identity in list(range(int(header.label[0]), int(header.label[1]))):
-        s = self.imgrecs[0].read_idx(identity)
-        header, _ = recordio.unpack(s)
-        a, b = int(header.label[0]), int(header.label[1])
-        #     if b - a > gl_conf.cutoff:
-        self.id2range[identity] = (a, b)
-        self.ids.append(identity)
-        self.imgidx += list(range(a, b))
-    self.ids = np.asarray(self.ids)
-    self.num_classes = len(self.ids)
-    # self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
-    ids_map_tmp = {identity: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
-    self.ids = [ids_map_tmp[id_] for id_ in self.ids]
-    self.ids = np.asarray(self.ids)
-    self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
-    return self
+        self.lock = mp.Lock()
+        ## internal repr
+        s = self.imgrec.read_idx(0)
+        header, _ = unpack_auto(s, self.path_imgidx)
+        assert header.flag > 0, 'ms1m or glint ...'
+        logging.info(f'rec header0 label {header.label}')
+        self.header0 = (int(header.label[0]), int(header.label[1]))
+        self.id2idxs_in = {}
+        self.imgidx_in = []
+        self.ids_in = []
+        for identity in list(range(int(header.label[0]), int(header.label[1]))):
+            s = self.imgrec.read_idx(identity)
+            header, _ = unpack_auto(s, self.path_imgidx)
+            a, b = int(header.label[0]), int(header.label[1])
+            if b - a > gl_conf.cutoff:
+                self.id2idxs_in[identity] = list(range(a, b))
+                self.ids_in.append(identity)
+                self.imgidx_in += list(range(a, b))
+        self.ids_in = np.asarray(self.ids_in)
+        self.num_classes = len(self.ids_in)
+        ## mapping
+        self.id_in2out = {identity: id2 for identity, id2 in zip(self.ids_in, range(self.num_classes))}
+        self.idx_in2out = {idx:idx - 1 for idx in self.imgidx_in}  # simply -1
+        ## ext repr
+        self.ids = np.asarray([self.id_in2out[id_] for id_ in self.ids_in])
+        self.id2idxs = {self.id_in2out[id_]: np.asarray(idxs)-1
+                        for id_, idxs in self.id2idxs_in.items()}
+        self.imgidx = [idx - 1 for idx in self.imgidx_in]
+        ## other helper
+        self.idx2id = {}
+        for id_, idxs in self.id2idxs.items():
+            for idx in idxs:
+                self.idx2id[idx] = id_
+        self.num_imgs = len(self.imgidx)
+        self.nimgs_lst = [len(inds) for inds in self.id2idxs.values()]
+    
+    def get_img(self, index):
+        # external is 0 based
+        index += 1
+        # internal index is 1 based
+        with self.lock:
+            s = self.imgrec.read_idx(index + 1)
+        header, img = unpack_auto(s, self.path_imgidx)
+        return mx.image.imdecode(img)
 
 
 class DatasetIJBC2(torch.utils.data.Dataset):
@@ -180,6 +200,8 @@ class MegaFaceDisDS(torch.utils.data.Dataset):
         return img
 
 
+# todo use smaller domain adapt dataset, before exp we need define domain!
+
 class TestDataset(object):
     def __init__(self):
         assert gl_conf.use_test
@@ -187,7 +209,7 @@ class TestDataset(object):
             self.rec_test = DatasetIJBC2()
             self.imglen = len(self.rec_test)
         elif gl_conf.use_test == 'glint':
-            self.rec_test = get_rec('/data2/share/glint_test/train.idx')
+            self.rec_test = RecManager('/data2/share/glint_test/train.idx')
             self.imglen = max(self.rec_test.imgidx) + 1
         else:
             raise ValueError(f'{gl_conf.use_test}')
@@ -220,80 +242,39 @@ class TorchDataset(object):
                  path_ms1m, flip=True
                  ):
         self.flip = flip
-        self.path_ms1m = path_ms1m
         self.root_path = Path(path_ms1m)
-        path_imgrec = str(path_ms1m) + '/train.rec'
-        path_imgidx = path_imgrec[0:-4] + ".idx"
-        assert os.path.exists(path_imgidx), path_imgidx
-        self.path_imgidx = path_imgidx
-        self.path_imgrec = path_imgrec
-        self.imgrecs = []
-        self.locks = []
-        
-        if gl_conf.use_redis:
+        lz.timer.since_last_check('start timer for imgrec')
+        self.rec_manager = RecManager(path_ms1m)
+        lz.timer.since_last_check('imgrec finished')
+        if gl_conf.use_redis:  # todo deprecated
             import redis
             
             self.r = redis.Redis()
         else:
             self.r = None
         
-        lz.timer.since_last_check('start timer for imgrec')
-        for num_rec in range(gl_conf.num_recs):
-            if num_rec == 1:
-                path_imgrec = path_imgrec.replace('/data2/share/', '/share/data/')
-            self.imgrecs.append(
-                recordio.MXIndexedRecordIO(
-                    path_imgidx, path_imgrec,
-                    'r')
-            )
-            self.locks.append(mp.Lock())
-        lz.timer.since_last_check(f'{gl_conf.num_recs} imgrec readers init')  # 27 s / 5 reader
-        lz.timer.since_last_check('start cal dataset info')
-        # try:
-        #     self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
-        #     self.num_classes = len(self.ids)
-        # except:
-        s = self.imgrecs[0].read_idx(0)
-        header, _ = unpack_auto(s, self.path_imgidx)
-        assert header.flag > 0, 'ms1m or glint ...'
-        print('header0 label', header.label)
-        self.header0 = (int(header.label[0]), int(header.label[1]))
-        self.id2range = {}
-        self.imgidx = []
-        self.ids = []
-        ids_shif = int(header.label[0])
-        for identity in list(range(int(header.label[0]), int(header.label[1]))):
-            s = self.imgrecs[0].read_idx(identity)
-            header, _ = unpack_auto(s, self.path_imgidx)
-            a, b = int(header.label[0]), int(header.label[1])
-            if b - a > gl_conf.cutoff:
-                self.id2range[identity] = (a, b)
-                self.ids.append(identity)
-                self.imgidx += list(range(a, b))
-        self.ids = np.asarray(self.ids)
-        self.num_classes = len(self.ids)
-        self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
-        ids_map_tmp = {identity: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
-        self.ids = [ids_map_tmp[id_] for id_ in self.ids]
-        self.ids = np.asarray(self.ids)
-        self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
-        lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
-        
-        gl_conf.num_clss = self.num_classes
-        gl_conf.explored = np.zeros(self.ids.max() + 1, dtype=int)
+        gl_conf.num_clss = self.rec_manager.num_classes
+        gl_conf.explored = np.zeros(self.rec_manager.num_classes, dtype=int)
         if gl_conf.dop is None:
             if gl_conf.mining == 'dop':
-                gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * gl_conf.mining_init
+                gl_conf.dop = np.ones(self.rec_manager.num_classes, dtype=int) * gl_conf.mining_init
                 gl_conf.id2range_dop = {str(id_):
                                             np.ones((range_[1] - range_[0],)) *
                                             gl_conf.mining_init for id_, range_ in
-                                        self.id2range.items()}
-            elif gl_conf.mining == 'imp' or gl_conf.mining == 'rand.id':
+                                        self.rec_manager.id2range.items()}
+            elif gl_conf.mining == 'imp':
                 gl_conf.id2range_dop = {str(id_):
                                             np.ones((range_[1] - range_[0],)) *
                                             gl_conf.mining_init for id_, range_ in
-                                        self.id2range.items()}
+                                        self.rec_manager.id2range.items()}
                 gl_conf.dop = np.asarray([v.sum() for v in gl_conf.id2range_dop.values()])
+            elif gl_conf.mining == 'rand.id':
+                gl_conf.id2range_dop = {str(id_):
+                                            np.ones_like(idxs) for id_, idxs in
+                                        self.rec_manager.id2idxs.items()}
+                gl_conf.dop = np.asarray([v.sum() for v in gl_conf.id2range_dop.values()])
+            else:
+                raise ValueError()
         logging.info(f'update num_clss {gl_conf.num_clss} ')
         self.cur = 0
         lz.timer.since_last_check('finish cal dataset info')
@@ -302,26 +283,13 @@ class TorchDataset(object):
     
     def __len__(self):
         if gl_conf.local_rank is not None:
-            return len(self.imgidx) // torch.distributed.get_world_size()
+            return self.rec_manager.num_imgs // torch.distributed.get_world_size()
         else:
-            #             logging.info(f'ask me len {len(self.imgidx)} {self.imgidx}')
-            return len(self.imgidx) // gl_conf.epoch_less_iter
+            # logging.info(f'ask me len {len(self.imgidx)} {self.imgidx}')
+            return self.rec_manager.num_imgs // gl_conf.epoch_less_iter
     
     def __getitem__(self, indices, ):
-        # if isinstance(indices, (tuple, list)) and len(indices[0])==3:
-        #    if self.r:
-        #        pass
-        #    else:
-        #        return [self._get_single_item(index) for index in indices]
         res = self._get_single_item(indices)
-        # for k, v in res.items():
-        #     assert (
-        #             isinstance(v, np.ndarray) or
-        #             isinstance(v, str) or
-        #             isinstance(v, int) or
-        #             isinstance(v, np.int64) or
-        #             torch.is_tensor(v)
-        #     ), type(v)
         return res
     
     def imdecode(self, s):
@@ -350,7 +318,13 @@ class TorchDataset(object):
         # self.cur += 1
         # index += 1  # noneed,  here it index (imgidx) start from 1,.rec start from 1
         # assert index != 0 and index < len(self) + 1 # index can > len(self)
-        succ = False
+        if isinstance(index, int):
+            imgs = self.rec_manager.get_img(index)
+            imgs = self.preprocess_img(imgs)
+            res = {'imgs': imgs, 'labels': self.rec_manager.idx2id[index],
+                   'ind_inds': 0, 'indexes': index,
+                   'is_trains': True}
+            return res
         index, pid, ind_ind = index
         if self.r:
             img = self.r.get(f'{gl_conf.dataset_name}/imgs/{index}')
@@ -359,24 +333,7 @@ class TorchDataset(object):
                 imgs = self.preprocess_img(imgs)
                 return {'imgs': np.array(imgs, dtype=np.float32), 'labels': pid, 'indexes': index,
                         'ind_inds': ind_ind, 'is_trains': True}
-        ## rand until lock
-        while True:
-            for ind_rec in range(len(self.locks)):
-                succ = self.locks[ind_rec].acquire(timeout=0)
-                if succ: break
-            if succ: break
-        
-        ##  locality based
-        # if index < self.imgidx[len(self.imgidx) // 2]:
-        #     ind_rec = 0
-        # else:
-        #     ind_rec = 1
-        # succ = self.locks[ind_rec].acquire()
-        
-        s = self.imgrecs[ind_rec].read_idx(index)  # from [ 1 to 3804846 ]
-        rls_succ = self.locks[ind_rec].release()
-        header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
-        imgs = self.imdecode(img)
+        imgs = self.rec_manager.get_img(index)
         assert imgs is not None
         # label = header.label
         # if not isinstance(label, numbers.Number):
@@ -385,11 +342,11 @@ class TorchDataset(object):
         # label = int(label)
         # assert label in self.ids_map
         # label = self.ids_map[label]
-        # assert label == pid
+        # assert label == pid # todo after finish rec manager check it
         label = int(pid)
         imgs = self.preprocess_img(imgs)
-        if gl_conf.use_redis and self.r and lz.get_mem() >= 20:
-            self.r.set(f'{gl_conf.dataset_name}/imgs/{index}', img)
+        # if gl_conf.use_redis and self.r and lz.get_mem() >= 20:
+        #     self.r.set(f'{gl_conf.dataset_name}/imgs/{index}', img)
         res = {'imgs': imgs, 'labels': label,
                'ind_inds': ind_ind, 'indexes': index,
                'is_trains': True}
@@ -416,47 +373,40 @@ class Dataset_val(torch.utils.data.Dataset):
         return len(self.issame)
 
 
+import copy
+
+
 # improve locality and improve load speed!
 class RandomIdSampler(Sampler):
-    def __init__(self, imgidx, ids, id2range):
-        path_ms1m = gl_conf.use_data_folder
-        self.imgidx, self.ids, self.id2range = imgidx, ids, id2range
-        # self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
-        # above is the imgidx of .rec file
-        # remember -1 to convert to pytorch imgidx
+    def __init__(self, rec_manager):
+        self.rec_manager = rec_manager
         self.num_instances = gl_conf.instances
         self.batch_size = gl_conf.batch_size
         if gl_conf.tri_wei != 0:
             assert self.batch_size % self.num_instances == 0
         self.num_pids_per_batch = self.batch_size // self.num_instances
-        self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1])))).tolist()
-                          for id, idxs in self.id2range.items()}  # it index based on 1
-        self.ids = list(self.ids)
-        self.nimgs = np.asarray([
-            range_[1] - range_[0] for id_, range_ in self.id2range.items()
-        ])
-        self.nimgs_normed = self.nimgs / self.nimgs.sum()
-        # estimate number of examples in an epoch
-        self.length = 0
-        for pid in self.ids:
-            idxs = self.index_dic[pid]
-            num = len(idxs)
-            if num < self.num_instances:
-                num = self.num_instances
-            self.length += num - num % self.num_instances
+    
+    def init(self):
+        self.index_dic = copy.deepcopy(self.rec_manager.index_dic)
+        # todo for sample without replacement!
     
     def __len__(self):
         if gl_conf.local_rank is not None:
-            return self.length // torch.distributed.get_world_size()
+            return self.rec_manager.num_imgs // torch.distributed.get_world_size()
         else:
-            return self.length
+            return self.rec_manager.num_imgs
     
     def get_batch_ids(self):
         pids = []
         dop = gl_conf.dop
-        if gl_conf.mining == 'imp' or gl_conf.mining == 'rand.id':
+        if gl_conf.mining == 'imp':
             # lz.logging.info(f'dop smapler {np.count_nonzero( dop == gl_conf.mining_init)} {dop}')
-            pids = np.random.choice(self.ids,
+            pids = np.random.choice(self.rec_manager.ids,
+                                    size=int(self.num_pids_per_batch),
+                                    p=gl_conf.dop / gl_conf.dop.sum(),
+                                    replace=False)
+        elif gl_conf.mining == 'rand.id':
+            pids = np.random.choice(self.rec_manager.ids,
                                     size=int(self.num_pids_per_batch),
                                     p=gl_conf.dop / gl_conf.dop.sum(),
                                     replace=False)
@@ -484,8 +434,6 @@ class RandomIdSampler(Sampler):
                 pids = np.concatenate((pids, pids_now))
             else:
                 pids = pids[: self.num_pids_per_batch]
-        # assert len(pids) == np.unique(pids).shape[0]
-        
         return pids
     
     def get_batch_idxs(self):
@@ -525,60 +473,24 @@ class RandomIdSampler(Sampler):
                 break
     
     def __iter__(self):
-        if gl_conf.mining == 'rand.img':  # quite slow
-            for _ in range(len(self)):
-                # lz.timer.since_last_check('s next id iter')
-                pid = np.random.choice(
-                    self.ids, p=self.nimgs_normed,
-                )
-                ind_ind = np.random.choice(
-                    range(len(self.index_dic[pid])),
-                )
-                ind = self.index_dic[pid][ind_ind]
-                # lz.timer.since_last_check('f next id iter')
-                yield ind, pid, ind_ind
-        else:
-            cnt = 0
-            while cnt < len(self):
-                # logging.info(f'cnt {cnt}')
-                for ind, pid, ind_ind in self.get_batch_idxs():
-                    cnt += 1
-                    yield (ind, pid, ind_ind)
-
-
-class SeqSampler(Sampler):
-    def __init__(self):
-        path_ms1m = gl_conf.use_data_folder
-        _, self.ids, self.id2range = lz.msgpack_load(path_ms1m / f'info.{gl_conf.cutoff}.pk')
-        # above is the imgidx of .rec file
-        # remember -1 to convert to pytorch imgidx
-        self.num_instances = gl_conf.instances
-        self.batch_size = gl_conf.batch_size
-        assert self.batch_size % self.num_instances == 0
-        self.num_pids_per_batch = self.batch_size // self.num_instances
-        self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1])))).tolist()
-                          for id, idxs in self.id2range.items()}  # it index based on 1
-        self.ids = list(self.ids)
-        
-        # estimate number of examples in an epoch
-        self.length = 0
-        for pid in self.ids:
-            idxs = self.index_dic[pid]
-            num = len(idxs)
-            if num < self.num_instances:
-                num = self.num_instances
-            self.length += num - num % self.num_instances
-    
-    def __len__(self):
-        # todo dist
-        return self.length
-    
-    def __iter__(self):
-        for pid in self.id2range:
-            # range_ = self.id2range[pid]
-            for ind_ind in range(len(self.index_dic[pid])):
-                ind = self.index_dic[pid][ind_ind]
-                yield ind, pid, ind_ind
+        # if gl_conf.mining == 'rand.img':  # quite slow
+        #     for _ in range(len(self)):
+        #         # lz.timer.since_last_check('s next id iter')
+        #         pid = np.random.choice(
+        #             self.ids, p=self.nimgs_normed,
+        #         )
+        #         ind_ind = np.random.choice(
+        #             range(len(self.index_dic[pid])),
+        #         )
+        #         ind = self.index_dic[pid][ind_ind]
+        #         # lz.timer.since_last_check('f next id iter')
+        #         yield ind, pid, ind_ind
+        # else:
+        cnt = 0
+        while cnt < len(self):
+            for ind, pid, ind_ind in self.get_batch_idxs():
+                cnt += 1
+                yield (ind, pid, ind_ind)
 
 
 def update_dop_cls(thetas, labels, dop):
@@ -725,18 +637,19 @@ class face_learner(object):
         self.loader = DataLoader(
             self.dataset, batch_size=conf.batch_size,
             num_workers=conf.num_workers,
-            sampler=RandomIdSampler(self.dataset.imgidx,
-                                    self.dataset.ids, self.dataset.id2range),
+            sampler=RandomIdSampler(self.dataset.rec_manager),
             drop_last=True, pin_memory=True,
             collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
         )
-        self.class_num = self.dataset.num_classes
+        self.class_num = self.dataset.rec_manager.num_classes
         logging.info(f'{self.class_num} classes, load ok ')
         if conf.need_log:
             lz.mkdir_p(conf.log_path, delete=True)  # todo delete?
             lz.set_file_logger(conf.log_path)
             lz.set_file_logger_prt(conf.log_path)
-        self.writer = SummaryWriter(str(conf.log_path))
+            self.writer = SummaryWriter(str(conf.log_path))
+        else:
+            lz.mkdir_p(conf.log_path, delete=False)
         self.step = 0
         
         if conf.net_mode == 'mobilefacenet':
@@ -866,11 +779,11 @@ class face_learner(object):
             self.schedule_lr(e)
             loader_enum = data_prefetcher(enumerate(loader))
             while True:
-                ind_data, data = loader_enum.next()
+                ind_data, data = next(loader_enum)
                 if ind_data is None:
                     logging.info(f'one epoch finish {e} {ind_data}')
                     loader_enum = data_prefetcher(enumerate(loader))
-                    ind_data, data = loader_enum.next()
+                    ind_data, data = next(loader_enum)
                 if (self.step + 1) % len(loader) == 0:
                     self.step += 1
                     break
@@ -1191,8 +1104,7 @@ class face_learner(object):
             loader = DataLoader(
                 self.dataset, batch_size=conf.batch_size * conf.ftbs_mult,
                 num_workers=conf.num_workers,
-                sampler=RandomIdSampler(self.dataset.imgidx,
-                                        self.dataset.ids, self.dataset.id2range),
+                sampler=RandomIdSampler(self.dataset.rec_manager),
                 drop_last=True, pin_memory=True,
                 collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
             )
@@ -1505,7 +1417,7 @@ class face_learner(object):
             else:  # best
                 step = [fixed_str.split('_')[-3].split(':')[-1] for fixed_str in fixed_strs]
             step = np.asarray(step, dtype=float)
-            assert step.shape[0]>0, f"{resume_path} chk!"
+            assert step.shape[0] > 0, f"{resume_path} chk!"
             step_ind = step.argmax()
             fixed_str = fixed_strs[step_ind].replace('model_', '')
             modelp = save_path / 'model_{}'.format(fixed_str)
@@ -1637,7 +1549,7 @@ class face_learner(object):
         self.model.eval()
         loader = DataLoader(
             self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
-            shuffle=False, sampler=SeqSampler(), drop_last=False,
+            shuffle=False, drop_last=False,
             pin_memory=True, collate_fn=torch.utils.data.default_collate if not gl_conf.fast_load else fast_collate
         )
         meter = lz.AverageMeter()
@@ -1654,7 +1566,7 @@ class face_learner(object):
         conf = gl_conf
         loader = DataLoader(
             self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
-            shuffle=False, sampler=SeqSampler(), drop_last=False,
+            shuffle=False, drop_last=False,
             pin_memory=True,
             collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
         )
@@ -1675,12 +1587,12 @@ class face_learner(object):
         db.flush()
         db.close()
     
-    def calc_img_feas(self, out='t.h5'):
+    def calc_feas(self, out='t.h5'):
         conf = gl_conf
         self.model.eval()
         loader = DataLoader(
             self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
-            shuffle=False, sampler=SeqSampler(), drop_last=False,
+            shuffle=False, drop_last=False,
             pin_memory=True,
             collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
         )
@@ -1690,30 +1602,60 @@ class face_learner(object):
         f = h5py.File(out, 'w')
         chunksize = 80 * 10 ** 3
         dst = f.create_dataset("feas", (chunksize, 512), maxshape=(None, 512), dtype='f2')
+        dst_gtri = f.create_dataset("gtri", (chunksize, 512), maxshape=(None, 512), dtype='f2')
+        dst_gxent = f.create_dataset("gxent", (chunksize, 512), maxshape=(None, 512), dtype='f2')
+        dst_tri = f.create_dataset("tri", (chunksize,), maxshape=(None,), dtype='f2')
+        dst_xent = f.create_dataset("xent", (chunksize,), maxshape=(None,), dtype='f2')
+        dst_gtri_norm = f.create_dataset("gtri_norm", (chunksize,), maxshape=(None,), dtype='f2')
+        dst_gxent_norm = f.create_dataset("gxent_norm", (chunksize,), maxshape=(None,), dtype='f2')
+        
         ind_dst = 0
         for ind_data, data in data_prefetcher(enumerate(loader)):
             if ind_data % 99 == 0:
-                logging.info(f'{ind_data} / {len(loader)}')
+                logging.info(f'{ind_data} / {len(loader)}, {loss_xent.item()} {grad_xent.norm(dim=1)[0].item()}')
                 # break
             imgs = data['imgs']
+            labels_cpu = data['labels_cpu']
+            labels = data['labels']
             with torch.no_grad():
-                # embeddings = self.model(imgs, normalize=False).half().cpu().numpy().astype(np.float16)
-                embeddings = self.model(imgs, normalize=False).cpu().numpy()
-                embeddings = normalize(embeddings, axis=1).astype(np.float16)
+                embeddings = self.model(imgs, normalize=True)
                 bs = embeddings.shape[0]
-                if ind_dst+bs > dst.shape[0]:
+                if ind_dst + bs > dst.shape[0]:
                     dst.resize((dst.shape[0] + chunksize, 512), )
-                dst[ind_dst:ind_dst+bs,:] = embeddings
-                ind_dst+=bs
+                    dst_gxent.resize((dst.shape[0] + chunksize, 512), )
+                    dst_xent.resize((dst.shape[0] + chunksize,), )
+                    dst_gxent_norm.resize((dst.shape[0] + chunksize,), )
+                dst[ind_dst:ind_dst + bs, :] = normalize(embeddings.cpu().numpy(), axis=1).astype(np.float16)
+            embeddings.requires_grad_(True)
+            thetas = self.head(embeddings, labels)
+            # loss_triplet, info = self.head_triplet(embeddings, labels, return_info=True)
+            # grad_tri = torch.autograd.grad(loss_triplet, embeddings, retain_graph=True, create_graph=False,
+            #                                only_inputs=True, allow_unused=True)[0].detach()
+            loss_xent = gl_conf.ce_loss(thetas, labels)
+            grad_xent = torch.autograd.grad(loss_xent, embeddings, retain_graph=True, create_graph=False,  only_inputs=True, allow_unused=True)[0].detach()
+            with torch.no_grad():
+                # dst_gtri[ind_dst:ind_dst + bs, :] = grad_tri.cpu().numpy().astype(np.float16)
+                # dst_gtri_norm[ind_dst:ind_dst + bs, :] = np.array([grad_tri.norm().item()])
+                # tri_indiv = info['indiv'].cpu().numpy()
+                # dst_tri[ind_dst:ind_dst + bs, :] = tri_indiv
+                dst_gxent[ind_dst:ind_dst + bs, :] = grad_xent.cpu().numpy().astype(np.float16)
+                dst_gxent_norm[ind_dst:ind_dst + bs] = grad_xent.norm(dim=1).cpu().numpy()
+                xent_indiv = nn.CrossEntropyLoss(reduction='none')(thetas, labels).cpu().numpy()
+                print(xent_indiv[:4])
+                from IPython import embed;embed()
+                    
+                dst_xent[ind_dst:ind_dst + bs] = xent_indiv
+            
+            ind_dst += bs
         f.flush()
         f.close()
-        
-    def calc_fc_feas(self, out='t.pk'):
+    
+    def calc_fea_center(self, out='t.pk'):
         conf = gl_conf
         self.model.eval()
         loader = DataLoader(
             self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
-            shuffle=False, sampler=SeqSampler(), drop_last=False,
+            shuffle=False, drop_last=False,
             pin_memory=True,
             collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
         )
@@ -1757,7 +1699,7 @@ class face_learner(object):
         self.model.eval()
         loader = DataLoader(
             self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
-            shuffle=False, sampler=SeqSampler(), drop_last=False,
+            shuffle=False, drop_last=False,
             pin_memory=True,
         )
         gl_conf.dop = np.ones(ds.ids.max() + 1, dtype=int) * 1e-8
@@ -1890,30 +1832,14 @@ class face_learner(object):
 
 if __name__ == '__main__':
     pass
-    # # test thread safe
-    
     ds = TorchDataset(lz.share_path2 + '/faces_ms1m_112x112')
-    print(len(ds))
-    
-    # def read(ds):
-    #     ind = random.randint(len(ds) - 10, len(ds) - 1)
-    #     # ind = random.randint(1, 2)
-    #     data = ds[ind]
-    #     # logging.info(data['imgs'].shape)
-    #     print(ind, data['imgs'].shape)
-    #
-    #
-    # import torch.multiprocessing as mp
-    #
-    # ps = []
-    # for _ in range(100):
-    #     p = mp.Process(target=read, args=(ds))
-    #     p.start()
-    #     ps.append(p)
-    #
-    # for p in ps:
-    #     p.join()
-    
+    loader = torch.utils.data.DataLoader(ds, batch_size=64,
+                                         shuffle=False, num_workers=12)
+    inds = []
+    for data in loader:
+        index = data['indexes']
+        inds.extend(index.numpy().tolist())
+    from IPython import embed; embed()
     # # test random id smpler
     # lz.timer.since_last_check('start')
     # smpler = RandomIdSampler()
