@@ -217,9 +217,9 @@ class TestDataset(object):
 
 class TorchDataset(object):
     def __init__(self,
-                 path_ms1m, flip=True
+                 path_ms1m,
                  ):
-        self.flip = flip
+        self.flip = gl_conf.flip
         self.path_ms1m = path_ms1m
         self.root_path = Path(path_ms1m)
         path_imgrec = str(path_ms1m) + '/train.rec'
@@ -1717,8 +1717,8 @@ class face_learner(object):
                                             create_graph=False, only_inputs=True,
                                             allow_unused=True)[0].detach()
             with torch.no_grad():
-                dst[ind_dst:ind_dst + bs, :] =normalize(embeddings.cpu().numpy(), axis=1).astype(np.float16)
-                dst_img[ind_dst:ind_dst + bs, :, :, :] = imgs.cpu().numpy()
+                dst[ind_dst:ind_dst + bs, :] = normalize(embeddings.cpu().numpy(), axis=1).astype(np.float16)
+                # dst_img[ind_dst:ind_dst + bs, :, :, :] = imgs.cpu().numpy()
                 dst_gxent[ind_dst:ind_dst + bs, :] = grad_xent.cpu().numpy().astype(np.float16)
                 dst_gxent_norm[ind_dst:ind_dst + bs] = grad_xent.norm(dim=1).cpu().numpy()
                 dst_xent[ind_dst:ind_dst + bs] = nn.CrossEntropyLoss(reduction='none')(thetas, labels).cpu().numpy()
@@ -1726,7 +1726,7 @@ class face_learner(object):
             
             if ind_data % 99 == 0:
                 logging.info(f'{ind_data} / {len(loader)}, {loss_xent.item()} {grad_xent.norm(dim=1)[0].item()}')
-                break
+                # break
         f.flush()
         f.close()
     

@@ -11,9 +11,9 @@ from torchvision import transforms as trans
 # todo batch read redis
 
 dist = False
-num_devs = 3
-# lz.init_dev(0)
-lz.init_dev(lz.get_dev(num_devs))
+num_devs = 1
+lz.init_dev(0)
+# lz.init_dev(lz.get_dev(num_devs))
 
 if dist:
     num_devs = 1
@@ -81,6 +81,7 @@ conf.test_transform = trans.Compose([
     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
 
+conf.flip=True
 conf.upgrade_irse = True
 conf.use_redis = False
 conf.use_chkpnt = True
@@ -109,7 +110,7 @@ conf.num_recs = 1
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
-conf.start_epoch = 0
+conf.start_epoch = 2
 conf.start_step = 0
 conf.use_opt = 'adabound'
 conf.adam_betas1 = .9  # .85 to .95
@@ -117,14 +118,14 @@ conf.adam_betas2 = .999  # 0.999 0.99
 conf.final_lr = 1e-1
 conf.lr = 1e-3
 conf.lr_gamma = 0.1
-conf.epochs = 4
-conf.milestones = [2, 3]
+conf.epochs = 6
+conf.milestones = [2, 4, 5]
 conf.epoch_less_iter = 1
 # conf.epochs = 12
 # conf.milestones = [5, 8, 10]
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.num_workers = 0  # if "amax" in hostname() else 66  # 4
+conf.num_workers = 12  # if "amax" in hostname() else 66  # 4
 
 
 # todo may use kl_div to speed up

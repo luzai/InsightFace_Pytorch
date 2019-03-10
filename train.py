@@ -9,9 +9,12 @@ conf.net_depth = 152
 conf.fp16 = False
 conf.ipabn = False
 conf.cvt_ipabn = False
-# conf.batch_size = 4
-# conf.need_log = False
+conf.batch_size = 72
+conf.need_log = False
+conf.use_chkpnt = False
+# conf.flip=False
 conf.tri_wei = .1
+conf.num_workers = 6
 import argparse
 from pathlib import Path
 
@@ -46,8 +49,8 @@ if __name__ == '__main__':
         load_imp=False,
         latest=True,
     )
-    # learner.calc_img_feas(out='work_space/emore.r152.fea.h5')
-    # exit(0)
+    learner.calc_img_feas(out='work_space/emore.r152.fea.5.h5')
+    exit(0)
     # learner.init_lr()
     # conf.tri_wei = 0
     # log_conf(conf)
