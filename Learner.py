@@ -798,7 +798,7 @@ class face_learner(object):
         logging.info(' model heads generated')
         
         paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
-        if conf.use_opt == 'adam':
+        if conf.use_opt == 'adam':  # todo deprecated
             self.optimizer = optim.Adam([{'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': 0},
                                          {'params': paras_only_bn}, ],
                                         betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
@@ -806,11 +806,19 @@ class face_learner(object):
                                         lr=conf.lr,
                                         )
         elif conf.net_mode == 'mobilefacenet' or conf.net_mode == 'csmobilefacenet':
-            self.optimizer = optim.SGD([
-                {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
-                {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
-                {'params': paras_only_bn}
-            ], lr=conf.lr, momentum=conf.momentum)
+            if conf.use_opt == 'sgd':
+                self.optimizer = optim.SGD([
+                    {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
+                    {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
+                    {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
+            elif conf.use_opt == 'adabound':
+                from tools.adabound import AdaBound
+                self.optimizer = AdaBound([
+                    {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
+                    {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
+                    {'params': paras_only_bn}
+                ], lr=conf.lr, betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
+                    gamma=1e-3, final_lr=gl_conf.final_lr, )
         elif conf.use_opt == 'sgd':
             self.optimizer = optim.SGD([
                 {'params': paras_wo_bn + [*self.head.parameters()],

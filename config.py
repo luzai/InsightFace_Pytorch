@@ -12,7 +12,7 @@ from torchvision import transforms as trans
 
 dist = False
 num_devs = 1
-lz.init_dev(0)
+lz.init_dev(3)
 # lz.init_dev(lz.get_dev(num_devs))
 
 if dist:
@@ -30,7 +30,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/emore.r152.ada.chkpnt.3')
+conf.work_path = Path('work_space/ms1m.mb.bs.ori')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -47,7 +47,7 @@ conf.use_data_folder = emore_folder  # asia_emore emore_folder  # glint_folder #
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 
 if conf.use_data_folder == ms1m_folder:
-    conf.cutoff = 10
+    conf.cutoff = 0
 elif conf.use_data_folder == glint_folder:
     conf.cutoff = 15
 elif conf.use_data_folder == emore_folder:
@@ -64,16 +64,16 @@ conf.rand_ratio = 9 / 27
 conf.margin = 0.5
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
-conf.tri_wei = 0.1
+conf.tri_wei = 0
 conf.scale = 64.
 conf.start_eval = False
-conf.instances = 4
+conf.instances = 8
 
 conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
-conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
+conf.net_mode = 'mobilefacenet'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
 conf.net_depth = 152  # 100 121 169 201 264
 
 conf.test_transform = trans.Compose([
@@ -81,10 +81,10 @@ conf.test_transform = trans.Compose([
     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
 
-conf.flip=True
+conf.flip = True
 conf.upgrade_irse = True
 conf.use_redis = False
-conf.use_chkpnt = True
+conf.use_chkpnt = False
 conf.chs_first = True
 conf.prof = False
 conf.fast_load = True
@@ -101,7 +101,7 @@ conf.online_imp = False
 conf.use_test = False  # 'ijbc' 'glint' False
 # conf.train_ratio = .7  # todo
 
-conf.batch_size = 75 * num_devs
+conf.batch_size = 210 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
 conf.other_every = None if not conf.prof else 51
@@ -110,7 +110,7 @@ conf.num_recs = 1
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
-conf.start_epoch = 2
+conf.start_epoch = 0
 conf.start_step = 0
 conf.use_opt = 'adabound'
 conf.adam_betas1 = .9  # .85 to .95
@@ -118,14 +118,14 @@ conf.adam_betas2 = .999  # 0.999 0.99
 conf.final_lr = 1e-1
 conf.lr = 1e-3
 conf.lr_gamma = 0.1
-conf.epochs = 6
-conf.milestones = [2, 4, 5]
+conf.epochs = 12
+conf.milestones = [5, 8, 10]
 conf.epoch_less_iter = 1
 # conf.epochs = 12
 # conf.milestones = [5, 8, 10]
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.num_workers = 12  # if "amax" in hostname() else 66  # 4
+conf.num_workers = 18  # if "amax" in hostname() else 66  # 4
 
 
 # todo may use kl_div to speed up

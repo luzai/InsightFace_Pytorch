@@ -5,16 +5,10 @@ from lz import *
 import lz
 from config import conf
 
-conf.net_depth = 152
-conf.fp16 = False
-conf.ipabn = False
-conf.cvt_ipabn = False
-conf.batch_size = 72
-conf.need_log = False
-conf.use_chkpnt = False
-# conf.flip=False
-conf.tri_wei = .1
-conf.num_workers = 6
+# conf.need_log = False
+# conf.use_chkpnt = False
+# conf.tri_wei = .1
+# conf.num_workers = 6
 import argparse
 from pathlib import Path
 
@@ -41,16 +35,18 @@ if __name__ == '__main__':
     
     learner = face_learner(conf, )
     
-    learner.load_state(
-        # resume_path=Path('work_space/asia.emore.r50.test.ijbc.2/models/'),
-        resume_path=Path('work_space/emore.r152.ada.chkpnt.2/models/'),
-        load_optimizer=False,
-        load_head=True,
-        load_imp=False,
-        latest=True,
-    )
-    learner.calc_img_feas(out='work_space/emore.r152.fea.5.h5')
-    exit(0)
+    # learner.load_state(
+    #     # resume_path=Path('work_space/asia.emore.r50.test.ijbc.2/models/'),
+    #     # resume_path=Path('work_space/emore.r152.ada.chkpnt.2/models/'),
+    #     resume_path=Path('work_space/ms1m.mb.bs/models/'),
+    #     load_optimizer=False,
+    #     load_head=True,
+    #     load_imp=False,
+    #     latest=True,
+    # )
+    
+    # learner.calc_img_feas(out='work_space/emore.r152.fea.5.h5')
+    # exit(0)
     # learner.init_lr()
     # conf.tri_wei = 0
     # log_conf(conf)
@@ -63,8 +59,8 @@ if __name__ == '__main__':
     
     learner.init_lr()
     log_conf(conf)
-    learner.train(conf, conf.epochs)
-    # learner.train_simple(conf, conf.epochs)
+    # learner.train(conf, conf.epochs)
+    learner.train_simple(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)
     
     # learner.validate(conf,)

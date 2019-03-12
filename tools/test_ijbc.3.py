@@ -35,15 +35,14 @@ else:
     conf.fp16 = False
     conf.ipabn = False
     conf.cvt_ipabn = False
-    # conf.upgrade_irse = False
-    # conf.net_mode = 'ir'
     conf.net_depth = 152
+    conf.use_chkpnt = False
     
     from Learner import FaceInfer
     
     learner = FaceInfer(conf, gpuid=range(conf.num_devs))
     learner.load_state(
-        resume_path='work_space/emore.r152.ada.chkpnt.2/save/',
+        resume_path='work_space/emore.r152.ada.chkpnt.3/save/',
         latest=True,
     )
     # learner.load_model_only('work_space/backbone_ir50_ms1m_epoch120.pth')
