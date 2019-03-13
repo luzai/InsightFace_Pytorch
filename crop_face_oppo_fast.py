@@ -52,32 +52,40 @@ class TestData(torch.utils.data.Dataset):
         # imgfn = next(self.imgfn_iter)
         imgfn = self.imgfns[item]
         finish = 0
-        img_ori = cvb.read_img(imgfn)  # bgr
-        rects, scores, _ = self.face_detector.run(img_ori, 1, -1)
-        if len(rects) == 1:
-            rect = rects[0]
-            # logging.info(f'{imgfn} {scores[0]}')
-        elif len(rects) >= 2:
-            chs_ind = np.argmax(scores)  # now chs max score face todo chs center bbox
-            rect = rects[chs_ind]
-            # logging.info(f'{imgfn} {scores[chs_ind]}')
-        else:
-            l, r, t, b = [0, 0, img_ori.shape[1], img_ori.shape[0]]
-            rect = dlib.rectangle(l, r, t, b)
-            logging.warning(f'{imgfn} no face')
-        bbox = [rect.left(), rect.top(), rect.right(), rect.bottom()]
-        roi_box = parse_roi_box_from_bbox(bbox)
-        img = crop_img(img_ori, roi_box)
-        img = cv2.resize(img, dsize=(STD_SIZE, STD_SIZE), interpolation=cv2.INTER_LINEAR)
-        # img = cvb.bgr2rgb(img) # rgb
-        # except StopIteration:
-        #     # logging.info(f'folder iter end')
-        #     imgfn = ""
-        #     finish = 1
-        #     img = np.zeros((STD_SIZE, STD_SIZE, 3), dtype=np.uint8)
-        #     roi_box = [0, 0, STD_SIZE, STD_SIZE]
-        img = self.test_transform(img)
-        roi_box = to_torch(np.asarray(roi_box, dtype=np.float32)).float()
+        try:
+            # raise ValueError('for test')
+            img_ori = cvb.read_img(imgfn)  # bgr
+            if img_ori is None:
+                logging.warning(f'input image {imgfn} may damage, pls check!')
+            rects, scores, _ = self.face_detector.run(img_ori, 1, -1)
+            if len(rects) == 1:
+                rect = rects[0]
+                # logging.info(f'{imgfn} {scores[0]}')
+            elif len(rects) >= 2:
+                chs_ind = np.argmax(scores)  # now chs max score face todo chs center bbox
+                rect = rects[chs_ind]
+                # logging.info(f'{imgfn} {scores[chs_ind]}')
+            else:
+                l, r, t, b = [0, 0, img_ori.shape[1], img_ori.shape[0]]
+                rect = dlib.rectangle(l, r, t, b)
+                logging.warning(f'{imgfn} no face')
+            bbox = [rect.left(), rect.top(), rect.right(), rect.bottom()]
+            roi_box = parse_roi_box_from_bbox(bbox)
+            img = crop_img(img_ori, roi_box)
+            img = cv2.resize(img, dsize=(STD_SIZE, STD_SIZE), interpolation=cv2.INTER_LINEAR)
+            # img = cvb.bgr2rgb(img) # rgb
+            # except StopIteration:
+            #     # logging.info(f'folder iter end')
+            #     imgfn = ""
+            #     finish = 1
+            #     img = np.zeros((STD_SIZE, STD_SIZE, 3), dtype=np.uint8)
+            #     roi_box = [0, 0, STD_SIZE, STD_SIZE]
+            img = self.test_transform(img)
+            roi_box = to_torch(np.asarray(roi_box, dtype=np.float32)).float()
+        except Exception as e:
+            logging.warning(f'error occur {e}, pls check!')
+            img = np.ones((3, STD_SIZE, STD_SIZE,), dtype=np.float32)
+            roi_box = to_torch(np.asarray([0, 0, STD_SIZE, STD_SIZE], dtype=np.float32)).float()
         return {'imgfn': imgfn,
                 "finish": finish,
                 'img': img,
@@ -90,12 +98,16 @@ def consumer(queue, lock):
         imgfn, param, roi_box, dst_imgfn = queue.get()
         pts68 = [predict_68pts(param[i], roi_box[i]) for i in range(param.shape[0])]
         for img_fp, pts68_, dst in zip(imgfn, pts68, dst_imgfn):
-            img_ori = cvb.read_img(img_fp)
-            pts5 = to_landmark5(pts68_[:2, :].transpose())
-            warped = preprocess(img_ori, landmark=pts5)
-            # plt_imshow(warped, inp_mode='bgr');  plt.show()
-            lz.mkdir_p(osp.dirname(dst), delete=False)
-            cvb.write_img(warped, dst)
+            try:
+                img_ori = cvb.read_img(img_fp)
+                pts5 = to_landmark5(pts68_[:2, :].transpose())
+                warped = preprocess(img_ori, landmark=pts5)
+                # plt_imshow(warped, inp_mode='bgr');  plt.show()
+                lz.mkdir_p(osp.dirname(dst), delete=False)
+                cvb.write_img(warped, dst)
+            except Exception as e:
+                logging.warning(f'error occur {e}, pls check!')
+                cvb.write_img(np.ones((112, 112, 3), np.uint8), dst)
 
 
 def crop_face(args):
