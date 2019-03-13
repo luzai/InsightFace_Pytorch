@@ -406,7 +406,7 @@ class Dataset_val(torch.utils.data.Dataset):
         self.transform = transform
     
     def __getitem__(self, index):
-        if (self.transform):
+        if self.transform:
             fliped_carray = self.transform(torch.tensor(self.carray[index]))
             return {'carray': self.carray[index], 'issame': 1.0 * self.issame[index], 'fliped_carray': fliped_carray}
         else:
@@ -856,9 +856,9 @@ class face_learner(object):
             self.optimizer = amp_handle.wrap_optimizer(self.optimizer, num_loss=nloss)
         logging.info(f'optimizers generated {self.optimizer}')
         self.board_loss_every = gl_conf.board_loss_every
-        from data.data_pipe import get_val_data
-        self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
-            self.dataset.root_path)  # todo postpone load eval
+        # from data.data_pipe import get_val_data
+        # self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
+        #     self.dataset.root_path)  # todo postpone load eval
         self.head.train()
         self.model.train()
     
@@ -876,7 +876,7 @@ class face_learner(object):
         dist_need_log = not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0
 
         if gl_conf.start_eval:
-            for ds in ['cfp_fp', 'lfw',  'agedb_30']:
+            for ds in ['cfp_fp', ]: # 'lfw',  'agedb_30' # todo also save mem for other train
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                     conf,
                     self.loader.dataset.root_path,
@@ -884,8 +884,8 @@ class face_learner(object):
                 if dist_need_log:
                     self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                     logging.info(f'validation accuracy on {ds} is {accuracy} ')
-        # if dist_need_log:
-        #     self.save_state(conf, 0)
+        if dist_need_log:
+            self.save_state(conf, 0)
         for e in range(conf.start_epoch, epochs):
             lz.timer.since_last_check('epoch {} started'.format(e))
             self.schedule_lr(e)
@@ -953,7 +953,7 @@ class face_learner(object):
                                           np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
                 
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
-                    for ds in ['cfp_fp', 'lfw',  'agedb_30']:
+                    for ds in ['cfp_fp',]: # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                             conf,
                             self.loader.dataset.root_path,
@@ -1204,7 +1204,7 @@ class face_learner(object):
             if gl_conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-    
+    # todo train_tri
     def train(self, conf, epochs, mode='train', name=None):
         self.model.train()
         if mode == 'train':
@@ -1579,9 +1579,9 @@ class face_learner(object):
                 dataset = Dataset_val(path, name, transform=hflip)
             else:
                 dataset = Dataset_val(path, name)
-            loader = DataLoader(dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
-                                shuffle=False, pin_memory=True)  # todo why shuffle must false
-            self.val_loader_cache[name] = loader
+            loader = DataLoader(dataset, batch_size=conf.batch_size, num_workers=0,
+                                shuffle=False, pin_memory=False)  # todo why shuffle must false
+            self.val_loader_cache[name] = loader # because we have limited memory
         length = len(loader.dataset)
         embeddings = np.zeros([length, conf.embedding_size])
         issame = np.zeros(length)
@@ -1605,12 +1605,12 @@ class face_learner(object):
         # tpr/fpr is averaged over various fold division
         try:
             tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
-            buf = gen_plot(fpr, tpr)
-            roc_curve = Image.open(buf)
-            roc_curve_tensor = trans.ToTensor()(roc_curve)
+        #     buf = gen_plot(fpr, tpr)
+        #     roc_curve = Image.open(buf)
+        #     roc_curve_tensor = trans.ToTensor()(roc_curve)
         except Exception as e:
             logging.error(f'{e}')
-            roc_curve_tensor = torch.zeros(3, 100, 100)
+        roc_curve_tensor = torch.zeros(3, 100, 100)
         self.model.train()
         lz.timer.since_last_check('eval end')
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor

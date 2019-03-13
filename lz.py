@@ -4,7 +4,7 @@
 import matplotlib
 # matplotlib.use('Gtk3Agg')
 # matplotlib.use('TkAgg')
-# matplotlib.use('Agg')
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 # plt.switch_backend('Agg')
 # plt.switch_backend('TkAgg')
@@ -72,7 +72,7 @@ def set_file_logger(work_dir=None, log_level=logging.INFO):
     global file_hander
     work_dir = work_dir or root_path
     if not osp.exists(work_dir):
-        os.mkdir(work_dir)
+        os.system(f"mkdir -p '{work_dir}'")
     fh = logging.FileHandler(os.path.join(work_dir, 'log-ing'))
     fh.setLevel(log_level)
     fh.setFormatter(

@@ -20,10 +20,10 @@ else:
     lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
-conf.num_workers = 16 if not dist else 8
+conf.num_workers = 16 if not dist else 5
 conf.num_devs = num_devs
 conf.no_eval = False
-conf.start_eval = False
+conf.start_eval = True
 conf.loss = 'arcface'  # softmax arcface
 
 conf.local_rank = None
