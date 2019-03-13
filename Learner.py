@@ -777,6 +777,9 @@ class face_learner(object):
             self.head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num)
         elif conf.loss == 'softmax':
             self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num)
+        elif conf.loss =='arcfaceneg':
+            from models.model import  ArcfaceNeg
+            self.head = ArcfaceNeg(embedding_size=conf.embedding_size, classnum=self.class_num)
         else:
             raise ValueError(f'{conf.loss}')
         if conf.local_rank is None:

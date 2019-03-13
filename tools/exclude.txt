@@ -7,3 +7,4 @@ __pycache__
 optimizer*.pth
 head*.pth
 extra*.pk
+*.ipynb

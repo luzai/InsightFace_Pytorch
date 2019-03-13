@@ -21,7 +21,7 @@ if not use_mxnet:
     
     learner = FaceInfer(conf, )
     learner.load_state(
-        resume_path='work_space/asia.emore.r50.ada/models/',
+        resume_path='../work_space/asia.emore.r50.ada/models/',
         latest=True,
     )
     # learner.load_model_only('work_space/backbone_ir50_ms1m_epoch120.pth')

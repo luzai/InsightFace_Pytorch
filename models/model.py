@@ -608,6 +608,90 @@ class Arcface(Module):
     # forward = forward_neff
 
 
+class ArcfaceNeg(Module):
+    # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599
+    def __init__(self, embedding_size=gl_conf.embedding_size, classnum=None, s=gl_conf.scale, m=gl_conf.margin):
+        super(ArcfaceNeg, self).__init__()
+        self.classnum = classnum
+        kernel = Parameter(torch.Tensor(embedding_size, classnum))
+        kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
+        # kernel = torch.chunk(kernel, gl_conf.num_devs, dim=1)
+        self.device_id = list(range(gl_conf.num_devs))
+        # kernel = tuple(kernel[ind].cuda(self.device_id[ind]) for ind in range(gl_conf.num_devs))
+        self.kernel = kernel
+        
+        if gl_conf.fp16:
+            m = np.float16(m)
+            pi = np.float16(np.pi)
+        else:
+            m = np.float32(m)
+            pi = np.float32(np.pi)
+        self.m = m  # the margin value, default is 0.5
+        self.s = s  # scalar value default is 64, see normface https://arxiv.org/abs/1704.06369
+        self.cos_m = np.cos(m)
+        self.sin_m = np.sin(m)
+        self.mm = self.sin_m * m  # issue 1
+        self.threshold = math.cos(pi - m)
+        self.threshold2 = math.cos(m)
+        self.m2 = gl_conf.margin2
+    
+    def forward_eff(self, embbedings, label=None):
+        nB = embbedings.shape[0]
+        idx_ = torch.arange(0, nB, dtype=torch.long)
+        if gl_conf.num_devs == 0:
+            kernel_norm = l2_norm(self.kernel, axis=0)
+            cos_theta = torch.mm(embbedings, kernel_norm)
+        else:
+            x = embbedings
+            sub_weights = torch.chunk(self.kernel, gl_conf.num_devs, dim=1)
+            temp_x = embbedings.cuda(self.device_id[0])
+            weight = sub_weights[0].cuda(self.device_id[0])
+            cos_theta = torch.mm(temp_x, F.normalize(weight, dim=0))
+            for i in range(1, len(self.device_id)):
+                temp_x = x.cuda(self.device_id[i])
+                weight = sub_weights[i].cuda(self.device_id[i])
+                cos_theta = torch.cat(
+                    (cos_theta,
+                     torch.mm(temp_x, F.normalize(weight, dim=0)).cuda(self.device_id[0])),
+                    dim=1)
+        cos_theta = cos_theta.clamp(-1, 1)
+        if label is None:
+            cos_theta *= self.s
+            return cos_theta
+        output = cos_theta
+        if self.m !=0:
+            cos_theta_need = cos_theta[idx_, label].clone()
+            cos_theta_2 = torch.pow(cos_theta_need, 2)
+            sin_theta_2 = 1 - cos_theta_2
+            sin_theta = torch.sqrt(sin_theta_2)
+            cos_theta_m = (cos_theta_need * self.cos_m - sin_theta * self.sin_m)
+            cond_mask = (cos_theta_need - self.threshold) <= 0 # those should be replaced
+            if torch.any(cond_mask).item():
+                logging.info('this concatins a difficult sample')
+            keep_val = (cos_theta_need - self.mm)  # when theta not in [0,pi], use cosface instead
+            cos_theta_m[cond_mask] = keep_val[cond_mask].type_as(cos_theta_m)
+            output[idx_, label] = cos_theta_m.type_as(output)
+        if self.m2 !=0:
+            cos_theta_neg = cos_theta.clone()
+            cos_theta_neg[idx_, label] = -self.s
+            topk = gl_conf.topk
+            topkind = torch.argsort(cos_theta_neg, dim=1)[:, -topk:]
+            idx = torch.stack([idx_] * 5, dim=1)
+            cos_theta_neg_need = cos_theta_neg[idx, topkind]
+            cos_theta_neg_need_2 = torch.pow(cos_theta_neg_need, 2)
+            sin_theta_neg_2 = 1 - cos_theta_neg_need_2
+            sin_theta_neg = torch.sqrt(sin_theta_neg_2)
+            cos_theta_neg_m = (cos_theta_neg_need * np.cos(self.m2) + sin_theta_neg * np.sin(self.m2))
+            cond_mask = (cos_theta_neg_need < self.threshold2) # those should not be replaced
+            cos_theta_neg_need = cos_theta_neg_need.clone()
+            cos_theta_neg_need[cond_mask] = cos_theta_neg_m[cond_mask]
+            output[idx, topkind] = cos_theta_neg_need.type_as(output)
+        output *= self.s  # scale up in order to make softmax work, first introduced in normface
+        return output
+    
+    forward = forward_eff
+
+
 ##################################  Cosface head #################
 
 class Am_softmax(Module):
