@@ -36,17 +36,16 @@ else:
     conf.ipabn = False
     conf.cvt_ipabn = False
     conf.net_depth = 152
+    conf.net_mode = 'mobilefacenet'
     conf.use_chkpnt = False
     
     from Learner import FaceInfer
     
     learner = FaceInfer(conf, gpuid=range(conf.num_devs))
     learner.load_state(
-        resume_path='work_space/emore.r152.ada.chkpnt.3/save/',
+        resume_path='work_space/ms1m.mb.bs.wdecay/save/',
         latest=True,
     )
-    # learner.load_model_only('work_space/backbone_ir50_ms1m_epoch120.pth')
-    # learner.load_model_only('work_space/backbone_ir50_asia.pth')
     learner.model.eval()
 
 unique_tid = np.unique(df_pair.iloc[:, :2].values.flatten())

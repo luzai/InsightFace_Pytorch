@@ -2,18 +2,10 @@
 # -*- coding: future_fstrings -*-
 
 from lz import *
-import lz
 from config import conf
-
-# conf.need_log = False
-# conf.use_chkpnt = False
-# conf.tri_wei = .1
-# conf.num_workers = 6
 import argparse
 from pathlib import Path
-
-if not conf.online_imp:
-    torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.benchmark = True
 
 
 def log_conf(conf):
@@ -21,8 +13,9 @@ def log_conf(conf):
     logging.info(f'training conf is {conf2}')
 
 
-parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
+parser = argparse.ArgumentParser(description='PyTorch Training')
 parser.add_argument('--local_rank', default=None, type=int)
+
 if __name__ == '__main__':
     args = parser.parse_args()
     conf.local_rank = args.local_rank
@@ -30,20 +23,20 @@ if __name__ == '__main__':
         torch.cuda.set_device(conf.local_rank)
         torch.distributed.init_process_group(backend='nccl',
                                              init_method="env://")
-    
+        if torch.distributed.get_rank() != 0:
+            set_stream_logger(logging.WARNING)
     from Learner import face_learner
     
     learner = face_learner(conf, )
     
-    # learner.load_state(
-    #     # resume_path=Path('work_space/asia.emore.r50.test.ijbc.2/models/'),
-    #     # resume_path=Path('work_space/emore.r152.ada.chkpnt.2/models/'),
-    #     resume_path=Path('work_space/ms1m.mb.bs/models/'),
-    #     load_optimizer=False,
-    #     load_head=True,
-    #     load_imp=False,
-    #     latest=True,
-    # )
+    learner.load_state(
+        # resume_path=Path('work_space/emore.mobilefacenet.cont/save/'),
+        resume_path=Path('work_space/emore.mb.ori/models/'),
+        load_optimizer=False,
+        load_head=True,
+        load_imp=False,
+        latest=True,
+    )
     
     # learner.calc_img_feas(out='work_space/emore.r152.fea.5.h5')
     # exit(0)
@@ -60,7 +53,8 @@ if __name__ == '__main__':
     learner.init_lr()
     log_conf(conf)
     # learner.train(conf, conf.epochs)
-    learner.train_simple(conf, conf.epochs)
+    learner.train_dist(conf, conf.epochs)
+    # learner.train_simple(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)
     
     # learner.validate(conf,)

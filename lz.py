@@ -48,30 +48,45 @@ os.environ.setdefault('tensorflow', '0')
 os.environ.setdefault('chainer', '0')
 timer = cvb.Timer()
 
+stream_handler = None
+
 
 def set_stream_logger(log_level=logging.INFO):
+    global stream_handler
     import colorlog
     sh = colorlog.StreamHandler()
     sh.setLevel(log_level)
     sh.setFormatter(
         colorlog.ColoredFormatter(
             ' %(asctime)s %(filename)s [line:%(lineno)d] %(log_color)s%(levelname)s%(reset)s %(message)s'))
+    if stream_handler is not None:
+        logging.root.removeHandler(stream_handler)
     logging.root.addHandler(sh)
+    return sh
+
+
+file_hander = None
 
 
 def set_file_logger(work_dir=None, log_level=logging.INFO):
+    global file_hander
     work_dir = work_dir or root_path
+    if not osp.exists(work_dir):
+        os.mkdir(work_dir)
     fh = logging.FileHandler(os.path.join(work_dir, 'log-ing'))
     fh.setLevel(log_level)
     fh.setFormatter(
         logging.Formatter('%(asctime)s %(filename)s [line:%(lineno)d] %(levelname)s %(message)s'))
+    if file_hander is not None:
+        logging.root.removeHandler(file_hander)
     logging.root.addHandler(fh)
+    return fh
 
 
 if os.environ.get('log', '0') == '1':
     logging.root.setLevel(logging.INFO)
-    set_stream_logger(logging.INFO)
-    set_file_logger(log_level=logging.INFO)
+    stream_handler = set_stream_logger(logging.INFO)
+    file_hander = set_file_logger(log_level=logging.INFO)
 
 if os.environ.get('chainer', "1") == "1":
     import chainer
@@ -863,6 +878,7 @@ def df_load(path, name='df'):
     import pandas as pd
     return pd.read_hdf(path, name)
 
+
 import struct
 
 cv_type_to_dtype = {
@@ -870,7 +886,6 @@ cv_type_to_dtype = {
 }
 
 dtype_to_cv_type = {v: k for k, v in cv_type_to_dtype.items()}
-
 
 
 def read_mat(f):
@@ -887,6 +902,7 @@ def load_mat(filename):
     Reads a OpenCV Mat from the given filename
     """
     return read_mat(open(filename, 'rb'))
+
 
 cv_type_to_dtype = {
     5: np.dtype('float32')
@@ -1182,7 +1198,7 @@ def show_img(path):
     return fig
 
 
-def plt_imshow(img, ax=None, keep_ori_size=False, inp_mode = 'rgb'):
+def plt_imshow(img, ax=None, keep_ori_size=False, inp_mode='rgb'):
     img = to_img(img)
     if inp_mode == 'bgr':
         img = img[..., ::-1]
@@ -1850,7 +1866,7 @@ class AverageMeter(object):
         self.avg = 0
         self.sum = 0
         self.count = 0
-        self.mem = collections.deque(maxlen=1)  # todo ?
+        self.mem = collections.deque(maxlen=10)  # todo ?
     
     def reset(self):
         self.val = 0
@@ -1859,10 +1875,7 @@ class AverageMeter(object):
         self.count = 0
     
     def update(self, val, n=1):
-        # try:
         val = float(val)
-        # except Exception as inst:
-        #     print(inst)
         self.mem.append(val)
         self.avg = np.mean(list(self.mem))
         ## way 2
@@ -1870,6 +1883,7 @@ class AverageMeter(object):
         # self.sum += val * n
         # self.count += n
         # self.avg = self.sum / self.count
+
 
 def extend_bbox(img_proc, bbox,
                 up=.0,

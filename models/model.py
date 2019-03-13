@@ -337,6 +337,7 @@ class MobileFaceNet(Module):
         self.bn = BatchNorm1d(embedding_size)
     
     def forward(self, x, *args, **kwargs):
+        # from IPython import embed; embed()
         out = self.conv1(x)
         out = self.conv2_dw(out)
         out = self.conv_23(out)
@@ -530,24 +531,26 @@ class Arcface(Module):
         self.threshold = math.cos(pi - m)
     
     def forward_eff(self, embbedings, label=None):
+        assert not torch.isnan(embbedings).any().item()
+        # assert (torch.norm(embbedings, dim=1) == 1).all().item()
         nB = embbedings.shape[0]
         idx_ = torch.arange(0, nB, dtype=torch.long)
-        if gl_conf.num_devs == 0:
-            kernel_norm = l2_norm(self.kernel, axis=0)
-            cos_theta = torch.mm(embbedings, kernel_norm)
-        else:
-            x = embbedings
-            sub_weights = torch.chunk(self.kernel, gl_conf.num_devs, dim=1)
-            temp_x = embbedings.cuda(self.device_id[0])
-            weight = sub_weights[0].cuda(self.device_id[0])
-            cos_theta = torch.mm(temp_x, F.normalize(weight, dim=0))
-            for i in range(1, len(self.device_id)):
-                temp_x = x.cuda(self.device_id[i])
-                weight = sub_weights[i].cuda(self.device_id[i])
-                cos_theta = torch.cat(
-                    (cos_theta,
-                     torch.mm(temp_x, F.normalize(weight, dim=0)).cuda(self.device_id[0])),
-                    dim=1)
+        # if gl_conf.num_devs == 0:
+        kernel_norm = l2_norm(self.kernel, axis=0)
+        cos_theta = torch.mm(embbedings, kernel_norm)
+        # else:
+        #     x = embbedings
+        #     sub_weights = torch.chunk(self.kernel, gl_conf.num_devs, dim=1)
+        #     temp_x = embbedings.cuda(self.device_id[0])
+        #     weight = sub_weights[0].cuda(self.device_id[0])
+        #     cos_theta = torch.mm(temp_x, F.normalize(weight, dim=0))
+        #     for i in range(1, len(self.device_id)):
+        #         temp_x = x.cuda(self.device_id[i])
+        #         weight = sub_weights[i].cuda(self.device_id[i])
+        #         cos_theta = torch.cat(
+        #             (cos_theta,
+        #              torch.mm(temp_x, F.normalize(weight, dim=0)).cuda(self.device_id[0])),
+        #             dim=1)
         cos_theta = cos_theta.clamp(-1, 1)
         if label is None:
             cos_theta *= self.s
