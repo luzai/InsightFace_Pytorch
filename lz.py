@@ -162,8 +162,8 @@ InteractiveShell.ast_node_interactivity = "all"
 
 ## ndarray will be pretty
 np.set_string_function(lambda arr: f'np {arr.shape} {arr.dtype} '
-f'{arr.__str__()} '
-f'dtype:{arr.dtype} shape:{arr.shape} np', repr=True)
+                                   f'{arr.__str__()} '
+                                   f'dtype:{arr.dtype} shape:{arr.shape} np', repr=True)
 
 ## print(ndarray) will be pretty (and pycharm dbg)
 # np.set_string_function(lambda arr: f'np {arr.shape} {arr.dtype} \n'
@@ -333,15 +333,14 @@ def cpu_priority(level=19):
     p.nice(level)
 
 
-def mkdir_p(path, delete=True):
+def mkdir_p(path, delete=True, verbose=True):
     path = str(path)
     if path == '':
         return
     if delete and osp.exists(path):
         rm(path)
     if not osp.exists(path):
-        shell(f"mkdir -p '{path}'")
-
+        os.makedirs(path, exist_ok=True)
 
 class Logger(object):
     def __init__(self, fpath=None, console=sys.stdout):
@@ -983,7 +982,7 @@ def json_dump(obj, file, mode='a'):  # write not append!
     if isinstance(file, str):
         # with codecs.open(file, mode, encoding='utf-8') as fp:
         with open(file, 'w') as fp:
-            json.dump(obj, fp,
+            json.dump(obj, fp, sort_keys=True, indent=4
                       # ensure_ascii=False
                       )
     elif hasattr(file, 'write'):
@@ -1121,7 +1120,7 @@ def shell(cmd, block=True, return_msg=True, verbose=True, timeout=None):
             if msg[0] != '' and verbose:
                 logging.info('stdout {}'.format(msg[0]))
             if msg[1] != '' and verbose:
-                logging.error('stderr {}'.format(msg[1]))
+                logging.error(f'stderr {msg[1]}, cmd {cmd}')
             return msg
         else:
             return task
@@ -1259,6 +1258,18 @@ def plt_imshow_tensor(imgs, ncol=10, limit=None):
         imgs_thumb = cvb.resize_keep_ar(imgs_thumb, limit, limit, )
     #     print(imgs_thumb.shape)
     plt_imshow(imgs_thumb, keep_ori_size=True)
+
+
+def plt2tensor():
+    import io
+    from torchvision import transforms as trans
+    from PIL import Image
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    roc_curve = Image.open(buf)
+    roc_curve_tensor = trans.ToTensor()(roc_curve)
+    return roc_curve_tensor
 
 
 def to_img(img, ):
@@ -1576,13 +1587,12 @@ def to_json_format(obj, allow_np=True):
 #     raise TypeError(("batch must contain tensors, numbers, dicts or lists; found {}"
 #                      .format(type(batch[0]))))
 
-def preprocess(img, bbox=None, landmark=None, **kwargs):
+def preprocess(img, landmark, **kwargs):
     from skimage import transform as trans
     if isinstance(img, str):
         img = cvb.read_img(img, **kwargs)
     assert img is not None
     img = img.copy()
-    M = None
     # image_size = []
     # str_image_size = kwargs.get('image_size', '')
     # if len(str_image_size) > 0:
@@ -1593,58 +1603,27 @@ def preprocess(img, bbox=None, landmark=None, **kwargs):
     #     assert image_size[0] == 112
     #     assert image_size[0] == 112 or image_size[1] == 96
     image_size = [112, 112]
-    if landmark is not None:
-        assert len(image_size) == 2
-        src = np.array([
-            [30.2946, 51.6963],
-            [65.5318, 51.5014],
-            [48.0252, 71.7366],
-            [33.5493, 92.3655],
-            [62.7299, 92.2041]], dtype=np.float32)
-        if image_size[1] == 112:
-            src[:, 0] += 8.0
-        dst = landmark.astype(np.float32)
-        dst = dst.reshape(5, 2)  # todo, this means dst mast be 5 row
-        tform = trans.SimilarityTransform()
-        tform.estimate(dst, src)
-        M = tform.params[0:2, :]
-        # M = cv2.estimateRigidTransform( dst.reshape(1,5,2), src.reshape(1,5,2), False)
-    
-    if M is None:
-        if bbox is None:  # use center crop
-            det = np.zeros(4, dtype=np.int32)
-            det[0] = int(img.shape[1] * 0.0625)
-            det[1] = int(img.shape[0] * 0.0625)
-            det[2] = img.shape[1] - det[0]
-            det[3] = img.shape[0] - det[1]
-        else:
-            det = bbox
-        margin = kwargs.get('margin', 44)
-        bb = np.zeros(4, dtype=np.int32)
-        bb[0] = np.maximum(det[0] - margin / 2, 0)
-        bb[1] = np.maximum(det[1] - margin / 2, 0)
-        bb[2] = np.minimum(det[2] + margin / 2, img.shape[1])
-        bb[3] = np.minimum(det[3] + margin / 2, img.shape[0])
-        ret = img[bb[1]:bb[3], bb[0]:bb[2], :]
-        if len(image_size) > 0:
-            ret = cv2.resize(ret, (image_size[1], image_size[0]))
-        return ret
-    else:  # do align using landmark
-        assert len(image_size) == 2
-        
-        # src = src[0:3,:]
-        # dst = dst[0:3,:]
-        
-        # print(src.shape, dst.shape)
-        # print(src)
-        # print(dst)
-        # print(M)
-        warped = cv2.warpAffine(img, M, (image_size[1], image_size[0]), borderValue=0.0)
-        
-        # tform3 = trans.ProjectiveTransform()
-        # tform3.estimate(src, dst)
-        # warped = trans.warp(img, tform3, output_shape=_shape)
-        return warped
+    assert len(image_size) == 2
+    src = np.array([
+        [30.2946, 51.6963],
+        [65.5318, 51.5014],
+        [48.0252, 71.7366],
+        [33.5493, 92.3655],
+        [62.7299, 92.2041]], dtype=np.float32)
+    if image_size[1] == 112:
+        src[:, 0] += 8.0
+    dst = landmark.astype(np.float32)
+    dst = dst.reshape(-1, 2)  # todo, this means dst mast be 5 row
+    if dst.shape[0]==3:
+        src = src[[0,1,2],:]
+    tform = trans.SimilarityTransform()
+    tform.estimate(dst, src)
+    M = tform.params[0:2, :]
+    warped = cv2.warpAffine(img, M, (image_size[1], image_size[0]), borderValue=0.0)
+    # tform3 = trans.ProjectiveTransform()
+    # tform3.estimate(src, dst)
+    # warped = trans.warp(img, tform3, output_shape=_shape)
+    return warped
 
 
 def face_orientation(frame, landmarks):
