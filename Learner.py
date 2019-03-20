@@ -731,9 +731,10 @@ class face_learner(object):
                 lz.set_file_logger_prt(str(conf.log_path) + f'/proc{torch.distributed.get_rank()}')
                 lz.mkdir_p(conf.log_path, delete=False)
             else:
+                lz.mkdir_p(conf.log_path, delete=True)
                 lz.set_file_logger(str(conf.log_path))
                 lz.set_file_logger_prt(str(conf.log_path))
-                lz.mkdir_p(conf.log_path, delete=True)  # todo delete?
+                # lz.mkdir_p(conf.log_path, delete=True)
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             self.writer = SummaryWriter(str(conf.log_path))
         else:
@@ -785,8 +786,8 @@ class face_learner(object):
             self.head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num)
         elif conf.loss == 'softmax':
             self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num)
-        elif conf.loss =='arcfaceneg':
-            from models.model import  ArcfaceNeg
+        elif conf.loss == 'arcfaceneg':
+            from models.model import ArcfaceNeg
             self.head = ArcfaceNeg(embedding_size=conf.embedding_size, classnum=self.class_num)
         else:
             raise ValueError(f'{conf.loss}')
@@ -874,9 +875,9 @@ class face_learner(object):
         loss_time = lz.AverageMeter()
         accuracy = 0
         dist_need_log = not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0
-
+        
         if gl_conf.start_eval:
-            for ds in ['cfp_fp', ]: # 'lfw',  'agedb_30' # todo also save mem for other train
+            for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30' # todo also save mem for other train
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                     conf,
                     self.loader.dataset.root_path,
@@ -953,7 +954,7 @@ class face_learner(object):
                                           np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
                 
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
-                    for ds in ['cfp_fp',]: # 'lfw',  'agedb_30'
+                    for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                             conf,
                             self.loader.dataset.root_path,
@@ -1104,7 +1105,7 @@ class face_learner(object):
                 if ind_data is None:
                     logging.info(f'one epoch finish {e} {ind_data}')
                     loader_enum = data_prefetcher(enumerate(loader))
-                    ind_data, data = loader_enum.next()
+                    ind_data, data = next(loader_enum)
                 if (self.step + 1) % len(loader) == 0:
                     self.step += 1
                     break
@@ -1122,7 +1123,7 @@ class face_learner(object):
                     if ind_data is None:
                         logging.info(f'test finish {e} {ind_data}')
                         loader_test_enum = data_prefetcher(enumerate(loader_test))
-                        ind_data, imgs_test_data = loader_enum.next()
+                        ind_data, imgs_test_data = next(loader_enum)
                     imgs_test = imgs_test_data['imgs'].cuda()
                 ## get loss and backward
                 self.optimizer.zero_grad()  # todo why must put here # I do not know, but order matters!
@@ -1204,6 +1205,7 @@ class face_learner(object):
             if gl_conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
+    
     # todo train_tri
     def train(self, conf, epochs, mode='train', name=None):
         self.model.train()
@@ -1247,11 +1249,11 @@ class face_learner(object):
             loader_enum = data_prefetcher(enumerate(loader))
             
             while True:
-                ind_data, data = loader_enum.next()
+                ind_data, data = next(loader_enum)
                 if ind_data is None:
                     logging.info(f'one epoch finish {e} {ind_data}')
                     loader_enum = data_prefetcher(enumerate(loader))
-                    ind_data, data = loader_enum.next()
+                    ind_data, data = next(loader_enum)
                 if (self.step + 1) % len(loader) == 0:
                     self.step += 1
                     break
@@ -1283,7 +1285,7 @@ class face_learner(object):
                     imgsl = [imgs]
                     labelsl = [labels]
                     for _ in range(B_multi - 1):
-                        ind_data, data = loader_enum.next()
+                        ind_data, data = next(loader_enum)
                         imgs = data['imgs'].cuda()
                         labels = data['labels'].cuda()
                         imgsl.append(imgs)
@@ -1458,6 +1460,149 @@ class face_learner(object):
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
     
+    def train_fgg(self, conf, epochs, mode='train', name=None):
+        self.model.train()
+        if mode == 'train':
+            loader = self.loader
+            self.evaluate_every = gl_conf.other_every or len(loader) // 3
+            self.save_every = gl_conf.other_every or len(loader) // 3
+        elif mode == 'finetune':
+            loader = DataLoader(
+                self.dataset, batch_size=conf.batch_size * conf.ftbs_mult,
+                num_workers=conf.num_workers,
+                sampler=RandomIdSampler(self.dataset.imgidx,
+                                        self.dataset.ids, self.dataset.id2range),
+                drop_last=True, pin_memory=True,
+                collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
+            )
+            self.evaluate_every = gl_conf.other_every or len(loader) // 3
+            self.save_every = gl_conf.other_every or len(loader) // 3
+        else:
+            raise ValueError(mode)
+        self.step = gl_conf.start_step
+        if name is None:
+            writer = self.writer
+        else:
+            writer = SummaryWriter(str(conf.log_path) + '/ft')
+        
+        lz.timer.since_last_check('start train')
+        data_time = lz.AverageMeter()
+        loss_time = lz.AverageMeter()
+        accuracy = 0
+        for e in range(conf.start_epoch, epochs):
+            lz.timer.since_last_check('epoch {} started'.format(e))
+            self.schedule_lr(e)
+            loader_enum = data_prefetcher(enumerate(loader))
+            
+            while True:
+                ind_data, data = next(loader_enum)
+                if ind_data is None:
+                    logging.info(f'one epoch finish {e} {ind_data}')
+                    loader_enum = data_prefetcher(enumerate(loader))
+                    ind_data, data = next(loader_enum)
+                if (self.step + 1) % len(loader) == 0:
+                    self.step += 1
+                    break
+                imgs = data['imgs']
+                labels_cpu = data['labels_cpu']
+                labels = data['labels']
+                data_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
+                self.optimizer.zero_grad()
+                embeddings = self.model(imgs, mode=mode)
+                thetas = self.head(embeddings, labels)
+                if not gl_conf.fgg:
+                    loss = conf.ce_loss(thetas, labels)
+                    loss.backward()
+                elif conf.fgg == 'g':
+                    embeddings_o = self.model(imgs)
+                    thetas_o = self.head(embeddings, labels)
+                    loss_o = conf.ce_loss(thetas_o, labels)
+                    grad = torch.autograd.grad(loss_o, embeddings_o,
+                                               retain_graph=False, create_graph=False, allow_unused=True,
+                                               only_inputs=True)[0].detach()
+                    embeddings = embeddings_o + conf.fgg_wei * grad
+                    thetas = self.head(embeddings, labels)
+                    loss = conf.ce_loss(thetas, labels)
+                    loss.backward()
+                elif conf.fgg == 'gg':
+                    embeddings_o = self.model(imgs)
+                    thetas_o = self.head(embeddings_o, labels)
+                    loss_o = conf.ce_loss(thetas_o, labels)
+                    grad = torch.autograd.grad(loss_o, embeddings_o,
+                                               retain_graph=True, create_graph=True,
+                                               only_inputs=True)[0]
+                    embeddings = embeddings_o + conf.fgg_wei * grad
+                    thetas = self.head(embeddings, labels)
+                    loss = conf.ce_loss(thetas, labels)
+                    loss.backward()
+                else:
+                    raise ValueError(f'{conf.fgg}')
+                
+                with torch.no_grad():
+                    if gl_conf.mining == 'dop':
+                        update_dop_cls(thetas, labels_cpu, gl_conf.dop)
+                    if gl_conf.mining == 'rand.id':
+                        gl_conf.dop[labels_cpu.numpy()] = 1
+                
+                gl_conf.explored[labels_cpu.numpy()] = 1
+                with torch.no_grad():
+                    acc_t = (thetas.argmax(dim=1) == labels)
+                    acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
+                
+                self.optimizer.step()
+                loss_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
+                if self.step % self.board_loss_every == 0:
+                    logging.info(f'epoch {e}/{epochs} step {self.step}/{len(loader)}: ' +
+                                 # f'img {imgs.mean()} {imgs.max()} {imgs.min()} '+
+                                 f'loss: {loss.item():.2e} ' +
+                                 f'data time: {data_time.avg:.2f} ' +
+                                 f'loss time: {loss_time.avg:.2f} ' +
+                                 f'acc: {acc:.2e} ' +
+                                 f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                    writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
+                    writer.add_scalar('loss/xent', loss.item(), self.step)
+                    writer.add_scalar('info/acc', acc, self.step)
+                    writer.add_scalar('info/speed',
+                                      gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                    writer.add_scalar('info/datatime', data_time.avg, self.step)
+                    writer.add_scalar('info/losstime', loss_time.avg, self.step)
+                    writer.add_scalar('info/epoch', e, self.step)
+                    dop = gl_conf.dop
+                    writer.add_histogram('top_imp', dop, self.step)
+                    writer.add_scalar('info/doprat',
+                                      np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
+                
+                if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
+                    # todo simplify it and can choose more val in final and less while training
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
+                                                                                          self.loader.dataset.root_path,
+                                                                                          'agedb_30')
+                    self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor, writer)
+                    logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
+                                                                                          self.loader.dataset.root_path,
+                                                                                          'lfw')
+                    self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor, writer)
+                    logging.info(f'validation accuracy on lfw is {accuracy} ')
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
+                                                                                          self.loader.dataset.root_path,
+                                                                                          'cfp_fp')
+                    self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor, writer)
+                    logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
+                if self.step % self.save_every == 0 and self.step != 0:
+                    self.save_state(conf, accuracy)
+                
+                self.step += 1
+                if gl_conf.prof and self.step % 29 == 28:
+                    break
+            if gl_conf.prof and e > 5:
+                break
+        self.save_state(conf, accuracy, to_save_folder=True, extra='final')
+    
     def schedule_lr(self, e=0):
         from bisect import bisect_right
         
@@ -1513,16 +1658,16 @@ class face_learner(object):
         steps = np.asarray(steps, int)
         return steps
     
-    def load_state(self, fixed_str=None,
+    def load_state(self, fixed_str='',
                    resume_path=None, latest=True,
                    load_optimizer=False, load_imp=False, load_head=False
                    ):
         from pathlib import Path
         save_path = Path(resume_path)
         modelp = save_path / '{}'.format(fixed_str)
-        if not (modelp).exists():
+        if not modelp.exists() or not modelp.is_file():
             modelp = save_path / 'model_{}'.format(fixed_str)
-        if not (modelp).exists():
+        if not modelp.exists() or not modelp.is_file():
             fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
             if latest:
                 step = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
@@ -1568,7 +1713,48 @@ class face_learner(object):
         writer.add_scalar('{}_best_threshold'.format(db_name), best_threshold, self.step)
         # writer.add_image('{}_roc_curve'.format(db_name), roc_curve_tensor, self.step)
     
-    def evaluate_accelerate(self, conf, path, name, nrof_folds=5, tta=False):
+    def evaluate(self, conf, path, name, nrof_folds=10, tta=True):
+        from utils import ccrop_batch
+        self.model.eval()
+        idx = 0
+        from data.data_pipe import get_val_pair
+        carray, issame = get_val_pair(path, name)
+        carray = carray[:, ::-1, :, :]  # BGR 2 RGB!
+        embeddings = np.zeros([len(carray), conf.embedding_size])
+        with torch.no_grad():
+            while idx + conf.batch_size <= len(carray):
+                batch = torch.tensor(carray[idx:idx + conf.batch_size])
+                # im  = batch[0]
+                # im = np.array(im)
+                # plt_imshow(im) ;plt.show()
+                # plt.savefig('/tmp/t.png') # im is an bgr image!!
+                if tta:
+                    batch = ccrop_batch(batch)
+                    fliped = hflip_batch(batch)
+                    emb_batch = self.model(batch.cuda()) + self.model(fliped.cuda())
+                    emb_batch = emb_batch.cpu()
+                    embeddings[idx:idx + conf.batch_size] = l2_norm(emb_batch)
+                else:
+                    embeddings[idx:idx + conf.batch_size] = self.model(batch.cuda()).cpu()
+                idx += conf.batch_size
+            if idx < len(carray):
+                batch = torch.tensor(carray[idx:])
+                if tta:
+                    batch = ccrop_batch(batch)
+                    fliped = hflip_batch(batch)
+                    emb_batch = self.model(batch.cuda()) + self.model(fliped.cuda())
+                    emb_batch = emb_batch.cpu()
+                    embeddings[idx:] = l2_norm(emb_batch)
+                else:
+                    embeddings[idx:] = self.model(batch.cuda()).cpu()
+        tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
+        roc_curve_tensor = None
+        # buf = gen_plot(fpr, tpr)
+        # roc_curve = Image.open(buf)
+        # roc_curve_tensor = trans.ToTensor()(roc_curve)
+        return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
+    
+    def evaluate_accelerate(self, conf, path, name, nrof_folds=10, tta=True):
         lz.timer.since_last_check('start eval')
         self.model.eval()  # set the module in evaluation mode
         idx = 0
@@ -1581,7 +1767,7 @@ class face_learner(object):
                 dataset = Dataset_val(path, name)
             loader = DataLoader(dataset, batch_size=conf.batch_size, num_workers=0,
                                 shuffle=False, pin_memory=False)  # todo why shuffle must false
-            self.val_loader_cache[name] = loader # because we have limited memory
+            self.val_loader_cache[name] = loader  # because we have limited memory
         length = len(loader.dataset)
         embeddings = np.zeros([length, conf.embedding_size])
         issame = np.zeros(length)
@@ -1593,6 +1779,7 @@ class face_learner(object):
                 if tta:
                     fliped = data['fliped_carray']
                     emb_batch = self.model(carray_batch.cuda()) + self.model(fliped.cuda())
+                    emb_batch = emb_batch.cpu()
                     embeddings[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
                             idx + conf.batch_size)] = l2_norm(emb_batch)
                 else:
@@ -1614,6 +1801,29 @@ class face_learner(object):
         self.model.train()
         lz.timer.since_last_check('eval end')
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
+    
+    def validate_ori(self, conf, resume_path=None):
+        res = []
+        if resume_path is not None:
+            self.load_state(resume_path=resume_path)
+        self.model.eval()
+        accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.loader.dataset.root_path,
+                                                                   'agedb_30')
+        logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
+        res.append(accuracy)
+
+        accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.loader.dataset.root_path,
+                                                                   'lfw')
+        logging.info(f'validation accuracy on lfw is {accuracy} ')
+        res.append(accuracy)
+
+        accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.loader.dataset.root_path,
+                                                                   'cfp_fp')
+        logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
+        res.append(accuracy)
+
+        self.model.train()
+        return res
     
     def validate(self, conf, resume_path=None):
         if resume_path is not None:
@@ -1721,18 +1931,17 @@ class face_learner(object):
         dst_gtri_norm = f.create_dataset("gtri_norm", (chunksize,), maxshape=(None,), dtype='f2')
         dst_gxent_norm = f.create_dataset("gxent_norm", (chunksize,), maxshape=(None,), dtype='f2')
         dst_img = f.create_dataset("img", (chunksize, 3, 112, 112), maxshape=(None, 3, 112, 112), dtype='f2')
-        
+        dst_xent[:chunksize] = -1
         ind_dst = 0
         for ind_data, data in data_prefetcher(enumerate(loader)):
-            imgs = data['imgs']
-            labels_cpu = data['labels_cpu']
-            labels = data['labels']
+            imgs = data['imgs'].cuda()
+            labels = data['labels'].cuda()
             bs = imgs.shape[0]
             if ind_dst + bs > dst.shape[0]:
                 dst.resize((dst.shape[0] + chunksize, 512), )
                 dst_gxent.resize((dst.shape[0] + chunksize, 512), )
                 dst_xent.resize((dst.shape[0] + chunksize,), )
-                dst_xent[dst.shape[0]:dst.shape[0] + chunksize][...] = -1
+                dst_xent[dst.shape[0]:dst.shape[0] + chunksize] = -1
                 dst_gxent_norm.resize((dst.shape[0] + chunksize,), )
                 dst_img.resize((dst.shape[0] + chunksize, 3, 112, 112))
             assert (data['indexes'].numpy() == np.arange(ind_dst + 1, ind_dst + bs + 1)).all()
@@ -1741,12 +1950,13 @@ class face_learner(object):
                 embeddings = self.model(imgs, normalize=True)
             embeddings.requires_grad_(True)
             thetas = self.head(embeddings, labels)
-            loss_xent = gl_conf.ce_loss(thetas, labels)
+            loss_xent = nn.CrossEntropyLoss(reduction='sum')(thetas, labels)  # for grad of each sample
             grad_xent = torch.autograd.grad(loss_xent,
                                             embeddings,
                                             retain_graph=True,
                                             create_graph=False, only_inputs=True,
                                             allow_unused=True)[0].detach()
+            
             with torch.no_grad():
                 dst[ind_dst:ind_dst + bs, :] = normalize(embeddings.cpu().numpy(), axis=1).astype(np.float16)
                 # dst_img[ind_dst:ind_dst + bs, :, :, :] = imgs.cpu().numpy()

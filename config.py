@@ -11,20 +11,20 @@ from torchvision import transforms as trans
 # todo batch read redis
 # todo warm up
 
-dist = True
-num_devs = 1
+dist = False
+num_devs = 3
 if dist:
-    num_devs = 1
+    num_devs = 3
 else:
-    # lz.init_dev((3))
-    lz.init_dev(lz.get_dev(num_devs))
+    lz.init_dev(3)
+    # lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
-conf.num_workers = 16 if not dist else 5
+conf.num_workers = 24 if not dist else 5
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = True
-conf.loss = 'arcface'  # softmax arcface
+conf.loss = 'arcface'  # softmax arcface arcfaceneg
 
 conf.local_rank = None
 conf.num_clss = None
@@ -33,7 +33,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/emore.mb.ori.cont')
+conf.work_path = Path('work_space/ms1m.mb.arc.cl')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -46,11 +46,11 @@ glint_test = conf.data_path / 'glint_test'
 alpha_f64 = conf.data_path / 'alpha_f64'
 alpha_jk = conf.data_path / 'alpha_jk'
 
-conf.use_data_folder = emore_folder  # asia_emore emore_folder glint_folder ms1m_folder alpha_f64
+conf.use_data_folder = ms1m_folder # asia_emore emore_folder glint_folder ms1m_folder alpha_f64
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 
 if conf.use_data_folder == ms1m_folder:
-    conf.cutoff = 0  # todo
+    conf.cutoff = 0
 elif conf.use_data_folder == glint_folder:
     conf.cutoff = 15
 elif conf.use_data_folder == emore_folder:
@@ -64,7 +64,9 @@ conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
 # conf.eps_greed = .3  # todo
 conf.rand_ratio = 9 / 27
 
-conf.margin = 0.5  # todo
+conf.margin = 0.5
+conf.margin2 = 0
+conf.topk = 0
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
 conf.tri_wei = 0
@@ -119,7 +121,7 @@ conf.adam_betas2 = .999  # 0.999 0.99
 conf.final_lr = 1e-1
 conf.lr = 1e-1
 conf.lr_gamma = 0.1
-conf.start_epoch = 2
+conf.start_epoch = 5
 conf.epochs = 12
 conf.milestones = [5, 8, 10]
 conf.epoch_less_iter = 1

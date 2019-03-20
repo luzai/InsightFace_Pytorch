@@ -35,15 +35,15 @@ else:
     conf.fp16 = False
     conf.ipabn = False
     conf.cvt_ipabn = False
-    conf.net_depth = 152
-    conf.net_mode = 'mobilefacenet'
+    # conf.net_depth = 152
+    # conf.net_mode = 'mobilefacenet'
     conf.use_chkpnt = False
     
     from Learner import FaceInfer
     
     learner = FaceInfer(conf, gpuid=range(conf.num_devs))
     learner.load_state(
-        resume_path='work_space/ms1m.mb.bs.wdecay/save/',
+        resume_path='work_space/ms1m.mb.arcneg.2.2.5/save/',
         latest=True,
     )
     learner.model.eval()

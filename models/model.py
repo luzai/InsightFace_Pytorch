@@ -662,30 +662,30 @@ class ArcfaceNeg(Module):
             cos_theta *= self.s
             return cos_theta
         output = cos_theta
-        if self.m !=0:
+        if self.m != 0:
             cos_theta_need = cos_theta[idx_, label].clone()
             cos_theta_2 = torch.pow(cos_theta_need, 2)
             sin_theta_2 = 1 - cos_theta_2
             sin_theta = torch.sqrt(sin_theta_2)
             cos_theta_m = (cos_theta_need * self.cos_m - sin_theta * self.sin_m)
-            cond_mask = (cos_theta_need - self.threshold) <= 0 # those should be replaced
+            cond_mask = (cos_theta_need - self.threshold) <= 0  # those should be replaced
             if torch.any(cond_mask).item():
                 logging.info('this concatins a difficult sample')
             keep_val = (cos_theta_need - self.mm)  # when theta not in [0,pi], use cosface instead
             cos_theta_m[cond_mask] = keep_val[cond_mask].type_as(cos_theta_m)
             output[idx_, label] = cos_theta_m.type_as(output)
-        if self.m2 !=0:
+        if self.m2 != 0:
             cos_theta_neg = cos_theta.clone()
             cos_theta_neg[idx_, label] = -self.s
             topk = gl_conf.topk
             topkind = torch.argsort(cos_theta_neg, dim=1)[:, -topk:]
-            idx = torch.stack([idx_] * 5, dim=1)
+            idx = torch.stack([idx_] * topk, dim=1)
             cos_theta_neg_need = cos_theta_neg[idx, topkind]
             cos_theta_neg_need_2 = torch.pow(cos_theta_neg_need, 2)
             sin_theta_neg_2 = 1 - cos_theta_neg_need_2
             sin_theta_neg = torch.sqrt(sin_theta_neg_2)
             cos_theta_neg_m = (cos_theta_neg_need * np.cos(self.m2) + sin_theta_neg * np.sin(self.m2))
-            cond_mask = (cos_theta_neg_need < self.threshold2) # those should not be replaced
+            cond_mask = (cos_theta_neg_need < self.threshold2)  # those should not be replaced
             cos_theta_neg_need = cos_theta_neg_need.clone()
             cos_theta_neg_need[cond_mask] = cos_theta_neg_m[cond_mask]
             output[idx, topkind] = cos_theta_neg_need.type_as(output)
@@ -772,12 +772,12 @@ class TripletLoss(Module):
         an_wei = F.softmax(-dans.detach(), dim=1)
         dist_ap = (daps * ap_wei).sum(dim=1)
         dist_an = (dans * an_wei).sum(dim=1)
-        loss_indiv=F.softplus(dist_ap - dist_an)
+        loss_indiv = F.softplus(dist_ap - dist_an)
         loss = loss_indiv.mean()
         if not return_info:
             return loss
         else:
-            info = {'dap': dist_ap.mean().item(), 'dan': dist_an.mean().item(), 'indiv':loss_indiv}
+            info = {'dap': dist_ap.mean().item(), 'dan': dist_an.mean().item(), 'indiv': loss_indiv}
             return loss, info
     
     def forward_slow(self, inputs, targets):

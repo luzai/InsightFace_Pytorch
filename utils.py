@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import io
 from torchvision import transforms as trans
+from torchvision import transforms
 from data.data_pipe import de_preprocess
 import torch
 from models.model import l2_norm
@@ -150,6 +151,24 @@ def hflip_batch(imgs_tensor):
         hfliped_imgs[i] = hflip(img_ten)
     return hfliped_imgs
 
+
+
+ccrop = transforms.Compose([
+            de_preprocess,
+            transforms.ToPILImage(),
+            transforms.Resize([128, 128]),  # smaller side resized
+            transforms.CenterCrop([112, 112]),
+            transforms.ToTensor(),
+            transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+        ])
+
+
+def ccrop_batch(imgs_tensor):
+    ccropped_imgs = torch.empty_like(imgs_tensor)
+    for i, img_ten in enumerate(imgs_tensor):
+        ccropped_imgs[i] = ccrop(img_ten)
+
+    return ccropped_imgs
 
 def get_time():
     # return (str(datetime.now())[:-10]).replace(' ', '-').replace(':', '-')

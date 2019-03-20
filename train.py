@@ -3,8 +3,13 @@
 
 from lz import *
 from config import conf
+
+# conf.need_log = False
+# conf.net_mode = 'ir'
+# conf.upgrade_irse = False
 import argparse
 from pathlib import Path
+
 torch.backends.cudnn.benchmark = True
 
 
@@ -28,17 +33,28 @@ if __name__ == '__main__':
     from Learner import face_learner
     
     learner = face_learner(conf, )
-    
+    # for p in [
+    #     'ms1m.mb.arc.all',
+    #     'ms1m.mb.arc.neg',
+    #     'ms1m.mb.arcneg.2.2.5',
+    #     'ms1m.mb.neg',
+    #     'ms1m.mb.neg.2',
+    #     'ms1m.mb.neg.top10',
+    #     'ms1m.mb.sft',
+    #     'ms1m.mb.sft.long',
+    # ]:
     learner.load_state(
-        # resume_path=Path('work_space/emore.mobilefacenet.cont/save/'),
-        resume_path=Path('work_space/emore.mb.ori/models/'),
+        resume_path=Path(f'work_space/ms1m.mb.arc.all/save/'),
+        # resume_path=Path('work_space/backbone_ir50_ms1m_epoch120.pth'),
         load_optimizer=False,
         load_head=True,
         load_imp=False,
         latest=True,
     )
+    #     res = learner.validate_ori(conf)
+    #     logging.warning(f'{p} res: {res}')
     
-    # learner.calc_img_feas(out='work_space/emore.r152.fea.5.h5')
+    # learner.calc_img_feas(out='work_space/ms1m.mb.sft.long.fea.h5')
     # exit(0)
     # learner.init_lr()
     # conf.tri_wei = 0
@@ -53,11 +69,10 @@ if __name__ == '__main__':
     learner.init_lr()
     log_conf(conf)
     # learner.train(conf, conf.epochs)
-    learner.train_dist(conf, conf.epochs)
-    # learner.train_simple(conf, conf.epochs)
+    # learner.train_dist(conf, conf.epochs)
+    learner.train_simple(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)
     
-    # learner.validate(conf,)
     # def calc_importance():
     #     steps = learner.list_steps(conf.model_path)
     #     for step in steps[::-1]:

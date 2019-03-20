@@ -4,7 +4,7 @@
 import matplotlib
 # matplotlib.use('Gtk3Agg')
 # matplotlib.use('TkAgg')
-matplotlib.use('Agg')
+# matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 # plt.switch_backend('Agg')
 # plt.switch_backend('TkAgg')
@@ -52,6 +52,7 @@ stream_handler = None
 
 
 def set_stream_logger(log_level=logging.INFO):
+    # return None
     global stream_handler
     import colorlog
     sh = colorlog.StreamHandler()
@@ -59,8 +60,8 @@ def set_stream_logger(log_level=logging.INFO):
     sh.setFormatter(
         colorlog.ColoredFormatter(
             ' %(asctime)s %(filename)s [line:%(lineno)d] %(log_color)s%(levelname)s%(reset)s %(message)s'))
-    if stream_handler is not None:
-        logging.root.removeHandler(stream_handler)
+    # if stream_handler is not None:
+    #     logging.root.removeHandler(stream_handler)
     logging.root.addHandler(sh)
     return sh
 
@@ -69,6 +70,7 @@ file_hander = None
 
 
 def set_file_logger(work_dir=None, log_level=logging.INFO):
+    # return None
     global file_hander
     work_dir = work_dir or root_path
     if not osp.exists(work_dir):
@@ -77,8 +79,8 @@ def set_file_logger(work_dir=None, log_level=logging.INFO):
     fh.setLevel(log_level)
     fh.setFormatter(
         logging.Formatter('%(asctime)s %(filename)s [line:%(lineno)d] %(levelname)s %(message)s'))
-    if file_hander is not None:
-        logging.root.removeHandler(file_hander)
+    # if file_hander is not None:
+    #     logging.root.removeHandler(file_hander)
     logging.root.addHandler(fh)
     return fh
 
