@@ -38,6 +38,7 @@ class SEModule(Module):
         self.avg_pool = AdaptiveAvgPool2d(1)
         self.fc1 = Conv2d(
             channels, channels // reduction, kernel_size=1, padding=0, bias=False)
+        nn.init.xavier_uniform_(self.fc1.weight.data)
         self.relu = PReLU(channels // reduction) if gl_conf.upgrade_irse else ReLU(inplace=True)
         self.fc2 = Conv2d(
             channels // reduction, channels, kernel_size=1, padding=0, bias=False)
@@ -226,6 +227,8 @@ class Backbone(Module):
                                 bottleneck.depth,
                                 bottleneck.stride))
         self.body = Sequential(*modules)
+        
+        self._initialize_weights()
     
     def forward(self, x, normalize=True, return_norm=False, mode='train'):
         if mode == 'finetune':
@@ -252,6 +255,23 @@ class Backbone(Module):
                 return x, norm
             else:
                 return x
+    
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.xavier_uniform_(m.weight.data)
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm1d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight.data)
+                if m.bias is not None:
+                    m.bias.data.zero_()
 
 
 ##################################  MobileFaceNet
@@ -506,7 +526,7 @@ from torch.nn.utils import weight_norm
 # idx_ = torch.arange(0, nB, dtype=torch.long)
 
 class Arcface(Module):
-    # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599    
+    # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599
     def __init__(self, embedding_size=gl_conf.embedding_size, classnum=None, s=gl_conf.scale, m=gl_conf.margin):
         super(Arcface, self).__init__()
         self.classnum = classnum
@@ -698,7 +718,7 @@ class ArcfaceNeg(Module):
 ##################################  Cosface head #################
 
 class Am_softmax(Module):
-    # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599    
+    # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599
     def __init__(self, embedding_size=512, classnum=51332):
         super(Am_softmax, self).__init__()
         self.classnum = classnum

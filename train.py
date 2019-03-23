@@ -4,7 +4,7 @@
 from lz import *
 from config import conf
 
-# conf.need_log = False
+conf.need_log = False
 # conf.net_mode = 'ir'
 # conf.upgrade_irse = False
 import argparse
@@ -34,24 +34,25 @@ if __name__ == '__main__':
     
     learner = face_learner(conf, )
     # for p in [
-    #     'ms1m.mb.arc.all',
-    #     'ms1m.mb.arc.neg',
-    #     'ms1m.mb.arcneg.2.2.5',
-    #     'ms1m.mb.neg',
-    #     'ms1m.mb.neg.2',
-    #     'ms1m.mb.neg.top10',
-    #     'ms1m.mb.sft',
-    #     'ms1m.mb.sft.long',
+        # 'ms1m.mb.arc.all',
+        # 'ms1m.mb.arc.neg',
+        # 'ms1m.mb.arcneg.2.2.5',
+        # 'ms1m.mb.neg.top10',
+        # 'ms1m.mb.neg',
+        # 'ms1m.mb.neg.2',
+        # 'ms1m.mb.sft',
+        # 'ms1m.mb.sft.long',
     # ]:
-    learner.load_state(
-        resume_path=Path(f'work_space/ms1m.mb.arc.all/save/'),
-        # resume_path=Path('work_space/backbone_ir50_ms1m_epoch120.pth'),
-        load_optimizer=False,
-        load_head=True,
-        load_imp=False,
-        latest=True,
-    )
-    #     res = learner.validate_ori(conf)
+    # learner.load_state(
+    #     # resume_path=Path(f'work_space/{p}/save/'),
+    #     resume_path=Path(f'work_space//ms1m.mb.arc.3/save/'),
+    #     # resume_path=Path('work_space/backbone_ir50_ms1m_epoch120.pth'),
+    #     load_optimizer=False,
+    #     load_head=True,
+    #     load_imp=False,
+    #     latest=True,
+    # )
+    # res = learner.validate_ori(conf)
     #     logging.warning(f'{p} res: {res}')
     
     # learner.calc_img_feas(out='work_space/ms1m.mb.sft.long.fea.h5')
@@ -68,11 +69,13 @@ if __name__ == '__main__':
     
     learner.init_lr()
     log_conf(conf)
+    learner.warmup(conf, conf.warmup)
     # learner.train(conf, conf.epochs)
     # learner.train_dist(conf, conf.epochs)
     learner.train_simple(conf, conf.epochs)
+    # learner.train_with_wei(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)
-    
+    res = learner.validate_ori(conf)
     # def calc_importance():
     #     steps = learner.list_steps(conf.model_path)
     #     for step in steps[::-1]:

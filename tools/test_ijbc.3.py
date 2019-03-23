@@ -1,3 +1,5 @@
+import sys
+sys.path.insert(0, '/home/xinglu/prj/InsightFace_Pytorch')
 from lz import *
 import lz
 from torchvision import transforms as trans
@@ -43,7 +45,7 @@ else:
     
     learner = FaceInfer(conf, gpuid=range(conf.num_devs))
     learner.load_state(
-        resume_path='work_space/ms1m.mb.arcneg.2.2.5/save/',
+        resume_path='work_space/ms1m.mb.arc.3/save/',
         latest=True,
     )
     learner.model.eval()
@@ -190,7 +192,7 @@ for c, s in enumerate(sublists):
 
 from sklearn.metrics import roc_curve
 
-msgpack_dump(score, 'work_space/t.pk')
+msgpack_dump(score, 'work_space/score.t.pk')
 print(score.max(), score.min())
 # _ = plt.hist(score)
 fpr, tpr, _ = roc_curve(label, score)
