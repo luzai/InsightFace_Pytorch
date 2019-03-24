@@ -45,8 +45,7 @@ if __name__ == '__main__':
     # ]:
     # learner.load_state(
     #     # resume_path=Path(f'work_space/{p}/save/'),
-    #     resume_path=Path(f'work_space//ms1m.mb.arc.3/save/'),
-    #     # resume_path=Path('work_space/backbone_ir50_ms1m_epoch120.pth'),
+    #     resume_path=Path(f'work_space/ms1m.mb.arc.warmup.ghm/save/'),
     #     load_optimizer=False,
     #     load_head=True,
     #     load_imp=False,
@@ -55,7 +54,7 @@ if __name__ == '__main__':
     # res = learner.validate_ori(conf)
     #     logging.warning(f'{p} res: {res}')
     
-    # learner.calc_img_feas(out='work_space/ms1m.mb.sft.long.fea.h5')
+    # learner.calc_img_feas(out='work_space/ms1m.mb.arc.warmup.ghm.fea.h5')
     # exit(0)
     # learner.init_lr()
     # conf.tri_wei = 0
@@ -69,10 +68,11 @@ if __name__ == '__main__':
     
     learner.init_lr()
     log_conf(conf)
-    learner.warmup(conf, conf.warmup)
+    # learner.warmup(conf, conf.warmup)
     # learner.train(conf, conf.epochs)
     # learner.train_dist(conf, conf.epochs)
-    learner.train_simple(conf, conf.epochs)
+    # learner.train_simple(conf, conf.epochs)
+    learner.train_ghm(conf, conf.epochs)
     # learner.train_with_wei(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)
     res = learner.validate_ori(conf)

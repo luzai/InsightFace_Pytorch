@@ -157,8 +157,6 @@ def load_ms1m_info():
         plt_imshow(img)  # on rec  is BGR format !
         plt.show()
     imgidx, ids = np.array(imgidx), np.array(ids)
-    print(stat_np(imgidx))
-    print(stat_np(ids))
     # (1, 1902423.5, 1902423.5, 3804846)
     # (0, 42581.5, 42581.5, 85163)
 
@@ -167,7 +165,7 @@ def cleanup(p=root_path + 'work_space'):
     for nowp, containp, containf in os.walk(p):
         flag = False
         for f in containf:
-            if '.pth' in f and f != 'model_ir_se50.pth':
+            if '.pth' in f and  'ir' not in f:
                 flag = True
         if flag:
             from pathlib import Path
@@ -323,6 +321,6 @@ if __name__ == '__main__':
     # for data in loader:
     #     print(data.keys())
     
-    # cleanup()
+    cleanup()
     # anaylze_imp('emore.r50.dop/')
     pass
