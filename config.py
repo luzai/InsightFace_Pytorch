@@ -11,7 +11,7 @@ from torchvision import transforms as trans
 # todo batch read redis
 
 dist = False
-num_devs = 1
+num_devs = 3
 if dist:
     num_devs = 1
 else:
@@ -19,7 +19,7 @@ else:
     lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
-conf.num_workers = 1 if not dist else 5
+conf.num_workers = 24 if not dist else 5
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = True
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/ms1m.mb.arc.2.bak')
+conf.work_path = Path('work_space/ms1m.mb.arc.2')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -120,9 +120,9 @@ conf.adam_betas2 = .999  # 0.999 0.99
 conf.final_lr = 1e-1
 conf.lr = 1e-1
 conf.lr_gamma = 0.1
-conf.start_epoch = 0
+conf.start_epoch = 4
 conf.epochs = 12
-conf.warmup = 1  # conf.epochs/25 # 1 0
+conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.milestones = [5, 8, 10]
 conf.epoch_less_iter = 1
 conf.momentum = 0.9

@@ -458,7 +458,7 @@ class RandomIdSampler(Sampler):
             # lz.logging.info(f'dop smapler {np.count_nonzero( dop == gl_conf.mining_init)} {dop}')
             pids = np.random.choice(self.ids,
                                     size=int(self.num_pids_per_batch),
-                                    p=gl_conf.dop / gl_conf.dop.sum(),
+                                    # p=gl_conf.dop / gl_conf.dop.sum(), # comment to balance
                                     replace=False)
         # todo dop with no replacement
         elif gl_conf.mining == 'dop':
@@ -1054,21 +1054,13 @@ class face_learner(object):
                                           np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
                 
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'agedb_30')
-                    self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'lfw')
-                    self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on lfw is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'cfp_fp')
-                    self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
+                    for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
+                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                            conf,
+                            self.loader.dataset.root_path,
+                            ds)
+                        self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                        logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
                 
@@ -1156,21 +1148,13 @@ class face_learner(object):
                                           np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
                 
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'agedb_30')
-                    self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'lfw')
-                    self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on lfw is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'cfp_fp')
-                    self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
+                    for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
+                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                            conf,
+                            self.loader.dataset.root_path,
+                            ds)
+                        self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                        logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
                 
@@ -1184,7 +1168,7 @@ class face_learner(object):
     def train_ghm(self, conf, epochs):
         self.ghm_mom = 0.75
         self.gmax = 350
-        self.ginterv = 10
+        self.ginterv = 30
         self.bins = int(self.gmax / self.ginterv) + 1
         self.gmax = self.bins * self.ginterv
         self.edges = np.asarray([self.ginterv * x for x in range(self.bins + 1)])
@@ -1251,8 +1235,8 @@ class face_learner(object):
                             n_valid_bins += 1
                     if n_valid_bins > 0:
                         weights /= n_valid_bins
-                
-                loss_xent = (weights * loss_xent).sum() / tot
+                weights /= weights.sum()
+                loss_xent = (weights * loss_xent).sum()
                 if gl_conf.fp16:
                     with self.optimizer.scale_loss(loss_xent) as scaled_loss:
                         scaled_loss.backward()
@@ -1292,21 +1276,13 @@ class face_learner(object):
                                           np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
                 
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'agedb_30')
-                    self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'lfw')
-                    self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on lfw is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'cfp_fp')
-                    self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
+                    for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
+                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                            conf,
+                            self.loader.dataset.root_path,
+                            ds)
+                        self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                        logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
                 
@@ -1328,7 +1304,7 @@ class face_learner(object):
         data_time = lz.AverageMeter()
         loss_time = lz.AverageMeter()
         accuracy = 0
-        d = msgpack_load('work_space/t.pk')
+        d = msgpack_load('work_space/wei.pk')
         weis = d['weis']
         edges = d['edges']
         iwidth = edges[1] - edges[0]
@@ -1413,21 +1389,13 @@ class face_learner(object):
                                           np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
                 
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'agedb_30')
-                    self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'lfw')
-                    self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on lfw is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'cfp_fp')
-                    self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
+                    for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
+                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                            conf,
+                            self.loader.dataset.root_path,
+                            ds)
+                        self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                        logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
                 
@@ -1544,21 +1512,13 @@ class face_learner(object):
                                           np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
                 
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'agedb_30')
-                    self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'lfw')
-                    self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on lfw is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'cfp_fp')
-                    self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
+                    for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
+                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                            conf,
+                            self.loader.dataset.root_path,
+                            ds)
+                        self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                        logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
                 
@@ -1798,21 +1758,13 @@ class face_learner(object):
                                       np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
                 
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'agedb_30')
-                    self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'lfw')
-                    self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on lfw is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'cfp_fp')
-                    self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
+                    for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
+                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                            conf,
+                            self.loader.dataset.root_path,
+                            ds)
+                        self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                        logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
                 
@@ -1940,22 +1892,13 @@ class face_learner(object):
                                       np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
                 
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
-                    # todo simplify it and can choose more val in final and less while training
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'agedb_30')
-                    self.board_val('agedb_30', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'lfw')
-                    self.board_val('lfw', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on lfw is {accuracy} ')
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf,
-                                                                                          self.loader.dataset.root_path,
-                                                                                          'cfp_fp')
-                    self.board_val('cfp_fp', accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
+                    for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
+                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                            conf,
+                            self.loader.dataset.root_path,
+                            ds)
+                        self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                        logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
                 
@@ -2077,20 +2020,20 @@ class face_learner(object):
         # writer.add_image('{}_roc_curve'.format(db_name), roc_curve_tensor, self.step)
     
     def evaluate(self, conf, path, name, nrof_folds=10, tta=True):
-        from utils import ccrop_batch
+        # from utils import ccrop_batch
         self.model.eval()
         idx = 0
-        from data.data_pipe import get_val_pair
-        carray, issame = get_val_pair(path, name)
+        if name in self.val_loader_cache:
+            carray, issame = self.val_loader_cache[name]
+        else:
+            from data.data_pipe import get_val_pair
+            carray, issame = get_val_pair(path, name)
+            self.val_loader_cache[name] = carray, issame
         carray = carray[:, ::-1, :, :]  # BGR 2 RGB!
         embeddings = np.zeros([len(carray), conf.embedding_size])
         with torch.no_grad():
             while idx + conf.batch_size <= len(carray):
                 batch = torch.tensor(carray[idx:idx + conf.batch_size])
-                # im  = batch[0]
-                # im = np.array(im)
-                # plt_imshow(im) ;plt.show()
-                # plt.savefig('/tmp/t.png') # im is an bgr image!!
                 if tta:
                     # batch = ccrop_batch(batch)
                     fliped = hflip_batch(batch)
@@ -2117,7 +2060,10 @@ class face_learner(object):
         # roc_curve_tensor = trans.ToTensor()(roc_curve)
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
     
-    def evaluate_accelerate(self, conf, path, name, nrof_folds=10, tta=True):
+    evaluate_accelerate = evaluate
+    
+    # this evaluate is depracated
+    def evaluate_accelerate_dingyi(self, conf, path, name, nrof_folds=10, tta=True):
         lz.timer.since_last_check('start eval')
         self.model.eval()  # set the module in evaluation mode
         idx = 0

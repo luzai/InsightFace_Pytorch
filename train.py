@@ -33,7 +33,12 @@ if __name__ == '__main__':
     from Learner import face_learner
     
     learner = face_learner(conf, )
-    # for p in [
+    for p in [
+        # 'ms1m.mb.arc.warmup.ghm',
+        # 'ms1m.mb.arc.warmup.ghm.2',
+        'ms1m.mb.arc.2',
+        # 'ms1m.mb.arc.cutoff',
+        # 'ms1m.mb.arc.cutoff.bl',
         # 'ms1m.mb.arc.all',
         # 'ms1m.mb.arc.neg',
         # 'ms1m.mb.arcneg.2.2.5',
@@ -42,24 +47,19 @@ if __name__ == '__main__':
         # 'ms1m.mb.neg.2',
         # 'ms1m.mb.sft',
         # 'ms1m.mb.sft.long',
-    # ]:
-    # learner.load_state(
-    #     # resume_path=Path(f'work_space/{p}/save/'),
-    #     resume_path=Path(f'work_space/ms1m.mb.arc.warmup.ghm/save/'),
-    #     load_optimizer=False,
-    #     load_head=True,
-    #     load_imp=False,
-    #     latest=True,
-    # )
-    # res = learner.validate_ori(conf)
-    #     logging.warning(f'{p} res: {res}')
+    ]:
+        learner.load_state(
+            resume_path=Path(f'work_space/{p}/models/'),
+            load_optimizer=False,
+            load_head=True, # False
+            load_imp=False,
+            latest=True,
+        )
+        res = learner.validate_ori(conf)
+        logging.warning(f'{p} res: {res}')
     
     # learner.calc_img_feas(out='work_space/ms1m.mb.arc.warmup.ghm.fea.h5')
     # exit(0)
-    # learner.init_lr()
-    # conf.tri_wei = 0
-    # log_conf(conf)
-    # learner.train(conf, 1, mode='finetune', name='ft')
     
     # learner.init_lr()
     # conf.tri_wei = 0
@@ -71,11 +71,12 @@ if __name__ == '__main__':
     # learner.warmup(conf, conf.warmup)
     # learner.train(conf, conf.epochs)
     # learner.train_dist(conf, conf.epochs)
-    # learner.train_simple(conf, conf.epochs)
-    learner.train_ghm(conf, conf.epochs)
+    learner.train_simple(conf, conf.epochs)
+    # learner.train_ghm(conf, conf.epochs)
     # learner.train_with_wei(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)
     res = learner.validate_ori(conf)
+    
     # def calc_importance():
     #     steps = learner.list_steps(conf.model_path)
     #     for step in steps[::-1]:
