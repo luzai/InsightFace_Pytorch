@@ -877,7 +877,7 @@ class face_learner(object):
         dist_need_log = not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0
         
         if gl_conf.start_eval:
-            for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30' # todo also save mem for other train
+            for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                     conf,
                     self.loader.dataset.root_path,
@@ -1082,6 +1082,14 @@ class face_learner(object):
         data_time = lz.AverageMeter()
         loss_time = lz.AverageMeter()
         accuracy = 0
+        if gl_conf.start_eval:
+            for ds in ['cfp_fp', ]:
+                accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                    conf,
+                    self.loader.dataset.root_path,
+                    ds)
+                self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                logging.info(f'validation accuracy on {ds} is {accuracy} ')
         for e in range(conf.start_epoch, epochs):
             lz.timer.since_last_check('epoch {} started'.format(e))
             self.schedule_lr(e)
@@ -1344,7 +1352,9 @@ class face_learner(object):
                     gnorm = grad_xent.norm(dim=1).cpu().numpy()
                     locs = np.ceil((gnorm - edges[0]) / iwidth)
                     locs = np.asarray(locs, int)
+                    locs[locs>99]=99
                     weis_batch = weis[locs]
+                    weis_batch += 1e-5
                     weis_batch /= weis_batch.sum()
                     # plt.plot(weis_batch,); plt.show()
                     weis_batch = to_torch(np.asarray(weis_batch, dtype=np.float32)).cuda()
@@ -2058,6 +2068,7 @@ class face_learner(object):
         # buf = gen_plot(fpr, tpr)
         # roc_curve = Image.open(buf)
         # roc_curve_tensor = trans.ToTensor()(roc_curve)
+        self.model.train()
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
     
     evaluate_accelerate = evaluate

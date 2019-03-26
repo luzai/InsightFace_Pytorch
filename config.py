@@ -23,7 +23,7 @@ conf.num_workers = 24 if not dist else 5
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = True
-conf.loss = 'arcface'  # softmax arcface arcfaceneg
+conf.loss = 'arcfaceneg'  # softmax arcface arcfaceneg
 
 conf.local_rank = None
 conf.num_clss = None
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/ms1m.mb.arc.2')
+conf.work_path = Path('work_space/alpha.r100.arc.neg')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -45,7 +45,7 @@ glint_test = conf.data_path / 'glint_test'
 alpha_f64 = conf.data_path / 'alpha_f64'
 alpha_jk = conf.data_path / 'alpha_jk'
 
-conf.use_data_folder = ms1m_folder  # asia_emore emore_folder glint_folder ms1m_folder alpha_f64
+conf.use_data_folder = alpha_f64  # asia_emore emore_folder glint_folder ms1m_folder alpha_f64
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 
 if conf.use_data_folder == ms1m_folder:
@@ -57,15 +57,14 @@ elif conf.use_data_folder == emore_folder:
 elif conf.use_data_folder == asia_emore:
     conf.cutoff = 10
 else:
-    conf.cutoff = 0
-conf.mining = 'rand.id'  # 'dop' 'imp' rand.img(slow) rand.id # todo imp.grad imp.loss
+    conf.cutoff = 10
+conf.mining = 'rand.id' # todo balance opt # 'dop' 'imp' rand.img(slow) rand.id # todo imp.grad imp.loss
 conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
-# conf.eps_greed = .3  # todo
 conf.rand_ratio = 9 / 27
 
-conf.margin = 0.5
-conf.margin2 = 0
-conf.topk = 0
+conf.margin = 0.2
+conf.margin2 = .2
+conf.topk = 5
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
 conf.tri_wei = 0
@@ -120,7 +119,7 @@ conf.adam_betas2 = .999  # 0.999 0.99
 conf.final_lr = 1e-1
 conf.lr = 1e-1
 conf.lr_gamma = 0.1
-conf.start_epoch = 4
+conf.start_epoch = 0
 conf.epochs = 12
 conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.milestones = [5, 8, 10]

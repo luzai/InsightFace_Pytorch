@@ -36,7 +36,7 @@ if __name__ == '__main__':
     for p in [
         # 'ms1m.mb.arc.warmup.ghm',
         # 'ms1m.mb.arc.warmup.ghm.2',
-        'ms1m.mb.arc.2',
+        # 'ms1m.mb.arc.2',
         # 'ms1m.mb.arc.cutoff',
         # 'ms1m.mb.arc.cutoff.bl',
         # 'ms1m.mb.arc.all',
@@ -50,13 +50,13 @@ if __name__ == '__main__':
     ]:
         learner.load_state(
             resume_path=Path(f'work_space/{p}/models/'),
-            load_optimizer=False,
+            load_optimizer=True,
             load_head=True, # False
             load_imp=False,
             latest=True,
         )
-        res = learner.validate_ori(conf)
-        logging.warning(f'{p} res: {res}')
+        # res = learner.validate_ori(conf)
+        # logging.warning(f'{p} res: {res}')
     
     # learner.calc_img_feas(out='work_space/ms1m.mb.arc.warmup.ghm.fea.h5')
     # exit(0)
