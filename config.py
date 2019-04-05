@@ -11,18 +11,18 @@ from torchvision import transforms as trans
 # todo batch read redis
 
 dist = False
-num_devs = 3
+num_devs = 1
 if dist:
     num_devs = 1
 else:
-    # lz.init_dev(3)
-    lz.init_dev(lz.get_dev(num_devs))
+    lz.init_dev(1)
+    # lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
 conf.num_workers = 24 if not dist else 5
 conf.num_devs = num_devs
 conf.no_eval = False
-conf.start_eval = True
+conf.start_eval = False
 conf.loss = 'arcfaceneg'  # softmax arcface arcfaceneg
 
 conf.local_rank = None
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/alpha.r100.arc.neg')
+conf.work_path = Path('work_space/emore.r50.arcneg.bak')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -44,8 +44,10 @@ asia_emore = conf.data_path / 'asia_emore'
 glint_test = conf.data_path / 'glint_test'
 alpha_f64 = conf.data_path / 'alpha_f64'
 alpha_jk = conf.data_path / 'alpha_jk'
+casia_folder = conf.data_path / 'casia' # the cleaned one
+webface_folder = conf.data_path / 'webface'
 
-conf.use_data_folder = alpha_f64  # asia_emore emore_folder glint_folder ms1m_folder alpha_f64
+conf.use_data_folder = webface_folder  # asia_emore emore_folder glint_folder ms1m_folder alpha_f64
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 
 if conf.use_data_folder == ms1m_folder:
@@ -58,11 +60,11 @@ elif conf.use_data_folder == asia_emore:
     conf.cutoff = 10
 else:
     conf.cutoff = 10
-conf.mining = 'rand.id' # todo balance opt # 'dop' 'imp' rand.img(slow) rand.id # todo imp.grad imp.loss
+conf.mining = 'rand.id'  # todo balance opt # 'dop' 'imp' rand.img(slow) rand.id # todo imp.grad imp.loss
 conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
 conf.rand_ratio = 9 / 27
 
-conf.margin = 0.2
+conf.margin = .2
 conf.margin2 = .2
 conf.topk = 5
 conf.fgg = ''  # g gg ''
@@ -75,7 +77,7 @@ conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
-conf.net_mode = 'mobilefacenet'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
+conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
 conf.net_depth = 50  # 100 121 169 201 264
 
 conf.test_transform = trans.Compose([
@@ -85,6 +87,7 @@ conf.test_transform = trans.Compose([
 
 conf.flip = True
 conf.upgrade_irse = True
+conf.upgrade_bnneck = False  # todo
 conf.use_redis = False
 conf.use_chkpnt = False
 conf.chs_first = True
@@ -103,7 +106,7 @@ conf.online_imp = False
 conf.use_test = False  # 'ijbc' 'glint' False
 # conf.train_ratio = .7  # todo
 
-conf.batch_size = 210 * num_devs
+conf.batch_size = 32 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
 conf.other_every = None if not conf.prof else 51

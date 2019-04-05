@@ -117,6 +117,37 @@ def get_rec(p='/data2/share/faces_emore/train.idx'):
     return self
 
 
+class DatasetCasia(torch.utils.data.Dataset):
+    def __init__(self, path):
+        self.file = '/data2/share/casia_landmark.txt'
+        self.lines = open(self.file).readlines()
+        df = pd.read_csv(self.file, sep='\t', header=None)
+        self.num_classes = np.unique(df.iloc[:, 1]).shape[0]
+    
+    def __len__(self):
+        return len(self.lines)
+    
+    def __getitem__(self, item):
+        line = self.lines[item].split()
+        path = '/data2/share/casia/' + line[0]
+        img = cvb.read_img(path)
+        cid = int(line[1])
+        kpts = line[2:]
+        kpts = np.asarray(kpts, int).reshape(-1, 2)
+        warp = lz.preprocess(img, kpts, )
+        warp = cvb.bgr2rgb(warp)
+        if random.randint(0, 1) == 1:
+            warp = warp[:, ::-1, :]
+        # plt_imshow(img, inp_mode='bgr'); plt.show()
+        # plt_imshow(warp, inp_mode = 'bgr'); plt.show()
+        warp = warp / 255.
+        warp -= 0.5
+        warp /= 0.5
+        warp = np.array(warp, dtype=np.float32)
+        warp = warp.transpose((2, 0, 1))
+        return {'imgs':warp, 'labels': cid, }
+
+
 class DatasetIJBC2(torch.utils.data.Dataset):
     def __init__(self, ):
         self.test_transform = trans.Compose([
@@ -416,7 +447,6 @@ class Dataset_val(torch.utils.data.Dataset):
         return len(self.issame)
 
 
-# improve locality and improve load speed!
 class RandomIdSampler(Sampler):
     def __init__(self, imgidx, ids, id2range):
         path_ms1m = gl_conf.use_data_folder
@@ -609,15 +639,16 @@ class FaceInfer():
         from pathlib import Path
         save_path = Path(resume_path)
         modelp = save_path / '{}'.format(fixed_str)
-        if not modelp.exists():
+        if not modelp.exists() or not modelp.is_file():
             modelp = save_path / 'model_{}'.format(fixed_str)
-        if not (modelp).exists():
+        if not (modelp).exists() or not modelp.is_file():
             fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
             if latest:
                 step = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
             else:  # best
                 step = [fixed_str.split('_')[-3].split(':')[-1] for fixed_str in fixed_strs]
             step = np.asarray(step, dtype=float)
+            assert step.shape[0] > 0, f"{resume_path} chk!"
             step_ind = step.argmax()
             fixed_str = fixed_strs[step_ind].replace('model_', '')
             modelp = save_path / 'model_{}'.format(fixed_str)
@@ -710,20 +741,33 @@ def fast_collate(batch):
 
 
 class face_learner(object):
-    def __init__(self, conf, ):
+    def __init__(self, conf=gl_conf, ):
         self.milestones = conf.milestones
-        ## torch reader
-        self.dataset = TorchDataset(gl_conf.use_data_folder)
         self.val_loader_cache = {}
-        self.loader = DataLoader(
-            self.dataset, batch_size=conf.batch_size,
-            num_workers=conf.num_workers,
-            sampler=RandomIdSampler(self.dataset.imgidx,
-                                    self.dataset.ids, self.dataset.id2range),
-            drop_last=True, pin_memory=True,
-            collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
-        )
-        self.class_num = self.dataset.num_classes
+        ## torch reader
+        if 'webface' in str(conf.use_data_folder) or 'casia' in str(conf.use_data_folder):
+            # train_transform = torchvision.transforms.Compose([
+            #     trans.ToTensor(),
+            #     trans.Normalize(mean=.5, std=.5),
+            # ])
+            self.dataset = DatasetCasia(conf.use_data_folder, )
+            self.loader = DataLoader(self.dataset, batch_size=conf.batch_size,
+                                     num_workers=conf.num_workers,
+                                     shuffle=True, drop_last=True, pin_memory=True, )
+            self.class_num = conf.num_clss = self.dataset.num_classes
+            gl_conf.explored = np.zeros(self.class_num, dtype=int)
+            gl_conf.dop = np.ones(self.class_num, dtype=int) * 1
+        else:
+            self.dataset = TorchDataset(gl_conf.use_data_folder)
+            self.loader = DataLoader(
+                self.dataset, batch_size=conf.batch_size,
+                num_workers=conf.num_workers,
+                sampler=RandomIdSampler(self.dataset.imgidx,
+                                        self.dataset.ids, self.dataset.id2range),
+                drop_last=True, pin_memory=True,
+                collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
+            )
+            self.class_num = self.dataset.num_classes
         logging.info(f'{self.class_num} classes, load ok ')
         if conf.need_log:
             if torch.distributed.is_initialized():
@@ -731,10 +775,10 @@ class face_learner(object):
                 lz.set_file_logger_prt(str(conf.log_path) + f'/proc{torch.distributed.get_rank()}')
                 lz.mkdir_p(conf.log_path, delete=False)
             else:
-                lz.mkdir_p(conf.log_path, delete=True)
+                lz.mkdir_p(conf.log_path, delete=False)
                 lz.set_file_logger(str(conf.log_path))
                 lz.set_file_logger_prt(str(conf.log_path))
-                # lz.mkdir_p(conf.log_path, delete=True)
+                # todo why no log?
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             self.writer = SummaryWriter(str(conf.log_path))
         else:
@@ -1352,7 +1396,7 @@ class face_learner(object):
                     gnorm = grad_xent.norm(dim=1).cpu().numpy()
                     locs = np.ceil((gnorm - edges[0]) / iwidth)
                     locs = np.asarray(locs, int)
-                    locs[locs>99]=99
+                    locs[locs > 99] = 99
                     weis_batch = weis[locs]
                     weis_batch += 1e-5
                     weis_batch /= weis_batch.sum()
@@ -2073,7 +2117,7 @@ class face_learner(object):
     
     evaluate_accelerate = evaluate
     
-    # this evaluate is depracated
+    # todo this evaluate is depracated
     def evaluate_accelerate_dingyi(self, conf, path, name, nrof_folds=10, tta=True):
         lz.timer.since_last_check('start eval')
         self.model.eval()  # set the module in evaluation mode
@@ -2123,28 +2167,20 @@ class face_learner(object):
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
     
     def validate_ori(self, conf, resume_path=None):
-        res = []
+        res = {}
         if resume_path is not None:
             self.load_state(resume_path=resume_path)
         self.model.eval()
-        accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.loader.dataset.root_path,
-                                                                   'agedb_30')
-        logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-        res.append(accuracy)
-        
-        accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.loader.dataset.root_path,
-                                                                   'lfw')
-        logging.info(f'validation accuracy on lfw is {accuracy} ')
-        res.append(accuracy)
-        
-        accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.loader.dataset.root_path,
-                                                                   'cfp_fp')
-        logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
-        res.append(accuracy)
+        for ds in ['agedb_30', 'lfw', 'cfp_fp', 'cfp_ff', 'calfw', 'cplfw', 'vgg2_fp', ]:
+            accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.loader.dataset.root_path,
+                                                                       ds)
+            logging.info(f'validation accuracy on {ds} is {accuracy} ')
+            res[ds] = accuracy
         
         self.model.train()
         return res
     
+    # todo deprecated
     def validate(self, conf, resume_path=None):
         if resume_path is not None:
             self.load_state(resume_path=resume_path)
@@ -2472,29 +2508,11 @@ class face_learner(object):
 
 
 if __name__ == '__main__':
-    
     pass
-    # # test thread safe
-    ds = TorchDataset(lz.share_path2 + '/faces_ms1m_112x112')
-    print(len(ds))
-    loader = torch.utils.data.DataLoader(ds, sampler=SeqSampler(), batch_size=32,
-                                         num_workers=12, shuffle=False)
-    for data in loader:
-        print(data['indexes'])
-        time.sleep(1)
-    # # test random id smpler
-    # lz.timer.since_last_check('start')
-    # smpler = RandomIdSampler()
-    # for idx in smpler:
-    #     print(idx)
-    #     break
-    # print(len(smpler))
-    # lz.timer.since_last_check('construct ')
-    # flag = False
-    # for ids in smpler:
-    #     # print(ids)
-    #     ids = np.asarray(ids)
-    #     assert np.min(ids) >= 0
-    #     if np.isclose(ids, 0):
-    #         flag = True
-    # print(flag)
+    ds = DatasetCasia()
+    imgs = []
+    for i in np.random.randint(0, 100, (10,)):
+        img, _ = ds[i]
+        imgs.append(img)
+    plt_imshow_tensor(imgs)
+    plt.show()

@@ -1,9 +1,10 @@
 import sys
-sys.path.insert(0, '/home/xinglu/prj/InsightFace_Pytorch')
+sys.path.insert(0, '/data1/xinglu/prj/InsightFace_Pytorch')
 from lz import *
 import lz
 from torchvision import transforms as trans
 import redis
+
 os.chdir(lz.root_path)
 use_redis = False
 IJBC_path = '/data1/share/IJB_release/' if 'amax' in hostname() else '/home/zl/zl_data/IJB_release/'
@@ -26,8 +27,10 @@ bs = 600
 if use_mxnet:
     from recognition.embedding import Embedding
     
-    learner = Embedding(prefix='/home/zl/prj/models/MS1MV2-ResNet100-Arcface/MS1MV2-ResNet100-Arcface', epoch=22,
-                        ctx_id=7)
+    learner = Embedding(
+        prefix='/home/xinglu/prj/insightface/Evaluation/IJB/pretrained_models/MS1MV2-ResNet100-Arcface/MS1MV2-ResNet100-Arcface',
+        epoch=0,
+        ctx_id=0)
 else:
     from config import conf
     
@@ -45,8 +48,8 @@ else:
     
     learner = FaceInfer(conf, gpuid=range(conf.num_devs))
     learner.load_state(
-        resume_path='work_space/ms1m.mb.arc.3/save/',
-        latest=True,
+        resume_path='work_space/emore.r50.arcneg/models/',
+        latest=False,
     )
     learner.model.eval()
 
@@ -220,7 +223,3 @@ from sklearn.metrics import auc
 
 roc_auc = auc(fpr, tpr)
 print(roc_auc)
-logging.info('finish ')
-
-# from IPython import embed
-# embed()

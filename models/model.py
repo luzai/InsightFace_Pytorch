@@ -208,16 +208,8 @@ class Backbone(Module):
         self.output_layer = Sequential(bn2d(512),
                                        Dropout(drop_ratio),
                                        Flatten(),
-                                       Linear(512 * 7 * 7, 512),
+                                       Linear(512 * 7 * 7, 512, bias=True if not gl_conf.upgrade_bnneck else False),
                                        BatchNorm1d(512))
-        
-        # in_channels = 512
-        # self.output_layer = nn.Sequential(
-        #     Linear_block(in_channels, in_channels, groups=in_channels, kernel=(7, 7), stride=(1, 1), padding=(0, 0)),
-        #     Flatten(),
-        #     nn.Linear(in_channels, 512),
-        #     nn.BatchNorm1d(512),
-        # )
         
         modules = []
         for block in blocks:
@@ -227,7 +219,6 @@ class Backbone(Module):
                                 bottleneck.depth,
                                 bottleneck.stride))
         self.body = Sequential(*modules)
-        
         self._initialize_weights()
     
     def forward(self, x, normalize=True, return_norm=False, mode='train'):

@@ -4,7 +4,7 @@
 from lz import *
 from config import conf
 
-conf.need_log = False
+# conf.need_log = False
 # conf.net_mode = 'ir'
 # conf.upgrade_irse = False
 import argparse
@@ -33,6 +33,7 @@ if __name__ == '__main__':
     from Learner import face_learner
     
     learner = face_learner(conf, )
+    ress={}
     for p in [
         # 'ms1m.mb.arc.warmup.ghm',
         # 'ms1m.mb.arc.warmup.ghm.2',
@@ -47,18 +48,24 @@ if __name__ == '__main__':
         # 'ms1m.mb.neg.2',
         # 'ms1m.mb.sft',
         # 'ms1m.mb.sft.long',
+        # 'emore.r50.dop',
+        # 'emore.r152.ada.chkpnt',
+        # 'emore.r152.ada.chkpnt.2',
+        # 'emore.r152.ada.chkpnt.3',
     ]:
         learner.load_state(
+            # fixed_str='2019-03-24-19_accuracy:0.632_step:11748_None.pth',
             resume_path=Path(f'work_space/{p}/models/'),
-            load_optimizer=True,
-            load_head=True, # False
+            load_optimizer=False,
+            load_head=False,
             load_imp=False,
-            latest=True,
+            latest=False,
         )
-        # res = learner.validate_ori(conf)
-        # logging.warning(f'{p} res: {res}')
-    
-    # learner.calc_img_feas(out='work_space/ms1m.mb.arc.warmup.ghm.fea.h5')
+        res = learner.validate_ori(conf)
+        ress[p] = res
+        logging.warning(f'{p} res: {res}')
+    print(ress)
+    # learner.calc_img_feas(out='work_space/ms1m.mb.arc.fea.1.h5')
     # exit(0)
     
     # learner.init_lr()
@@ -77,7 +84,6 @@ if __name__ == '__main__':
     # learner.train_use_test(conf, conf.epochs)
     res = learner.validate_ori(conf)
     
-    # def calc_importance():
     #     steps = learner.list_steps(conf.model_path)
     #     for step in steps[::-1]:
     #         # step = steps[3]
@@ -88,9 +94,6 @@ if __name__ == '__main__':
     #             load_head=True,
     #         )
     #         learner.calc_importance(f'{conf.work_path}/{step}.pk')
-    #
-    #
-    # calc_importance()
     
     # log_lrs, losses = learner.find_lr(conf,
     #                                   # final_value=100,
