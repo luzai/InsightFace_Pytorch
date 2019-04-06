@@ -123,6 +123,7 @@ class DatasetCasia(torch.utils.data.Dataset):
         self.lines = open(self.file).readlines()
         df = pd.read_csv(self.file, sep='\t', header=None)
         self.num_classes = np.unique(df.iloc[:, 1]).shape[0]
+        self.root_path = Path('/data2/share/faces_emore/')
     
     def __len__(self):
         return len(self.lines)
@@ -145,7 +146,7 @@ class DatasetCasia(torch.utils.data.Dataset):
         warp /= 0.5
         warp = np.array(warp, dtype=np.float32)
         warp = warp.transpose((2, 0, 1))
-        return {'imgs':warp, 'labels': cid, }
+        return {'imgs': warp, 'labels': cid, }
 
 
 class DatasetIJBC2(torch.utils.data.Dataset):
@@ -756,7 +757,7 @@ class face_learner(object):
                                      shuffle=True, drop_last=True, pin_memory=True, )
             self.class_num = conf.num_clss = self.dataset.num_classes
             gl_conf.explored = np.zeros(self.class_num, dtype=int)
-            gl_conf.dop = np.ones(self.class_num, dtype=int) * 1
+            gl_conf.dop = np.ones(self.class_num, dtype=int) * gl_conf.mining_init
         else:
             self.dataset = TorchDataset(gl_conf.use_data_folder)
             self.loader = DataLoader(
@@ -2024,9 +2025,12 @@ class face_learner(object):
                    ):
         from pathlib import Path
         save_path = Path(resume_path)
+        find_model = False
         modelp = save_path / '{}'.format(fixed_str)
         if not modelp.exists() or not modelp.is_file():
             modelp = save_path / 'model_{}'.format(fixed_str)
+        else:
+            find_model = True
         if not modelp.exists() or not modelp.is_file():
             fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
             if latest:
@@ -2034,10 +2038,16 @@ class face_learner(object):
             else:  # best
                 step = [fixed_str.split('_')[-3].split(':')[-1] for fixed_str in fixed_strs]
             step = np.asarray(step, dtype=float)
-            assert step.shape[0] > 0, f"{resume_path} chk!"
-            step_ind = step.argmax()
-            fixed_str = fixed_strs[step_ind].replace('model_', '')
-            modelp = save_path / 'model_{}'.format(fixed_str)
+            if step.shape[0] > 0:
+                step_ind = step.argmax()
+                fixed_str = fixed_strs[step_ind].replace('model_', '')
+                modelp = save_path / 'model_{}'.format(fixed_str)
+                find_model = True
+            else:
+                logging.error(f'chk {modelp} !')
+        else:
+            find_model = True
+        assert find_model
         logging.info(f'you are using gpu, load model, {modelp}')
         model_state_dict = torch.load(modelp)
         model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}

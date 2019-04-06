@@ -38,6 +38,7 @@ if __name__ == '__main__':
         # 'ms1m.mb.arc.warmup.ghm',
         # 'ms1m.mb.arc.warmup.ghm.2',
         # 'ms1m.mb.arc.2',
+        'ms1m.mb.arc.cl.2'
         # 'ms1m.mb.arc.cutoff',
         # 'ms1m.mb.arc.cutoff.bl',
         # 'ms1m.mb.arc.all',
@@ -66,7 +67,7 @@ if __name__ == '__main__':
         logging.warning(f'{p} res: {res}')
     print(ress)
     # learner.calc_img_feas(out='work_space/ms1m.mb.arc.fea.1.h5')
-    # exit(0)
+    exit(0)
     
     # learner.init_lr()
     # conf.tri_wei = 0

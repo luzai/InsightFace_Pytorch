@@ -1,9 +1,16 @@
 import sys
+
 sys.path.insert(0, '/data1/xinglu/prj/InsightFace_Pytorch')
 from lz import *
 import lz
 from torchvision import transforms as trans
 import redis
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--modelp', default='emore.r50.arcneg',
+                    type=str)
+args = parser.parse_args()
 
 os.chdir(lz.root_path)
 use_redis = False
@@ -48,7 +55,7 @@ else:
     
     learner = FaceInfer(conf, gpuid=range(conf.num_devs))
     learner.load_state(
-        resume_path='work_space/emore.r50.arcneg/models/',
+        resume_path=f'work_space/{args.modelp}/models/',
         latest=False,
     )
     learner.model.eval()

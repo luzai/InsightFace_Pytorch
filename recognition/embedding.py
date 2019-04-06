@@ -35,7 +35,11 @@ class Embedding:
             src[:, 0] += 8.0
         self.src = src
     
+    def __call__(self, imgs):
+        return self.gets(imgs)
+    
     def gets(self, imgs):
+        imgs = lz.to_numpy(imgs)
         input_blob = np.asarray(imgs)
         data = mx.nd.array(input_blob)
         db = mx.io.DataBatch(data=(data,))
