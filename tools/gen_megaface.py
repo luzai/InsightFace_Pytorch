@@ -137,17 +137,12 @@ def main(args):
             from config import conf
             conf.need_log = False
             conf.batch_size *= 2
-            conf.fp16 = False
-            conf.ipabn = False
-            conf.cvt_ipabn = True
-            conf.net_mode = 'ir_se'
-            conf.net_depth = 152
-            conf.use_chkpnt = False
-            from Learner import l2_norm, FaceInfer, get_rec, unpack_auto
+           
+            from Learner import l2_norm, FaceInfer
             learner = FaceInfer(conf, )
             learner.load_state(
                 resume_path=args.model,
-                latest=True,
+                latest=False,
             )
             learner.model.eval()
             nets.append(learner)
@@ -166,7 +161,6 @@ def main(args):
     # if True:
     #     imgfns = []
     for line in imgfns:
-        # for line in open(args.facescrub_lst, 'r'):
         if i % 1000 == 0:
             print("writing fs", i, succ)
         i += 1
@@ -200,10 +194,14 @@ def main(args):
     i = 0
     succ = 0
     buffer = []
-    mega_lst = '/data/share/megaface/devkit/templatelists/megaface_features_list.json_1000000_1'
-    # mega_lst = '/data/share/megaface/devkit/templatelists/megaface_features_list.json_100_1'
-    imgfns = json_load(mega_lst)['path']
-    # embed()
+    imgfns = []
+    for mega_lst in ['/data/share/megaface/devkit/templatelists/megaface_features_list.json_1000000_1',
+                     '/data/share/megaface/devkit/templatelists/megaface_features_list.json_100000_1',
+                     '/data/share/megaface/devkit/templatelists/megaface_features_list.json_100_1'
+                     ]:
+        imgfns += json_load(mega_lst)['path']
+    imgfns = np.unique(imgfns).tolist()
+
     for line in imgfns:
         # for line in open(args.megaface_lst, 'r'):
         if i % 1000 == 0:

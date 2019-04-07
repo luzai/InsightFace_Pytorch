@@ -2181,7 +2181,7 @@ class face_learner(object):
         if resume_path is not None:
             self.load_state(resume_path=resume_path)
         self.model.eval()
-        for ds in ['agedb_30', 'lfw', 'cfp_fp', 'cfp_ff', 'calfw', 'cplfw', 'vgg2_fp', ]:
+        for ds in ['lfw', 'agedb_30', 'cfp_fp', 'cfp_ff', 'calfw', 'cplfw', 'vgg2_fp', ]:
             accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.loader.dataset.root_path,
                                                                        ds)
             logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -2191,7 +2191,7 @@ class face_learner(object):
         return res
     
     # todo deprecated
-    def validate(self, conf, resume_path=None):
+    def validate_dingyi(self, conf, resume_path=None):
         if resume_path is not None:
             self.load_state(resume_path=resume_path)
         self.model.eval()

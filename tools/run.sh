@@ -1,24 +1,29 @@
 #!/usr/bin/env bash
 
-#set -x
+set -e
 
 DEVKIT="/data2/share/megaface/devkit/experiments"
-ALGO="insightface"
 ROOT='/data2/share/megaface/results'
+CODE_ROOT='/home/xinglu/prj/InsightFace_Pytorch'
+ALGO="insightface"
+
 
 FEALOC="emore.r152.ada.chkpnt.3"
-RESNAME="$FEALOC.cl.res"
+RESNAME="$FEALOC.cl.res.5"
 
-python -u gen_megaface.py --gpu 0 --algo "$ALGO" --model "work_space/$FEALOC/save" --output "$ROOT/$FEALOC"
+python -u gen_megaface.py --gpu 0 --algo "$ALGO" --model "$CODE_ROOT/work_space/$FEALOC/save" --output "$ROOT/$FEALOC"
 
 python -u remove_noises.py --algo "$ALGO" --feature_dir_input "$ROOT/$FEALOC" --feature_dir_out "$ROOT/$FEALOC.cl"
 
-echo $ROOT
 cd "$DEVKIT"
 source activate py2
-rm -rf ../../$RESNAME
-LD_LIBRARY_PATH="/data/xinglu/anaconda3/envs/py2/lib:$LD_LIBRARY_PATH" python2 -u run_experiment.py "$ROOT/$FEALOC/megaface" "$ROOT/$FEALOC/facescrub" _"$ALGO".bin ../../$RESNAME/ -s 1000000,100000 -p ../templatelists/facescrub_features_list.json
-#LD_LIBRARY_PATH="/data/xinglu/anaconda3/envs/py2/lib:$LD_LIBRARY_PATH" python2 -u run_experiment.py "$ROOT/$FEALOC/megaface" "$ROOT/$FEALOC/facescrub" _"$ALGO".bin ../../$RESNAME/ -s 100000 -p ../templatelists/facescrub_features_list_10000.4.json
+rm -rf "$ROOT/$RESNAME"
+
+LD_LIBRARY_PATH="/data/xinglu/anaconda3/envs/py2/lib:$LD_LIBRARY_PATH" python2 -u run_experiment.py "$ROOT/$FEALOC.cl/megaface" "$ROOT/$FEALOC.cl/facescrub" _"$ALGO".bin "$ROOT/$RESNAME" -s 1000000 -p ../templatelists/facescrub_features_list.json
+
+#LD_LIBRARY_PATH="/data/xinglu/anaconda3/envs/py2/lib:$LD_LIBRARY_PATH" python2 -u run_experiment.py "$ROOT/$FEALOC/megaface" "$ROOT/$FEALOC/facescrub" _"$ALGO".bin "$ROOT/$RESNAME" -s 1000000 -p ../templatelists/facescrub_features_list.json
+
+#LD_LIBRARY_PATH="/data/xinglu/anaconda3/envs/py2/lib:$LD_LIBRARY_PATH" python2 -u run_experiment.py "$ROOT/$FEALOC.cl/megaface" "$ROOT/$FEALOC.cl/facescrub" _"$ALGO".bin "$ROOT/$RESNAME" -s 100000 -p ../templatelists/facescrub_features_list_10000.4.json
 
 conda deactivate
 cd -

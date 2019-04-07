@@ -8,7 +8,7 @@ import redis
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--modelp', default='emore.r50.arcneg',
+parser.add_argument('--modelp', default='ms1m.mb.arc.cl.2',
                     type=str)
 args = parser.parse_args()
 
@@ -35,9 +35,9 @@ if use_mxnet:
     from recognition.embedding import Embedding
     
     learner = Embedding(
-        prefix='/home/xinglu/prj/insightface/Evaluation/IJB/pretrained_models/MS1MV2-ResNet100-Arcface/MS1MV2-ResNet100-Arcface',
+        prefix='/home/xinglu/prj/insightface/logs/MS1MV2-ResNet100-Arcface/model',
         epoch=0,
-        ctx_id=0)
+        ctx_id=2)
 else:
     from config import conf
     
@@ -218,7 +218,7 @@ fpr, tpr, _ = roc_curve(label, score)
 fpr = np.flipud(fpr)
 tpr = np.flipud(tpr)  # select largest tpr at same fpr
 
-x_labels = [10 ** -6, 10 ** -5, 10 ** -4, 10 ** -3, 10 ** -2, 10 ** -1]
+x_labels = [10 ** -6,  10 ** -4, 10 ** -3,]
 for fpr_iter in np.arange(len(x_labels)):
     _, min_index = min(list(zip(abs(fpr - x_labels[fpr_iter]), range(len(fpr)))))
     print(x_labels[fpr_iter], tpr[min_index])

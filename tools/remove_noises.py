@@ -129,9 +129,13 @@ def main(args):
     
     i = 0
     nrof_noises = 0
-    mega_lst = '/data/share/megaface/devkit/templatelists/megaface_features_list.json_1000000_1'
-    # mega_lst = '/data/share/megaface/devkit/templatelists/megaface_features_list.json_100_1'
-    imgfns = json_load(mega_lst)['path']
+    imgfns = []
+    for mega_lst in ['/data/share/megaface/devkit/templatelists/megaface_features_list.json_1000000_1',
+                     '/data/share/megaface/devkit/templatelists/megaface_features_list.json_100000_1',
+                     '/data/share/megaface/devkit/templatelists/megaface_features_list.json_100_1'
+                     ]:
+        imgfns += json_load(mega_lst)['path']
+    imgfns = np.unique(imgfns).tolist()
     for line in imgfns:
         # for line in open(args.megaface_lst, 'r'):
         if i % 1000 == 0:
@@ -145,8 +149,6 @@ def main(args):
         if not os.path.exists(feature_dir_out):
             os.makedirs(feature_dir_out)
         feature_path_out = os.path.join(feature_dir_out, "%s_%s.bin" % (b, args.algo))
-        # if not osp.exists(feature_path_out):
-        #     feature_path_out = os.path.join(feature_dir_out, "%s_%s.bin" % (b, 'insightface'))
         assert osp.exists(feature_path), feature_path
         bb = '/'.join([a1, a2, b])
         # print(b)

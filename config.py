@@ -77,8 +77,8 @@ conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
-conf.net_mode = 'mobilefacenet'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
-conf.net_depth = 50  # 100 121 169 201 264
+conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
+conf.net_depth = 152  # 100 121 169 201 264
 
 conf.test_transform = trans.Compose([
     trans.ToTensor(),
