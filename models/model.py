@@ -43,7 +43,7 @@ class SEModule(Module):
         self.fc2 = Conv2d(
             channels // reduction, channels, kernel_size=1, padding=0, bias=False)
         self.sigmoid = Sigmoid()
-    
+
     def forward(self, x):
         module_input = x
         x = self.avg_pool(x)
@@ -101,7 +101,7 @@ class bottleneck_IR(Module):
                 BatchNorm2d(in_channel),
                 Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False), PReLU(depth),
                 Conv2d(depth, depth, (3, 3), stride, 1, bias=False), BatchNorm2d(depth))
-    
+
     def forward(self, x):
         shortcut = self.shortcut_layer(x)
         res = self.res_layer(x)
@@ -138,7 +138,7 @@ class bottleneck_IR_SE(Module):
                 BatchNorm2d(depth),
                 SEModule(depth, 16)
             )
-    
+
     def forward(self, x):
         if self.shortcut_layer is not None:
             if gl_conf.ipabn:
@@ -204,13 +204,13 @@ class Backbone(Module):
         self.input_layer = Sequential(Conv2d(3, 64, (3, 3), 1, 1, bias=False),
                                       bn2d(64),
                                       PReLU(64))
-        
+
         self.output_layer = Sequential(bn2d(512),
                                        Dropout(drop_ratio),
                                        Flatten(),
                                        Linear(512 * 7 * 7, 512, bias=True if not gl_conf.upgrade_bnneck else False),
                                        BatchNorm1d(512))
-        
+
         modules = []
         for block in blocks:
             for bottleneck in block:
@@ -220,7 +220,7 @@ class Backbone(Module):
                                 bottleneck.stride))
         self.body = Sequential(*modules)
         self._initialize_weights()
-    
+
     def forward(self, x, normalize=True, return_norm=False, mode='train'):
         if mode == 'finetune':
             with torch.no_grad():
@@ -246,7 +246,7 @@ class Backbone(Module):
                 return x, norm
             else:
                 return x
-    
+
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -275,7 +275,7 @@ class Conv_block(Module):
                            bias=False)
         self.bn = BatchNorm2d(out_c)
         self.prelu = PReLU(out_c)
-    
+
     def forward(self, x):
         x = self.conv(x)
         x = self.bn(x)
@@ -289,7 +289,7 @@ class Linear_block(Module):
         self.conv = Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding,
                            bias=False)
         self.bn = BatchNorm2d(out_c)
-    
+
     def forward(self, x):
         x = self.conv(x)
         x = self.bn(x)
@@ -303,7 +303,7 @@ class Depth_Wise(Module):
         self.conv_dw = Conv_block(groups, groups, groups=groups, kernel=kernel, padding=padding, stride=stride)
         self.project = Linear_block(groups, out_c, kernel=(1, 1), padding=(0, 0), stride=(1, 1))
         self.residual = residual
-    
+
     def forward(self, x):
         if self.residual:
             short_cut = x
@@ -325,7 +325,7 @@ class Residual(Module):
             modules.append(
                 Depth_Wise(c, c, residual=True, kernel=kernel, padding=padding, stride=stride, groups=groups))
         self.model = Sequential(*modules)
-    
+
     def forward(self, x, ):
         return self.model(x)
 
@@ -346,7 +346,7 @@ class MobileFaceNet(Module):
         self.conv_6_flatten = Flatten()
         self.linear = Linear(512, embedding_size, bias=False)
         self.bn = BatchNorm1d(embedding_size)
-    
+
     def forward(self, x, *args, **kwargs):
         # from IPython import embed; embed()
         out = self.conv1(x)
@@ -382,7 +382,7 @@ class CSMobileFaceNet(Module):
         self.conv_6_flatten = Flatten()
         self.linear = Linear(512, embedding_size, bias=False)
         self.bn = BatchNorm1d(embedding_size)
-    
+
     def forward(self, x):
         out = self.conv1(x)
         out = self.conv2_dw(out)
@@ -405,20 +405,20 @@ class Depth_Wise_2(Module):
         super(Depth_Wise_2, self).__init__()
         self.residual = residual
         self.reduction = 6
-        
+
         if self.residual:
             out_c = out_c // 3
             in_c = in_c // 3
         else:
             out_c = out_c // 2
         self.out_c = out_c
-        
+
         self.branch1 = nn.Sequential(
             Conv_block(in_c, out_c=groups, kernel=(1, 1), padding=(0, 0), stride=(1, 1)),
             Conv_block(groups, groups, groups=groups, kernel=kernel, padding=padding, stride=stride),
             Linear_block(groups, out_c, kernel=(1, 1), padding=(0, 0), stride=(1, 1))
         )
-        
+
         if self.residual:
             self.branch2 = nn.Sequential(
                 Conv_block(in_c, out_c=in_c, kernel=(1, 1), padding=(0, 0), stride=(1, 1)),
@@ -432,7 +432,7 @@ class Depth_Wise_2(Module):
             )
         if out_c >= self.reduction:
             self.se = SEBlock(out_c, self.reduction)
-    
+
     def forward(self, x):
         if self.residual:
             x_first_part = x[:, :(x.shape[1] // 3), :, :]
@@ -464,16 +464,16 @@ def channel_concatenate(x, out):
 def channel_shuffle(x, groups):
     batch_size, channels, height, width = x.data.size()
     channels_per_group = channels // groups
-    
+
     # reshape
     x = x.view(batch_size, groups, channels_per_group, height, width)
-    
+
     # transpose
     torch.transpose(x, 1, 2).contiguous()
-    
+
     # flatten
     x = x.view(batch_size, -1, height, width)
-    
+
     return x
 
 
@@ -485,7 +485,7 @@ class Residual_2(Module):
             modules.append(
                 Depth_Wise_2(c, c, residual=True, kernel=kernel, padding=padding, stride=stride, groups=groups))
         self.model = Sequential(*modules)
-    
+
     def forward(self, x):
         return self.model(x)
 
@@ -500,12 +500,12 @@ class SEBlock(nn.Module):
             nn.Linear(in_c // reduction, in_c, bias=False),
             nn.Sigmoid()
         )
-    
+
     def forward(self, x):
         b, c, _, _ = x.size()
         y = self.avgpool(x).view(b, c)
         y = self.fc(y).view(b, c, 1, 1)
-        
+
         return x * y.expand_as(x)
 
 
@@ -527,7 +527,7 @@ class Arcface(Module):
         self.device_id = list(range(gl_conf.num_devs))
         # kernel = tuple(kernel[ind].cuda(self.device_id[ind]) for ind in range(gl_conf.num_devs))
         self.kernel = kernel
-        
+
         if gl_conf.fp16:
             m = np.float16(m)
             pi = np.float16(np.pi)
@@ -540,7 +540,8 @@ class Arcface(Module):
         self.sin_m = np.sin(m)
         self.mm = self.sin_m * m  # issue 1
         self.threshold = math.cos(pi - m)
-    
+        self.easy_margin = False
+
     def forward_eff(self, embbedings, label=None):
         assert not torch.isnan(embbedings).any().item()
         # assert (torch.norm(embbedings, dim=1) == 1).all().item()
@@ -572,52 +573,52 @@ class Arcface(Module):
         sin_theta_2 = 1 - cos_theta_2
         sin_theta = torch.sqrt(sin_theta_2)
         cos_theta_m = (cos_theta_need * self.cos_m - sin_theta * self.sin_m)
-        cond_mask = (cos_theta_need - self.threshold) <= 0
-        
+        cond_mask = torch.acos(cos_theta_need) + self.m >= np.pi - self.m
+
         if torch.any(cond_mask).item():
-            logging.info('this concatins a difficult sample')
-        keep_val = (cos_theta_need - self.mm)  # when theta not in [0,pi], use cosface instead
+            logging.info(f'this concatins a difficult sample, {cond_mask.sum().item()}')
+            # from IPython import embed; embed()
+        if self.easy_margin:
+            keep_val = cos_theta_need
+        else:
+            keep_val = (cos_theta_need - self.mm)  # when theta not in [0,pi], use cosface instead
         cos_theta_m[cond_mask] = keep_val[cond_mask].type_as(cos_theta_m)
         output[idx_, label] = cos_theta_m.type_as(output)
         output *= self.s  # scale up in order to make softmax work, first introduced in normface
         return output
-    
+
     def forward_neff(self, embbedings, label):
         nB = embbedings.shape[0]
         idx_ = torch.arange(0, nB, dtype=torch.long)
         ## weights norm
-        # if not use_kernel2:
         kernel_norm = l2_norm(self.kernel, axis=0)
         cos_theta = torch.mm(embbedings, kernel_norm)
-        # else:
-        #     cos_theta = self.kernel(embbedings)
-        #         output = torch.mm(embbedings,kernel_norm)
-        
+
         # cos_theta.clamp_(-1, 1)  # for numerical stability
         # cos_theta_m = (cos_theta * self.cos_m - torch.sqrt((1 - torch.pow(cos_theta, 2))) * self.sin_m)
-        
+
         cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability
         cos_theta_2 = torch.pow(cos_theta, 2)
         sin_theta_2 = 1 - cos_theta_2
         sin_theta = torch.sqrt(sin_theta_2)
         cos_theta_m = (cos_theta * self.cos_m - sin_theta * self.sin_m)
-        
+
         ## this condition controls the theta+m should in range [0, pi]
         ##      0<=theta+m<=pi
         ##     -m<=theta<=pi-m
-        
+
         cond_mask = (cos_theta - self.threshold) <= 0
-        
+
         if torch.any(cond_mask).item():
             logging.info('this concatins a difficult sample')
         keep_val = (cos_theta - self.mm)  # when theta not in [0,pi], use cosface instead
         cos_theta_m[cond_mask] = keep_val[cond_mask]
-        
+
         output = cos_theta * 1.0  # a little bit hacky way to prevent in_place operation on cos_theta
         output[idx_, label] = cos_theta_m[idx_, label]
         output *= self.s  # scale up in order to make softmax work, first introduced in normface
         return output
-    
+
     forward = forward_eff
     # forward = forward_neff
 
@@ -633,7 +634,7 @@ class ArcfaceNeg(Module):
         self.device_id = list(range(gl_conf.num_devs))
         # kernel = tuple(kernel[ind].cuda(self.device_id[ind]) for ind in range(gl_conf.num_devs))
         self.kernel = kernel
-        
+
         if gl_conf.fp16:
             m = np.float16(m)
             pi = np.float16(np.pi)
@@ -648,7 +649,7 @@ class ArcfaceNeg(Module):
         self.threshold = math.cos(pi - m)
         self.threshold2 = math.cos(m)
         self.m2 = gl_conf.margin2
-    
+
     def forward_eff(self, embbedings, label=None):
         nB = embbedings.shape[0]
         idx_ = torch.arange(0, nB, dtype=torch.long)
@@ -702,7 +703,7 @@ class ArcfaceNeg(Module):
             output[idx, topkind] = cos_theta_neg_need.type_as(output)
         output *= self.s  # scale up in order to make softmax work, first introduced in normface
         return output
-    
+
     forward = forward_eff
 
 
@@ -718,7 +719,7 @@ class Am_softmax(Module):
         self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
         self.m = 0.35  # additive margin recommended by the paper
         self.s = 30.  # see normface https://arxiv.org/abs/1704.06369
-    
+
     def forward(self, embbedings, label):
         kernel_norm = l2_norm(self.kernel, axis=0)
         cos_theta = torch.mm(embbedings, kernel_norm)
@@ -741,7 +742,7 @@ class MySoftmax(Module):
         self.kernel = Parameter(torch.Tensor(embedding_size, classnum))
         self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
         self.s = gl_conf.scale
-    
+
     def forward(self, embeddings, label):
         kernel_norm = l2_norm(self.kernel, axis=0)
         cos_theta = torch.mm(embeddings, kernel_norm).clamp(-1, 1) * self.s
@@ -758,15 +759,15 @@ class TripletLoss(Module):
     Args:
     - margin (float): margin for triplet.
     """
-    
+
     def __init__(self, margin=0.3):
         super(TripletLoss, self).__init__()
         self.margin = margin
         self.ranking_loss = nn.MarginRankingLoss(margin=margin)
-    
+
     def forward(self, inputs, targets, return_info=False):
         n = inputs.size(0)  # todo is this version  correct?
-        
+
         # Compute pairwise distance, replace by the official when merged
         dist = torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(n, n)
         dist = dist + dist.t()
@@ -790,7 +791,7 @@ class TripletLoss(Module):
         else:
             info = {'dap': dist_ap.mean().item(), 'dan': dist_an.mean().item(), 'indiv': loss_indiv}
             return loss, info
-    
+
     def forward_slow(self, inputs, targets):
         """
         Args:
@@ -798,12 +799,12 @@ class TripletLoss(Module):
         - targets: ground truth labels with shape (num_classes)
         """
         n = inputs.size(0)
-        
+
         # Compute pairwise distance, replace by the official when merged
         dist = torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(n, n)
         dist = dist + dist.t()
         dist.addmm_(1, -2, inputs, inputs.t()).clamp_(min=1e-12).sqrt_()
-        
+
         # For each anchor, find the hardest positive and negative
         mask = targets.expand(n, n).eq(targets.expand(n, n).t())
         dist_ap, dist_an = [], []
@@ -818,16 +819,16 @@ class TripletLoss(Module):
             # ap_wei = F.softmax(daps.detach() / (128 ** (1/2)), dim=0)
             # ap_wei = F.softmax(daps, dim=0) # allow atention on weright
             dist_ap.append((daps * ap_wei).sum().unsqueeze(0))
-            
+
             dans = dist[i][mask[i] == 0]
             an_wei = F.softmax(-dans.detach(), dim=0)
             # an_wei = F.softmax(-dans.detach() / (128 ** (1/2)) , dim=0)
             # an_wei = F.softmax(-dans, dim=0)
             dist_an.append((dans * an_wei).sum().unsqueeze(0))
-        
+
         dist_ap = torch.cat(dist_ap)
         dist_an = torch.cat(dist_an)
-        
+
         # Compute ranking hinge loss
         # y = torch.ones_like(dist_an)
         # loss = self.ranking_loss(dist_an, dist_ap, y)

@@ -79,6 +79,7 @@ def load_bin(path, rootdir, transform, image_size=[112, 112]):
 
 
 def get_val_pair(path, name):
+    path = Path(path)
     carray = bcolz.carray(rootdir=path / name, mode='r')
     issame = np.load(path / '{}_list.npy'.format(name))
     return carray, issame

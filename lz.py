@@ -1847,7 +1847,7 @@ class AverageMeter(object):
         self.avg = 0
         self.sum = 0
         self.count = 0
-        self.mem = collections.deque(maxlen=10)  # todo ?
+        self.mem = collections.deque(maxlen=1)  # todo ?
     
     def reset(self):
         self.val = 0

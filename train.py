@@ -30,15 +30,16 @@ if __name__ == '__main__':
                                              init_method="env://")
         if torch.distributed.get_rank() != 0:
             set_stream_logger(logging.WARNING)
-    from Learner import face_learner
-    
-    learner = face_learner(conf, )
-    ress={}
+    from Learner import *
+
+    # learner = face_learner(conf, )
+    learner = face_cotching(conf, )
+    ress = {}
     for p in [
         # 'ms1m.mb.arc.warmup.ghm',
         # 'ms1m.mb.arc.warmup.ghm.2',
         # 'ms1m.mb.arc.2',
-        'ms1m.mb.arc.cl.2'
+        # 'ms1m.mb.arc.cl.2'
         # 'ms1m.mb.arc.cutoff',
         # 'ms1m.mb.arc.cutoff.bl',
         # 'ms1m.mb.arc.all',
@@ -53,38 +54,42 @@ if __name__ == '__main__':
         # 'emore.r152.ada.chkpnt',
         # 'emore.r152.ada.chkpnt.2',
         # 'emore.r152.ada.chkpnt.3',
+        # 'casia.r50.arc.bl',
+        # 'casia.r50.sft',
+        # 'casia.r50.arc.use_test'
     ]:
         learner.load_state(
-            # fixed_str='2019-03-24-19_accuracy:0.632_step:11748_None.pth',
+            # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
             resume_path=Path(f'work_space/{p}/models/'),
             load_optimizer=False,
-            load_head=False,
+            load_head=True,
             load_imp=False,
             latest=False,
         )
-        res = learner.validate_ori(conf)
-        ress[p] = res
-        logging.warning(f'{p} res: {res}')
+        # res = learner.validate_ori(conf)
+        # ress[p] = res
+        # logging.warning(f'{p} res: {res}')
     print(ress)
-    # learner.calc_img_feas(out='work_space/ms1m.mb.arc.fea.1.h5')
-    exit(0)
-    
+    # learner.calc_img_feas(out='work_space/casia.r50.arc.h5')
+    # exit(0)
+
     # learner.init_lr()
     # conf.tri_wei = 0
     # log_conf(conf)
     # learner.train(conf, 1, name='xent')
-    
+
     learner.init_lr()
     log_conf(conf)
     # learner.warmup(conf, conf.warmup)
     # learner.train(conf, conf.epochs)
     # learner.train_dist(conf, conf.epochs)
-    learner.train_simple(conf, conf.epochs)
+    # learner.train_simple(conf, conf.epochs)
+    learner.train_cotching(conf, conf.epochs)
     # learner.train_ghm(conf, conf.epochs)
     # learner.train_with_wei(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)
     res = learner.validate_ori(conf)
-    
+
     #     steps = learner.list_steps(conf.model_path)
     #     for step in steps[::-1]:
     #         # step = steps[3]
@@ -95,7 +100,7 @@ if __name__ == '__main__':
     #             load_head=True,
     #         )
     #         learner.calc_importance(f'{conf.work_path}/{step}.pk')
-    
+
     # log_lrs, losses = learner.find_lr(conf,
     #                                   # final_value=100,
     #                                   num=200,

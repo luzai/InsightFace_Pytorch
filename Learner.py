@@ -14,7 +14,7 @@ from torchvision import transforms as trans
 import os, random, logging, numbers, math
 from pathlib import Path
 from torch.utils.data import DataLoader
-from config import conf as gl_conf
+from config import conf
 import torch.autograd
 from torch import nn
 import torch.multiprocessing as mp
@@ -27,23 +27,23 @@ try:
     from mxnet import recordio
 except ImportError:
     logging.warning('if want to train, install mxnet for read rec data')
-    gl_conf.training = False
+    conf.training = False
 try:
     from apex.parallel import DistributedDataParallel as DDP
     from apex.fp16_utils import *
     from apex import amp
-    
-    if gl_conf.fp16:
+
+    if conf.fp16:
         # amp.register_half_function(torch, 'prelu')
         # amp.register_promote_function(torch, 'prelu')
         amp.register_float_function(torch, 'prelu')
         # amp.register_half_function(torch, 'pow')
         # amp.register_half_function(torch, 'norm') # dangerous
         pass
-    amp_handle = amp.init(enabled=gl_conf.fp16)
+    amp_handle = amp.init(enabled=conf.fp16)
 except ImportError:
     logging.warning("if want to use fp16, install apex from https://www.github.com/nvidia/apex to run this example.")
-    gl_conf.fp16 = False
+    conf.fp16 = False
 
 
 def unpack_f64(s):
@@ -103,7 +103,7 @@ def get_rec(p='/data2/share/faces_emore/train.idx'):
         s = self.imgrecs[0].read_idx(identity)
         header, _ = recordio.unpack(s)
         a, b = int(header.label[0]), int(header.label[1])
-        #     if b - a > gl_conf.cutoff:
+        #     if b - a > conf.cutoff:
         self.id2range[identity] = (a, b)
         self.ids.append(identity)
         self.imgidx += list(range(a, b))
@@ -118,16 +118,16 @@ def get_rec(p='/data2/share/faces_emore/train.idx'):
 
 
 class DatasetCasia(torch.utils.data.Dataset):
-    def __init__(self, path):
+    def __init__(self, path=None):
         self.file = '/data2/share/casia_landmark.txt'
         self.lines = open(self.file).readlines()
         df = pd.read_csv(self.file, sep='\t', header=None)
         self.num_classes = np.unique(df.iloc[:, 1]).shape[0]
         self.root_path = Path('/data2/share/faces_emore/')
-    
+
     def __len__(self):
         return len(self.lines)
-    
+
     def __getitem__(self, item):
         line = self.lines[item].split()
         path = '/data2/share/casia/' + line[0]
@@ -138,7 +138,7 @@ class DatasetCasia(torch.utils.data.Dataset):
         warp = lz.preprocess(img, kpts, )
         warp = cvb.bgr2rgb(warp)
         if random.randint(0, 1) == 1:
-            warp = warp[:, ::-1, :]
+            warp = warp[:, ::-1, :]  # for 112,112,3 second 112 is left right
         # plt_imshow(img, inp_mode='bgr'); plt.show()
         # plt_imshow(warp, inp_mode = 'bgr'); plt.show()
         warp = warp / 255.
@@ -146,7 +146,8 @@ class DatasetCasia(torch.utils.data.Dataset):
         warp /= 0.5
         warp = np.array(warp, dtype=np.float32)
         warp = warp.transpose((2, 0, 1))
-        return {'imgs': warp, 'labels': cid, }
+        return {'imgs': warp, 'labels': cid, 'indexes': item + 1,
+                'ind_inds': -1, 'is_trains': False}
 
 
 class DatasetIJBC2(torch.utils.data.Dataset):
@@ -165,10 +166,10 @@ class DatasetIJBC2(torch.utils.data.Dataset):
         self.img_path = img_path
         self.IJBC_path = IJBC_path
         self.files = files
-    
+
     def __len__(self):
         return len(self.files)
-    
+
     def __getitem__(self, item):
         import cvbase as cvb
         from PIL import Image
@@ -200,10 +201,10 @@ class MegaFaceDisDS(torch.utils.data.Dataset):
             trans.ToTensor(),
             trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
         ])
-    
+
     def __len__(self):
         return len(self.files)
-    
+
     def __getitem__(self, item):
         import cvbase as cvb
         img = cvb.read_img(self.files[item])
@@ -212,22 +213,45 @@ class MegaFaceDisDS(torch.utils.data.Dataset):
         return img
 
 
+class DatasetCfpFp(torch.utils.data.Dataset):
+    def __init__(self):
+        from data.data_pipe import get_val_pair
+        carray, issame = get_val_pair('/data2/share/faces_emore', 'cfp_fp')
+        carray = np.array(carray, np.float32)
+        carray = carray[:, ::-1, :, :].copy()  # to rgb
+        self.carray = carray
+
+    def __len__(self):
+        return len(self.carray)
+
+    def __getitem__(self, item):
+        img = self.carray[item]
+        if random.randint(0, 1) == 1:
+            img = img[:, :, ::-1].copy()
+        return img
+
+
 class TestDataset(object):
     def __init__(self):
-        assert gl_conf.use_test
-        if gl_conf.use_test == 'ijbc':
+        assert conf.use_test
+        if conf.use_test == 'ijbc':
             self.rec_test = DatasetIJBC2()
             self.imglen = len(self.rec_test)
-        elif gl_conf.use_test == 'glint':
+        elif conf.use_test == 'glint':
             self.rec_test = get_rec('/data2/share/glint_test/train.idx')
             self.imglen = max(self.rec_test.imgidx) + 1
+        elif conf.use_test == 'cfp_fp':
+            self.rec_test = DatasetCfpFp()
+            self.imglen = len(self.rec_test)
         else:
-            raise ValueError(f'{gl_conf.use_test}')
-    
+            raise ValueError(f'{conf.use_test}')
+
     def _get_single_item(self, index):
-        if gl_conf.use_test == 'ijbc':
+        if conf.use_test == 'ijbc':
             imgs = self.rec_test[index]
-        elif gl_conf.use_test == 'glint':
+        elif conf.use_test == 'cfp_fp':
+            imgs = self.rec_test[index]
+        elif conf.use_test == 'glint':
             self.rec_test.lock.acquire()
             s = self.rec_test.imgrec.read_idx(index)
             self.rec_test.lock.release()
@@ -235,13 +259,13 @@ class TestDataset(object):
             imgs = self.imdecode(img)
             imgs = self.preprocess_img(imgs)
         else:
-            raise ValueError(f'{gl_conf.use_test}')
+            raise ValueError(f'{conf.use_test}')
         return {'imgs': np.array(imgs, dtype=np.float32), 'labels': -1, 'indexes': index,
                 'ind_inds': -1, 'is_trains': False}
-    
+
     def __len__(self):
         return self.imglen
-    
+
     def __getitem__(self, indices, ):
         res = self._get_single_item(indices)
         return res
@@ -251,7 +275,7 @@ class TorchDataset(object):
     def __init__(self,
                  path_ms1m,
                  ):
-        self.flip = gl_conf.flip
+        self.flip = conf.flip
         self.path_ms1m = path_ms1m
         self.root_path = Path(path_ms1m)
         path_imgrec = str(path_ms1m) + '/train.rec'
@@ -261,16 +285,16 @@ class TorchDataset(object):
         self.path_imgrec = path_imgrec
         self.imgrecs = []
         self.locks = []
-        
-        if gl_conf.use_redis:
+
+        if conf.use_redis:
             import redis
-            
+
             self.r = redis.Redis()
         else:
             self.r = None
-        
+
         lz.timer.since_last_check('start timer for imgrec')
-        for num_rec in range(gl_conf.num_recs):
+        for num_rec in range(conf.num_recs):
             if num_rec == 1:
                 path_imgrec = path_imgrec.replace('/data2/share/', '/share/data/')
             self.imgrecs.append(
@@ -279,10 +303,10 @@ class TorchDataset(object):
                     'r')
             )
             self.locks.append(mp.Lock())
-        lz.timer.since_last_check(f'{gl_conf.num_recs} imgrec readers init')  # 27 s / 5 reader
+        lz.timer.since_last_check(f'{conf.num_recs} imgrec readers init')  # 27 s / 5 reader
         lz.timer.since_last_check('start cal dataset info')
         # try:
-        #     self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
+        #     self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + f'/info.{conf.cutoff}.pk')
         #     self.num_classes = len(self.ids)
         # except:
         s = self.imgrecs[0].read_idx(0)
@@ -298,7 +322,7 @@ class TorchDataset(object):
             s = self.imgrecs[0].read_idx(identity)
             header, _ = unpack_auto(s, self.path_imgidx)
             a, b = int(header.label[0]), int(header.label[1])
-            if b - a > gl_conf.cutoff:
+            if b - a > conf.cutoff:
                 self.id2range[identity] = (a, b)
                 self.ids.append(identity)
                 self.imgidx += list(range(a, b))
@@ -309,36 +333,36 @@ class TorchDataset(object):
         self.ids = [ids_map_tmp[id_] for id_ in self.ids]
         self.ids = np.asarray(self.ids)
         self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
-        lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
-        
-        gl_conf.num_clss = self.num_classes
-        gl_conf.explored = np.zeros(self.ids.max() + 1, dtype=int)
-        if gl_conf.dop is None:
-            if gl_conf.mining == 'dop':
-                gl_conf.dop = np.ones(self.ids.max() + 1, dtype=int) * gl_conf.mining_init
-                gl_conf.id2range_dop = {str(id_):
-                                            np.ones((range_[1] - range_[0],)) *
-                                            gl_conf.mining_init for id_, range_ in
-                                        self.id2range.items()}
-            elif gl_conf.mining == 'imp' or gl_conf.mining == 'rand.id':
-                gl_conf.id2range_dop = {str(id_):
-                                            np.ones((range_[1] - range_[0],)) *
-                                            gl_conf.mining_init for id_, range_ in
-                                        self.id2range.items()}
-                gl_conf.dop = np.asarray([v.sum() for v in gl_conf.id2range_dop.values()])
-        logging.info(f'update num_clss {gl_conf.num_clss} ')
+        lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + f'/info.{conf.cutoff}.pk')
+
+        conf.num_clss = self.num_classes
+        conf.explored = np.zeros(self.ids.max() + 1, dtype=int)
+        if conf.dop is None:
+            if conf.mining == 'dop':
+                conf.dop = np.ones(self.ids.max() + 1, dtype=int) * conf.mining_init
+                conf.id2range_dop = {str(id_):
+                                         np.ones((range_[1] - range_[0],)) *
+                                         conf.mining_init for id_, range_ in
+                                     self.id2range.items()}
+            elif conf.mining == 'imp' or conf.mining == 'rand.id':
+                conf.id2range_dop = {str(id_):
+                                         np.ones((range_[1] - range_[0],)) *
+                                         conf.mining_init for id_, range_ in
+                                     self.id2range.items()}
+                conf.dop = np.asarray([v.sum() for v in conf.id2range_dop.values()])
+        logging.info(f'update num_clss {conf.num_clss} ')
         self.cur = 0
         lz.timer.since_last_check('finish cal dataset info')
-        if gl_conf.kd and gl_conf.sftlbl_from_file:  # todo deprecated
+        if conf.kd and conf.sftlbl_from_file:  # todo deprecated
             self.teacher_embedding_db = lz.Database('work_space/teacher_embedding.h5', 'r')
-    
+
     def __len__(self):
-        if gl_conf.local_rank is not None:
+        if conf.local_rank is not None:
             return len(self.imgidx) // torch.distributed.get_world_size()
         else:
             #             logging.info(f'ask me len {len(self.imgidx)} {self.imgidx}')
-            return len(self.imgidx) // gl_conf.epoch_less_iter
-    
+            return len(self.imgidx) // conf.epoch_less_iter
+
     def __getitem__(self, indices, ):
         # if isinstance(indices, (tuple, list)) and len(indices[0])==3:
         #    if self.r:
@@ -355,29 +379,29 @@ class TorchDataset(object):
         #             torch.is_tensor(v)
         #     ), type(v)
         return res
-    
+
     def imdecode(self, s):
         """Decodes a string or byte string to an NDArray.
         See mx.img.imdecode for more details."""
         img = mx.image.imdecode(s)  # mx.ndarray
         return img
-    
+
     def postprocess_data(self, datum):
         """Final postprocessing step before image is loaded into the batch."""
         return nd.transpose(datum, axes=(2, 0, 1))
-    
+
     def preprocess_img(self, imgs):
         if self.flip and random.randint(0, 1) == 1:
             imgs = mx.ndarray.flip(data=imgs, axis=1)
         imgs = imgs.asnumpy()
-        if not gl_conf.fast_load:
+        if not conf.fast_load:
             imgs = imgs / 255.
             imgs -= 0.5  # simply use 0.5 as mean
             imgs /= 0.5
             imgs = np.array(imgs, dtype=np.float32)
         imgs = imgs.transpose((2, 0, 1))
         return imgs
-    
+
     def _get_single_item(self, index):
         # self.cur += 1
         # index += 1  # noneed,  here it index (imgidx) start from 1,.rec start from 1
@@ -385,7 +409,7 @@ class TorchDataset(object):
         succ = False
         index, pid, ind_ind = index
         if self.r:
-            img = self.r.get(f'{gl_conf.dataset_name}/imgs/{index}')
+            img = self.r.get(f'{conf.dataset_name}/imgs/{index}')
             if img is not None:
                 imgs = self.imdecode(img)
                 imgs = self.preprocess_img(imgs)
@@ -397,14 +421,14 @@ class TorchDataset(object):
                 succ = self.locks[ind_rec].acquire(timeout=0)
                 if succ: break
             if succ: break
-        
+
         ##  locality based
         # if index < self.imgidx[len(self.imgidx) // 2]:
         #     ind_rec = 0
         # else:
         #     ind_rec = 1
         # succ = self.locks[ind_rec].acquire()
-        
+
         s = self.imgrecs[ind_rec].read_idx(index)  # from [ 1 to 3804846 ]
         rls_succ = self.locks[ind_rec].release()
         header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
@@ -420,8 +444,8 @@ class TorchDataset(object):
         # assert label == pid
         label = int(pid)
         imgs = self.preprocess_img(imgs)
-        if gl_conf.use_redis and self.r and lz.get_mem() >= 20:
-            self.r.set(f'{gl_conf.dataset_name}/imgs/{index}', img)
+        if conf.use_redis and self.r and lz.get_mem() >= 20:
+            self.r.set(f'{conf.dataset_name}/imgs/{index}', img)
         res = {'imgs': imgs, 'labels': label,
                'ind_inds': ind_ind, 'indexes': index,
                'is_trains': True}
@@ -436,28 +460,28 @@ class Dataset_val(torch.utils.data.Dataset):
         self.carray, self.issame = get_val_pair(path, name)
         self.carray = self.carray[:, ::-1, :, :]  # BGR 2 RGB!
         self.transform = transform
-    
+
     def __getitem__(self, index):
         if self.transform:
             fliped_carray = self.transform(torch.tensor(self.carray[index]))
             return {'carray': self.carray[index], 'issame': 1.0 * self.issame[index], 'fliped_carray': fliped_carray}
         else:
             return {'carray': self.carray[index], 'issame': 1.0 * self.issame[index]}
-    
+
     def __len__(self):
         return len(self.issame)
 
 
 class RandomIdSampler(Sampler):
     def __init__(self, imgidx, ids, id2range):
-        path_ms1m = gl_conf.use_data_folder
+        path_ms1m = conf.use_data_folder
         self.imgidx, self.ids, self.id2range = imgidx, ids, id2range
-        # self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + f'/info.{gl_conf.cutoff}.pk')
+        # self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + f'/info.{conf.cutoff}.pk')
         # above is the imgidx of .rec file
         # remember -1 to convert to pytorch imgidx
-        self.num_instances = gl_conf.instances
-        self.batch_size = gl_conf.batch_size
-        if gl_conf.tri_wei != 0:
+        self.num_instances = conf.instances
+        self.batch_size = conf.batch_size
+        if conf.tri_wei != 0:
             assert self.batch_size % self.num_instances == 0
         self.num_pids_per_batch = self.batch_size // self.num_instances
         self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1])))).tolist()
@@ -475,31 +499,31 @@ class RandomIdSampler(Sampler):
             if num < self.num_instances:
                 num = self.num_instances
             self.length += num - num % self.num_instances
-    
+
     def __len__(self):
-        if gl_conf.local_rank is not None:
+        if conf.local_rank is not None:
             return self.length // torch.distributed.get_world_size()
         else:
             return self.length
-    
+
     def get_batch_ids(self):
         pids = []
-        dop = gl_conf.dop
-        if gl_conf.mining == 'imp' or gl_conf.mining == 'rand.id':
-            # lz.logging.info(f'dop smapler {np.count_nonzero( dop == gl_conf.mining_init)} {dop}')
+        dop = conf.dop
+        if conf.mining == 'imp' or conf.mining == 'rand.id':
+            # lz.logging.info(f'dop smapler {np.count_nonzero( dop == conf.mining_init)} {dop}')
             pids = np.random.choice(self.ids,
                                     size=int(self.num_pids_per_batch),
-                                    # p=gl_conf.dop / gl_conf.dop.sum(), # comment to balance
+                                    # p=conf.dop / conf.dop.sum(), # comment to balance
                                     replace=False)
         # todo dop with no replacement
-        elif gl_conf.mining == 'dop':
+        elif conf.mining == 'dop':
             # lz.logging.info(f'dop smapler {np.count_nonzero( dop ==-1)} {dop}')
-            nrand_ids = int(self.num_pids_per_batch * gl_conf.rand_ratio)
+            nrand_ids = int(self.num_pids_per_batch * conf.rand_ratio)
             pids_now = np.random.choice(self.ids,
                                         size=nrand_ids,
                                         replace=False)
             pids.append(pids_now)
-            for _ in range(int(1 / gl_conf.rand_ratio) - 1):
+            for _ in range(int(1 / conf.rand_ratio) - 1):
                 pids_next = dop[pids_now]
                 pids_next[pids_next == -1] = np.random.choice(self.ids,
                                                               size=len(pids_next[pids_next == -1]),
@@ -516,9 +540,9 @@ class RandomIdSampler(Sampler):
             else:
                 pids = pids[: self.num_pids_per_batch]
         # assert len(pids) == np.unique(pids).shape[0]
-        
+
         return pids
-    
+
     def get_batch_idxs(self):
         pids = self.get_batch_ids()
         cnt = 0
@@ -527,22 +551,22 @@ class RandomIdSampler(Sampler):
                 replace = True
             else:
                 replace = False
-            if gl_conf.mining == 'imp':
-                assert len(self.index_dic[pid]) == gl_conf.id2range_dop[str(pid)].shape[0]
+            if conf.mining == 'imp':
+                assert len(self.index_dic[pid]) == conf.id2range_dop[str(pid)].shape[0]
                 ind_inds = np.random.choice(
                     len(self.index_dic[pid]),
                     size=(self.num_instances,), replace=replace,
-                    p=gl_conf.id2range_dop[str(pid)] / gl_conf.id2range_dop[str(pid)].sum()
+                    p=conf.id2range_dop[str(pid)] / conf.id2range_dop[str(pid)].sum()
                 )
             else:
                 ind_inds = np.random.choice(
                     len(self.index_dic[pid]),
                     size=(self.num_instances,), replace=replace, )
-            if gl_conf.chs_first:
-                if gl_conf.dataset_name == 'alpha_jk':
+            if conf.chs_first:
+                if conf.dataset_name == 'alpha_jk':
                     ind_inds = np.concatenate(([0], ind_inds))
                     ind_inds = np.unique(ind_inds)[:self.num_instances]  # 0 must be chsn
-                elif gl_conf.dataset_name == 'alpha_f64':
+                elif conf.dataset_name == 'alpha_f64':
                     if pid >= 112145:  # 112145 开始是证件-监控
                         ind_inds = np.concatenate(([0], ind_inds))
                         ind_inds = np.unique(ind_inds)[:self.num_instances]  # 0 must be chsn
@@ -554,9 +578,9 @@ class RandomIdSampler(Sampler):
                     break
             if cnt == self.batch_size:
                 break
-    
+
     def __iter__(self):
-        if gl_conf.mining == 'rand.img':  # quite slow
+        if conf.mining == 'rand.img':  # quite slow
             for _ in range(len(self)):
                 # lz.timer.since_last_check('s next id iter')
                 pid = np.random.choice(
@@ -579,25 +603,25 @@ class RandomIdSampler(Sampler):
 
 class SeqSampler(Sampler):
     def __init__(self):
-        path_ms1m = gl_conf.use_data_folder
-        _, self.ids, self.id2range = lz.msgpack_load(path_ms1m / f'info.{gl_conf.cutoff}.pk')
+        path_ms1m = conf.use_data_folder
+        _, self.ids, self.id2range = lz.msgpack_load(path_ms1m / f'info.{conf.cutoff}.pk')
         # above is the imgidx of .rec file
         # remember -1 to convert to pytorch imgidx
-        self.num_instances = gl_conf.instances
-        self.batch_size = gl_conf.batch_size
+        self.num_instances = conf.instances
+        self.batch_size = conf.batch_size
         assert self.batch_size % self.num_instances == 0
         self.num_pids_per_batch = self.batch_size // self.num_instances
         self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1])))).tolist()
                           for id, idxs in self.id2range.items()}  # it index based on 1
         self.ids = list(self.ids)
-        
+
         # estimate number of examples in an epoch
         self.nimgs_lst = [len(idxs) for idxs in self.index_dic.values()]
         self.length = sum(self.nimgs_lst)
-    
+
     def __len__(self):
         return self.length
-    
+
     def __iter__(self):
         for pid in self.id2range:
             for ind_ind in range(len(self.index_dic[pid])):
@@ -625,7 +649,7 @@ class FaceInfer():
         self.model = self.model.eval()
         self.model = torch.nn.DataParallel(self.model,
                                            device_ids=list(gpuid), output_device=gpuid[0]).to(gpuid[0])
-    
+
     def load_model_only(self, fpath):
         model_state_dict = torch.load(fpath, map_location=lambda storage, loc: storage)
         model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
@@ -633,7 +657,7 @@ class FaceInfer():
             self.model.load_state_dict(model_state_dict, strict=True, )
         else:
             self.model.module.load_state_dict(model_state_dict, strict=True, )
-    
+
     def load_state(self, fixed_str=None,
                    resume_path=None, latest=True,
                    ):
@@ -656,7 +680,7 @@ class FaceInfer():
         logging.info(f'you are using gpu, load model, {modelp}')
         model_state_dict = torch.load(str(modelp), map_location=lambda storage, loc: storage)
         model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
-        if gl_conf.cvt_ipabn:
+        if conf.cvt_ipabn:
             import copy
             model_state_dict2 = copy.deepcopy(model_state_dict)
             for k in model_state_dict2.keys():
@@ -670,7 +694,7 @@ class FaceInfer():
             self.model.module.load_state_dict(model_state_dict, strict=True, )
 
 
-if gl_conf.fast_load:
+if conf.fast_load:
     class data_prefetcher():
         def __init__(self, loader):
             self.loader = iter(loader)
@@ -679,12 +703,12 @@ if gl_conf.fast_load:
             self.std = torch.tensor([.5 * 255, .5 * 255, .5 * 255]).cuda().view(1, 3, 1, 1)
             # With Amp, it isn't necessary to manually convert data to half.
             # Type conversions are done internally on the fly within patched torch functions.
-            if gl_conf.fp16:
+            if conf.fp16:
                 self.mean = self.mean.half()
                 self.std = self.std.half()
             self.buffer = []
             self.preload()
-        
+
         def preload(self):
             try:
                 ind_loader, data_loader = next(self.loader)
@@ -692,7 +716,7 @@ if gl_conf.fast_load:
                     data_loader['imgs'] = data_loader['imgs'].cuda()
                     data_loader['labels_cpu'] = data_loader['labels']
                     data_loader['labels'] = data_loader['labels'].cuda()
-                    if gl_conf.fp16:
+                    if conf.fp16:
                         data_loader['imgs'] = data_loader['imgs'].half()
                     else:
                         data_loader['imgs'] = data_loader['imgs'].float()
@@ -701,15 +725,15 @@ if gl_conf.fast_load:
             except StopIteration:
                 self.buffer.append((None, None))
                 return
-        
+
         def next(self):
             torch.cuda.current_stream().wait_stream(self.stream)
             self.preload()
             res = self.buffer.pop(0)
             return res
-        
+
         __next__ = next
-        
+
         def __iter__(self):
             while True:
                 ind, data = self.next()
@@ -735,38 +759,48 @@ def fast_collate(batch):
             nump_array = np.expand_dims(nump_array, axis=-1)
         # nump_array = np.rollaxis(nump_array, 2)
         tensor[i] += torch.from_numpy(nump_array)
-    
+
     return {'imgs': tensor, 'labels': targets,
             'ind_inds': ind_inds, 'indexes': indexes,
             'is_trains': is_trains}
 
 
 class face_learner(object):
-    def __init__(self, conf=gl_conf, ):
+    def __init__(self, conf=conf, ):
         self.milestones = conf.milestones
         self.val_loader_cache = {}
         ## torch reader
         if 'webface' in str(conf.use_data_folder) or 'casia' in str(conf.use_data_folder):
-            # train_transform = torchvision.transforms.Compose([
-            #     trans.ToTensor(),
-            #     trans.Normalize(mean=.5, std=.5),
-            # ])
+            file = '/data2/share/casia_landmark.txt'
+            df = pd.read_csv(file, sep='\t', header=None)
+            id2nimgs = {}
+            for key, frame in df.groupby(1):
+                id2nimgs[key] = frame.shape[0]
+
+            nimgs = list(id2nimgs.values())
+            nimgs = np.array(nimgs)
+            nimgs = nimgs / nimgs.sum()
+            id2wei = {ind: wei for ind, wei in enumerate(nimgs)}
+            weis = [id2wei[id_] for id_ in np.array(df.iloc[:, 1])]
+            weis = np.asarray(weis)
+
             self.dataset = DatasetCasia(conf.use_data_folder, )
             self.loader = DataLoader(self.dataset, batch_size=conf.batch_size,
                                      num_workers=conf.num_workers,
-                                     shuffle=True, drop_last=True, pin_memory=True, )
+                                     sampler=torch.utils.data.sampler.WeightedRandomSampler(weis, weis.shape[0]),
+                                     drop_last=True, pin_memory=True, )
             self.class_num = conf.num_clss = self.dataset.num_classes
-            gl_conf.explored = np.zeros(self.class_num, dtype=int)
-            gl_conf.dop = np.ones(self.class_num, dtype=int) * gl_conf.mining_init
+            conf.explored = np.zeros(self.class_num, dtype=int)
+            conf.dop = np.ones(self.class_num, dtype=int) * conf.mining_init
         else:
-            self.dataset = TorchDataset(gl_conf.use_data_folder)
+            self.dataset = TorchDataset(conf.use_data_folder)
             self.loader = DataLoader(
                 self.dataset, batch_size=conf.batch_size,
                 num_workers=conf.num_workers,
                 sampler=RandomIdSampler(self.dataset.imgidx,
                                         self.dataset.ids, self.dataset.id2range),
                 drop_last=True, pin_memory=True,
-                collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
+                collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
             )
             self.class_num = self.dataset.num_classes
         logging.info(f'{self.class_num} classes, load ok ')
@@ -785,7 +819,7 @@ class face_learner(object):
         else:
             self.writer = None
         self.step = 0
-        
+
         if conf.net_mode == 'mobilefacenet':
             self.model = MobileFaceNet(conf.embedding_size)
             logging.info('MobileFaceNet model generated')
@@ -813,7 +847,7 @@ class face_learner(object):
         if conf.kd:
             save_path = Path('work_space/emore.r152.cont/save/')
             fixed_str = [t.name for t in save_path.glob('model*_*.pth')][0]
-            if not gl_conf.sftlbl_from_file:
+            if not conf.sftlbl_from_file:
                 self.teacher_model = Backbone(152, conf.drop_ratio, 'ir_se')
                 self.teacher_model = torch.nn.DataParallel(self.teacher_model).cuda()
                 modelp = save_path / fixed_str
@@ -842,7 +876,7 @@ class face_learner(object):
             self.model = torch.nn.parallel.DistributedDataParallel(self.model.cuda(),
                                                                    device_ids=[conf.local_rank],
                                                                    output_device=conf.local_rank)
-        
+
         if conf.head_init:
             kernel = lz.msgpack_load(conf.head_init).astype(np.float32).transpose()
             kernel = torch.from_numpy(kernel)
@@ -850,15 +884,15 @@ class face_learner(object):
             self.head.kernel.data = kernel
         if self.head is not None:
             self.head = self.head.cuda()
-        if gl_conf.tri_wei != 0:
+        if conf.tri_wei != 0:
             self.head_triplet = TripletLoss().cuda()
         logging.info(' model heads generated')
-        
+
         paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
         if conf.use_opt == 'adam':  # todo deprecated
             self.optimizer = optim.Adam([{'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': 0},
                                          {'params': paras_only_bn}, ],
-                                        betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
+                                        betas=(conf.adam_betas1, conf.adam_betas2),
                                         amsgrad=True,
                                         lr=conf.lr,
                                         )
@@ -875,53 +909,50 @@ class face_learner(object):
                     {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
                     {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
                     {'params': paras_only_bn}
-                ], lr=conf.lr, betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
-                    gamma=1e-3, final_lr=gl_conf.final_lr, )
+                ], lr=conf.lr, betas=(conf.adam_betas1, conf.adam_betas2),
+                    gamma=1e-3, final_lr=conf.final_lr, )
         elif conf.use_opt == 'sgd':
             self.optimizer = optim.SGD([
                 {'params': paras_wo_bn + [*self.head.parameters()],
-                 'weight_decay': gl_conf.weight_decay},
+                 'weight_decay': conf.weight_decay},
                 {'params': paras_only_bn},
             ], lr=conf.lr, momentum=conf.momentum)
         elif conf.use_opt == 'adabound':
             from tools.adabound import AdaBound
             self.optimizer = AdaBound([
                 {'params': paras_wo_bn + [*self.head.parameters()],
-                 'weight_decay': gl_conf.weight_decay},
+                 'weight_decay': conf.weight_decay},
                 {'params': paras_only_bn},
-            ], lr=conf.lr, betas=(gl_conf.adam_betas1, gl_conf.adam_betas2),
-                gamma=1e-3, final_lr=gl_conf.final_lr,
+            ], lr=conf.lr, betas=(conf.adam_betas1, conf.adam_betas2),
+                gamma=1e-3, final_lr=conf.final_lr,
             )
         else:
             raise ValueError(f'{conf.use_opt}')
-        if gl_conf.fp16:
-            if gl_conf.use_test:
+        if conf.fp16:
+            if conf.use_test:
                 nloss = 2
             else:
                 nloss = 1
             self.optimizer = amp_handle.wrap_optimizer(self.optimizer, num_loss=nloss)
         logging.info(f'optimizers generated {self.optimizer}')
-        self.board_loss_every = gl_conf.board_loss_every
-        # from data.data_pipe import get_val_data
-        # self.agedb_30, self.cfp_fp, self.lfw, self.agedb_30_issame, self.cfp_fp_issame, self.lfw_issame = get_val_data(
-        #     self.dataset.root_path)  # todo postpone load eval
+        self.board_loss_every = conf.board_loss_every
         self.head.train()
         self.model.train()
-    
+
     def train_dist(self, conf, epochs):
         self.model.train()
         loader = self.loader
-        self.evaluate_every = gl_conf.other_every or len(loader) // 3
-        self.save_every = gl_conf.other_every or len(loader) // 3
-        self.step = gl_conf.start_step
+        self.evaluate_every = conf.other_every or len(loader) // 3
+        self.save_every = conf.other_every or len(loader) // 3
+        self.step = conf.start_step
         writer = self.writer
         lz.timer.since_last_check('start train')
         data_time = lz.AverageMeter()
         loss_time = lz.AverageMeter()
         accuracy = 0
         dist_need_log = not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0
-        
-        if gl_conf.start_eval:
+
+        if conf.start_eval:
             for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                     conf,
@@ -959,18 +990,18 @@ class face_learner(object):
                 embeddings = self.model(imgs, mode='train')
                 thetas = self.head(embeddings, labels)
                 loss_xent = conf.ce_loss(thetas, labels)
-                if gl_conf.fp16:
+                if conf.fp16:
                     with self.optimizer.scale_loss(loss_xent) as scaled_loss:
                         scaled_loss.backward()
                 else:
                     loss_xent.backward()
                 if dist_need_log:
                     with torch.no_grad():
-                        if gl_conf.mining == 'dop':
-                            update_dop_cls(thetas, labels_cpu, gl_conf.dop)
-                        if gl_conf.mining == 'rand.id':
-                            gl_conf.dop[labels_cpu.numpy()] = 1
-                    gl_conf.explored[labels_cpu.numpy()] = 1
+                        if conf.mining == 'dop':
+                            update_dop_cls(thetas, labels_cpu, conf.dop)
+                        if conf.mining == 'rand.id':
+                            conf.dop[labels_cpu.numpy()] = 1
+                    conf.explored[labels_cpu.numpy()] = 1
                     with torch.no_grad():
                         acc_t = (thetas.argmax(dim=1) == labels)
                         acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
@@ -984,20 +1015,20 @@ class face_learner(object):
                                  f'data time: {data_time.avg:.2f} ' +
                                  f'loss time: {loss_time.avg:.2f} ' +
                                  f'acc: {acc:.2e} ' +
-                                 f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                                 f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     writer.add_scalar('loss/xent', loss_xent.item(), self.step)
                     writer.add_scalar('info/acc', acc, self.step)
-                    writer.add_scalar('info/speed', gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                    writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
                     writer.add_scalar('info/datatime', data_time.avg, self.step)
                     writer.add_scalar('info/losstime', loss_time.avg, self.step)
                     writer.add_scalar('info/epoch', e, self.step)
-                    dop = gl_conf.dop
+                    dop = conf.dop
                     if dop is not None:
                         # writer.add_histogram('top_imp', dop, self.step)
                         writer.add_scalar('info/doprat',
-                                          np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
-                
+                                          np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
+
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1007,23 +1038,23 @@ class face_learner(object):
                         if dist_need_log:
                             self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                             logging.info(f'validation accuracy on {ds} is {accuracy} ')
-                
+
                 if dist_need_log and self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-                
+
                 self.step += 1
-                if gl_conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step % 29 == 28:
                     break
-            if gl_conf.prof and e > 5:
+            if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-    
+
     def warmup(self, conf, epochs):
         self.model.train()
         loader = self.loader
-        self.evaluate_every = gl_conf.other_every or len(loader) // 3
-        self.save_every = gl_conf.other_every or len(loader) // 3
-        self.step = gl_conf.start_step
+        self.evaluate_every = conf.other_every or len(loader) // 3
+        self.save_every = conf.other_every or len(loader) // 3
+        self.step = conf.start_step
         writer = SummaryWriter(str(conf.log_path) + '/warmup')
         lz.timer.since_last_check('start train')
         data_time = lz.AverageMeter()
@@ -1034,7 +1065,7 @@ class face_learner(object):
             lz.timer.since_last_check('epoch {} started'.format(e))
             loader_enum = data_prefetcher(enumerate(loader))
             while True:
-                now_lr = gl_conf.lr * (self.step + 1) / ttl_batch
+                now_lr = conf.lr * (self.step + 1) / ttl_batch
                 for params in self.optimizer.param_groups:
                     params['lr'] = now_lr
                 ind_data, data = next(loader_enum)
@@ -1059,17 +1090,17 @@ class face_learner(object):
                 embeddings = self.model(imgs, mode='train')
                 thetas = self.head(embeddings, labels)
                 loss_xent = conf.ce_loss(thetas, labels)
-                if gl_conf.fp16:
+                if conf.fp16:
                     with self.optimizer.scale_loss(loss_xent) as scaled_loss:
                         scaled_loss.backward()
                 else:
                     loss_xent.backward()
                 with torch.no_grad():
-                    if gl_conf.mining == 'dop':
-                        update_dop_cls(thetas, labels_cpu, gl_conf.dop)
-                    if gl_conf.mining == 'rand.id':
-                        gl_conf.dop[labels_cpu.numpy()] = 1
-                gl_conf.explored[labels_cpu.numpy()] = 1
+                    if conf.mining == 'dop':
+                        update_dop_cls(thetas, labels_cpu, conf.dop)
+                    if conf.mining == 'rand.id':
+                        conf.dop[labels_cpu.numpy()] = 1
+                conf.explored[labels_cpu.numpy()] = 1
                 with torch.no_grad():
                     acc_t = (thetas.argmax(dim=1) == labels)
                     acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
@@ -1084,20 +1115,20 @@ class face_learner(object):
                                  f'data time: {data_time.avg:.2f} ' +
                                  f'loss time: {loss_time.avg:.2f} ' +
                                  f'acc: {acc:.2e} ' +
-                                 f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                                 f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     writer.add_scalar('loss/xent', loss_xent.item(), self.step)
                     writer.add_scalar('info/acc', acc, self.step)
-                    writer.add_scalar('info/speed', gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                    writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
                     writer.add_scalar('info/datatime', data_time.avg, self.step)
                     writer.add_scalar('info/losstime', loss_time.avg, self.step)
                     writer.add_scalar('info/epoch', e, self.step)
-                    dop = gl_conf.dop
+                    dop = conf.dop
                     if dop is not None:
                         writer.add_histogram('top_imp', dop, self.step)
                         writer.add_scalar('info/doprat',
-                                          np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
-                
+                                          np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
+
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1108,26 +1139,26 @@ class face_learner(object):
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-                
+
                 self.step += 1
-                if gl_conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step % 29 == 28:
                     break
-            if gl_conf.prof and e > 5:
+            if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-    
+
     def train_simple(self, conf, epochs):
         self.model.train()
         loader = self.loader
-        self.evaluate_every = gl_conf.other_every or len(loader) // 3
-        self.save_every = gl_conf.other_every or len(loader) // 3
-        self.step = gl_conf.start_step
+        self.evaluate_every = conf.other_every or len(loader) // 3
+        self.save_every = conf.other_every or len(loader) // 3
+        self.step = conf.start_step
         writer = self.writer
         lz.timer.since_last_check('start train')
         data_time = lz.AverageMeter()
         loss_time = lz.AverageMeter()
         accuracy = 0
-        if gl_conf.start_eval:
+        if conf.start_eval:
             for ds in ['cfp_fp', ]:
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                     conf,
@@ -1162,17 +1193,17 @@ class face_learner(object):
                 embeddings = self.model(imgs, mode='train')
                 thetas = self.head(embeddings, labels)
                 loss_xent = conf.ce_loss(thetas, labels)
-                if gl_conf.fp16:
+                if conf.fp16:
                     with self.optimizer.scale_loss(loss_xent) as scaled_loss:
                         scaled_loss.backward()
                 else:
                     loss_xent.backward()
                 with torch.no_grad():
-                    if gl_conf.mining == 'dop':
-                        update_dop_cls(thetas, labels_cpu, gl_conf.dop)
-                    if gl_conf.mining == 'rand.id':
-                        gl_conf.dop[labels_cpu.numpy()] = 1
-                gl_conf.explored[labels_cpu.numpy()] = 1
+                    if conf.mining == 'dop':
+                        update_dop_cls(thetas, labels_cpu, conf.dop)
+                    if conf.mining == 'rand.id':
+                        conf.dop[labels_cpu.numpy()] = 1
+                conf.explored[labels_cpu.numpy()] = 1
                 with torch.no_grad():
                     acc_t = (thetas.argmax(dim=1) == labels)
                     acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
@@ -1186,20 +1217,20 @@ class face_learner(object):
                                  f'data time: {data_time.avg:.2f} ' +
                                  f'loss time: {loss_time.avg:.2f} ' +
                                  f'acc: {acc:.2e} ' +
-                                 f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                                 f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     writer.add_scalar('loss/xent', loss_xent.item(), self.step)
                     writer.add_scalar('info/acc', acc, self.step)
-                    writer.add_scalar('info/speed', gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                    writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
                     writer.add_scalar('info/datatime', data_time.avg, self.step)
                     writer.add_scalar('info/losstime', loss_time.avg, self.step)
                     writer.add_scalar('info/epoch', e, self.step)
-                    dop = gl_conf.dop
+                    dop = conf.dop
                     if dop is not None:
                         writer.add_histogram('top_imp', dop, self.step)
                         writer.add_scalar('info/doprat',
-                                          np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
-                
+                                          np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
+
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1210,14 +1241,14 @@ class face_learner(object):
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-                
+
                 self.step += 1
-                if gl_conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step % 29 == 28:
                     break
-            if gl_conf.prof and e > 5:
+            if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-    
+
     def train_ghm(self, conf, epochs):
         self.ghm_mom = 0.75
         self.gmax = 350
@@ -1226,12 +1257,12 @@ class face_learner(object):
         self.gmax = self.bins * self.ginterv
         self.edges = np.asarray([self.ginterv * x for x in range(self.bins + 1)])
         self.acc_sum = np.zeros(self.bins)
-        
+
         self.model.train()
         loader = self.loader
-        self.evaluate_every = gl_conf.other_every or len(loader) // 3
-        self.save_every = gl_conf.other_every or len(loader) // 3
-        self.step = gl_conf.start_step
+        self.evaluate_every = conf.other_every or len(loader) // 3
+        self.save_every = conf.other_every or len(loader) // 3
+        self.step = conf.start_step
         writer = self.writer
         lz.timer.since_last_check('start train')
         data_time = lz.AverageMeter()
@@ -1290,17 +1321,17 @@ class face_learner(object):
                         weights /= n_valid_bins
                 weights /= weights.sum()
                 loss_xent = (weights * loss_xent).sum()
-                if gl_conf.fp16:
+                if conf.fp16:
                     with self.optimizer.scale_loss(loss_xent) as scaled_loss:
                         scaled_loss.backward()
                 else:
                     loss_xent.backward()
                 with torch.no_grad():
-                    if gl_conf.mining == 'dop':
-                        update_dop_cls(thetas, labels_cpu, gl_conf.dop)
-                    if gl_conf.mining == 'rand.id':
-                        gl_conf.dop[labels_cpu.numpy()] = 1
-                gl_conf.explored[labels_cpu.numpy()] = 1
+                    if conf.mining == 'dop':
+                        update_dop_cls(thetas, labels_cpu, conf.dop)
+                    if conf.mining == 'rand.id':
+                        conf.dop[labels_cpu.numpy()] = 1
+                conf.explored[labels_cpu.numpy()] = 1
                 with torch.no_grad():
                     acc_t = (thetas.argmax(dim=1) == labels)
                     acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
@@ -1314,20 +1345,20 @@ class face_learner(object):
                                  f'data time: {data_time.avg:.2f} ' +
                                  f'loss time: {loss_time.avg:.2f} ' +
                                  f'acc: {acc:.2e} ' +
-                                 f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                                 f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     writer.add_scalar('loss/xent', loss_xent.item(), self.step)
                     writer.add_scalar('info/acc', acc, self.step)
-                    writer.add_scalar('info/speed', gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                    writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
                     writer.add_scalar('info/datatime', data_time.avg, self.step)
                     writer.add_scalar('info/losstime', loss_time.avg, self.step)
                     writer.add_scalar('info/epoch', e, self.step)
-                    dop = gl_conf.dop
+                    dop = conf.dop
                     if dop is not None:
                         writer.add_histogram('top_imp', dop, self.step)
                         writer.add_scalar('info/doprat',
-                                          np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
-                
+                                          np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
+
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1338,20 +1369,20 @@ class face_learner(object):
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-                
+
                 self.step += 1
-                if gl_conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step % 29 == 28:
                     break
-            if gl_conf.prof and e > 5:
+            if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-    
+
     def train_with_wei(self, conf, epochs):
         self.model.train()
         loader = self.loader
-        self.evaluate_every = gl_conf.other_every or len(loader) // 3
-        self.save_every = gl_conf.other_every or len(loader) // 3
-        self.step = gl_conf.start_step
+        self.evaluate_every = conf.other_every or len(loader) // 3
+        self.save_every = conf.other_every or len(loader) // 3
+        self.step = conf.start_step
         writer = self.writer
         lz.timer.since_last_check('start train')
         data_time = lz.AverageMeter()
@@ -1404,18 +1435,18 @@ class face_learner(object):
                     # plt.plot(weis_batch,); plt.show()
                     weis_batch = to_torch(np.asarray(weis_batch, dtype=np.float32)).cuda()
                 loss_xent = (weis_batch * loss_xent).sum()
-                
-                if gl_conf.fp16:
+
+                if conf.fp16:
                     with self.optimizer.scale_loss(loss_xent) as scaled_loss:
                         scaled_loss.backward()
                 else:
                     loss_xent.backward()
                 with torch.no_grad():
-                    if gl_conf.mining == 'dop':
-                        update_dop_cls(thetas, labels_cpu, gl_conf.dop)
-                    if gl_conf.mining == 'rand.id':
-                        gl_conf.dop[labels_cpu.numpy()] = 1
-                gl_conf.explored[labels_cpu.numpy()] = 1
+                    if conf.mining == 'dop':
+                        update_dop_cls(thetas, labels_cpu, conf.dop)
+                    if conf.mining == 'rand.id':
+                        conf.dop[labels_cpu.numpy()] = 1
+                conf.explored[labels_cpu.numpy()] = 1
                 with torch.no_grad():
                     acc_t = (thetas.argmax(dim=1) == labels)
                     acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
@@ -1429,20 +1460,20 @@ class face_learner(object):
                                  f'data time: {data_time.avg:.2f} ' +
                                  f'loss time: {loss_time.avg:.2f} ' +
                                  f'acc: {acc:.2e} ' +
-                                 f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                                 f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     writer.add_scalar('loss/xent', loss_xent.item(), self.step)
                     writer.add_scalar('info/acc', acc, self.step)
-                    writer.add_scalar('info/speed', gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                    writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
                     writer.add_scalar('info/datatime', data_time.avg, self.step)
                     writer.add_scalar('info/losstime', loss_time.avg, self.step)
                     writer.add_scalar('info/epoch', e, self.step)
-                    dop = gl_conf.dop
+                    dop = conf.dop
                     if dop is not None:
                         writer.add_histogram('top_imp', dop, self.step)
                         writer.add_scalar('info/doprat',
-                                          np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
-                
+                                          np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
+
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1453,41 +1484,50 @@ class face_learner(object):
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-                
+
                 self.step += 1
-                if gl_conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step % 29 == 28:
                     break
-            if gl_conf.prof and e > 5:
+            if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-    
+
     def train_use_test(self, conf, epochs):
         self.model.train()
         loader = self.loader
-        if gl_conf.use_test:
+        if conf.use_test:
             loader_test = DataLoader(
                 TestDataset(), batch_size=conf.batch_size,
                 num_workers=conf.num_workers, shuffle=True,
                 drop_last=True, pin_memory=True,
-                collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
+                collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
             )
             loader_test_enum = data_prefetcher(enumerate(loader))
-        self.evaluate_every = gl_conf.other_every or len(loader) // (3 * gl_conf.epoch_less_iter)
-        self.save_every = gl_conf.other_every or len(loader) // (3 * gl_conf.epoch_less_iter)
-        self.step = gl_conf.start_step
+        self.evaluate_every = conf.other_every or len(loader) // (3 * conf.epoch_less_iter)
+        self.save_every = conf.other_every or len(loader) // (3 * conf.epoch_less_iter)
+        self.step = conf.start_step
         writer = self.writer
         lz.timer.since_last_check('start train')
         data_time = lz.AverageMeter()
         loss_time = lz.AverageMeter()
         accuracy = 0
-        
+
         for e in range(conf.start_epoch, epochs):
             lz.timer.since_last_check('epoch {} started'.format(e))
             self.schedule_lr(e)
+            if e <= 1:
+                conf.use_test = False
+            else:
+                conf.use_test = 'cfp_fp'  # todo
             loader_enum = data_prefetcher(enumerate(loader))
             while True:
                 ## get data
-                ind_data, data = next(loader_enum)
+                try:
+                    ind_data, data = next(loader_enum)
+                except StopIteration as err:
+                    logging.info(f'one epoch finish {e} {ind_data}')
+                    loader_enum = data_prefetcher(enumerate(loader))
+                    ind_data, data = next(loader_enum)
                 if ind_data is None:
                     logging.info(f'one epoch finish {e} {ind_data}')
                     loader_enum = data_prefetcher(enumerate(loader))
@@ -1496,6 +1536,7 @@ class face_learner(object):
                     self.step += 1
                     break
                 imgs = data['imgs'].cuda()
+                assert imgs.max() < 2
                 if 'labels_cpu' in data:
                     labels_cpu = data['labels_cpu'].cpu()
                 else:
@@ -1504,19 +1545,25 @@ class face_learner(object):
                 data_time.update(
                     lz.timer.since_last_check(verbose=False)
                 )
-                if gl_conf.use_test:
-                    ind_data, imgs_test_data = next(loader_test_enum)
+                if conf.use_test:
+                    try:
+                        ind_data, imgs_test_data = next(loader_test_enum)
+                    except StopIteration as err:
+                        logging.info(f'test finish {e} {ind_data}')
+                        loader_test_enum = data_prefetcher(enumerate(loader_test))
+                        ind_data, imgs_test_data = next(loader_enum)
                     if ind_data is None:
                         logging.info(f'test finish {e} {ind_data}')
                         loader_test_enum = data_prefetcher(enumerate(loader_test))
                         ind_data, imgs_test_data = next(loader_enum)
                     imgs_test = imgs_test_data['imgs'].cuda()
+                    assert imgs_test.max() < 2
                 ## get loss and backward
                 self.optimizer.zero_grad()  # todo why must put here # I do not know, but order matters!
-                if gl_conf.use_test:
+                if conf.use_test:
                     loss_vat = conf.vat_loss_func(self.model, self.head, imgs_test)
                     if loss_vat != 0:
-                        if gl_conf.fp16:
+                        if conf.fp16:
                             with self.optimizer.scale_loss(loss_vat) as scaled_loss:
                                 scaled_loss.backward()
                         else:
@@ -1524,18 +1571,18 @@ class face_learner(object):
                 embeddings = self.model(imgs, mode='train')
                 thetas = self.head(embeddings, labels)
                 loss_xent = conf.ce_loss(thetas, labels)
-                if gl_conf.fp16:
+                if conf.fp16:
                     with self.optimizer.scale_loss(loss_xent) as scaled_loss:
                         scaled_loss.backward()  # todo skip error
                 else:
                     loss_xent.backward()
                 ## post process
                 with torch.no_grad():
-                    if gl_conf.mining == 'dop':
-                        update_dop_cls(thetas, labels_cpu, gl_conf.dop)
-                    if gl_conf.mining == 'rand.id':
-                        gl_conf.dop[labels_cpu.numpy()] = 1
-                gl_conf.explored[labels_cpu.numpy()] = 1
+                    if conf.mining == 'dop':
+                        update_dop_cls(thetas, labels_cpu, conf.dop)
+                    if conf.mining == 'rand.id':
+                        conf.dop[labels_cpu.numpy()] = 1
+                conf.explored[labels_cpu.numpy()] = 1
                 with torch.no_grad():
                     acc_t = (thetas.argmax(dim=1) == labels)
                     acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
@@ -1549,23 +1596,23 @@ class face_learner(object):
                                  f'data time: {data_time.avg:.2f} ' +
                                  f'loss time: {loss_time.avg:.2f} ' +
                                  f'acc: {acc:.2e} ' +
-                                 f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                                 f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     writer.add_scalar('loss/xent', loss_xent.item(), self.step)
-                    if gl_conf.use_test:
+                    if conf.use_test:
                         logging.info(f'vat: {loss_vat.item():.2e} ')
                         writer.add_scalar('loss/vat', loss_vat.item(), self.step)
                     writer.add_scalar('info/acc', acc, self.step)
-                    writer.add_scalar('info/speed', gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                    writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
                     writer.add_scalar('info/datatime', data_time.avg, self.step)
                     writer.add_scalar('info/losstime', loss_time.avg, self.step)
                     writer.add_scalar('info/epoch', e, self.step)
-                    dop = gl_conf.dop
+                    dop = conf.dop
                     if dop is not None:
                         writer.add_histogram('top_imp', dop, self.step)
                         writer.add_scalar('info/doprat',
-                                          np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
-                
+                                          np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
+
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1576,21 +1623,21 @@ class face_learner(object):
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-                
+
                 self.step += 1
-                if gl_conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step % 29 == 28:
                     break
-            if gl_conf.prof and e > 5:
+            if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-    
+
     # todo train_tri
     def train(self, conf, epochs, mode='train', name=None):
         self.model.train()
         if mode == 'train':
             loader = self.loader
-            self.evaluate_every = gl_conf.other_every or len(loader) // 3
-            self.save_every = gl_conf.other_every or len(loader) // 3
+            self.evaluate_every = conf.other_every or len(loader) // 3
+            self.save_every = conf.other_every or len(loader) // 3
         elif mode == 'finetune':
             loader = DataLoader(
                 self.dataset, batch_size=conf.batch_size * conf.ftbs_mult,
@@ -1598,26 +1645,26 @@ class face_learner(object):
                 sampler=RandomIdSampler(self.dataset.imgidx,
                                         self.dataset.ids, self.dataset.id2range),
                 drop_last=True, pin_memory=True,
-                collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
+                collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
             )
-            self.evaluate_every = gl_conf.other_every or len(loader) // 3
-            self.save_every = gl_conf.other_every or len(loader) // 3
+            self.evaluate_every = conf.other_every or len(loader) // 3
+            self.save_every = conf.other_every or len(loader) // 3
         else:
             raise ValueError(mode)
-        self.step = gl_conf.start_step
+        self.step = conf.start_step
         if name is None:
             writer = self.writer
         else:
             writer = SummaryWriter(str(conf.log_path) + '/ft')
-        
+
         lz.timer.since_last_check('start train')
         data_time = lz.AverageMeter()
         loss_time = lz.AverageMeter()
         accuracy = 0
         tau = 0
         B_multi = 2
-        Batch_size = gl_conf.batch_size * B_multi
-        batch_size = gl_conf.batch_size
+        Batch_size = conf.batch_size * B_multi
+        batch_size = conf.batch_size
         tau_thresh = 1.2  # todo mv to conf
         #         tau_thresh = (Batch_size + 3 * batch_size) / (3 * batch_size)
         alpha_tau = .9
@@ -1625,7 +1672,7 @@ class face_learner(object):
             lz.timer.since_last_check('epoch {} started'.format(e))
             self.schedule_lr(e)
             loader_enum = data_prefetcher(enumerate(loader))
-            
+
             while True:
                 ind_data, data = next(loader_enum)
                 if ind_data is None:
@@ -1658,7 +1705,7 @@ class face_learner(object):
                 #                 if not conf.fgg:
                 #                 if np.random.rand()>0.5:
                 writer.add_scalar('info/tau', tau, self.step)
-                if gl_conf.online_imp and tau > tau_thresh and ind_data < len(loader) - B_multi:
+                if conf.online_imp and tau > tau_thresh and ind_data < len(loader) - B_multi:
                     writer.add_scalar('info/sampl', 1, self.step)
                     imgsl = [imgs]
                     labelsl = [labels]
@@ -1682,16 +1729,16 @@ class face_learner(object):
                     with torch.no_grad():
                         gi = torch.norm(grad, dim=1)
                         gi /= gi.sum()
-                        G_ind = torch.multinomial(gi, gl_conf.batch_size, replacement=True)
+                        G_ind = torch.multinomial(gi, conf.batch_size, replacement=True)
                         imgs = imgs[G_ind]
                         labels = labels[G_ind]
                         gi_b = gi[G_ind]  # todo this is unbias
                         gi_b = gi_b / gi_b.sum()
-                        wi = 1 / gl_conf.batch_size * (1 / gi_b)
+                        wi = 1 / conf.batch_size * (1 / gi_b)
                     embeddings = self.model(imgs)
                     thetas = self.head(embeddings, labels)
                     loss = (F.cross_entropy(thetas, labels, reduction='none') * wi).mean()
-                    if gl_conf.fp16:
+                    if conf.fp16:
                         with amp_handle.scale_loss(loss, self.optimizer) as scaled_loss:
                             scaled_loss.backward()
                     else:
@@ -1700,14 +1747,14 @@ class face_learner(object):
                     writer.add_scalar('info/sampl', 0, self.step)
                     embeddings = self.model(imgs, mode=mode)
                     thetas = self.head(embeddings, labels)
-                    if not gl_conf.kd:
+                    if not conf.kd:
                         loss = conf.ce_loss(thetas, labels)
                     else:
-                        alpha = gl_conf.alpha
-                        T = gl_conf.temperature
+                        alpha = conf.alpha
+                        T = conf.temperature
                         outputs = thetas
                         with torch.no_grad():
-                            if not gl_conf.sftlbl_from_file:
+                            if not conf.sftlbl_from_file:
                                 teachers_embedding = self.teacher_model(imgs, )
                             else:
                                 teachers_embedding = data['teacher_embedding']
@@ -1716,17 +1763,17 @@ class face_learner(object):
                         loss = F.kl_div(F.log_softmax(outputs / T, dim=1), F.softmax(teacher_outputs / T, dim=1)) * (
                                 alpha * T * T)
                         loss += F.cross_entropy(outputs, labels) * (1. - alpha)
-                    if gl_conf.tri_wei != 0:
+                    if conf.tri_wei != 0:
                         loss_triplet, info = self.head_triplet(embeddings, labels, return_info=True)
                         grad_tri = torch.autograd.grad(loss_triplet, embeddings, retain_graph=True, create_graph=False,
                                                        only_inputs=True)[0].detach()
-                        
+
                         writer.add_scalar('info/grad_tri', torch.norm(grad_tri, dim=1).mean().item(), self.step)
                         grad_xent = torch.autograd.grad(loss, embeddings, retain_graph=True, create_graph=False,
                                                         only_inputs=True)[0].detach()
                         writer.add_scalar('info/grad_xent', torch.norm(grad_xent, dim=1).mean().item(), self.step)
-                        loss = ((1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet) / (1 - gl_conf.tri_wei)
-                    # if gl_conf.online_imp:
+                        loss = ((1 - conf.tri_wei) * loss + conf.tri_wei * loss_triplet) / (1 - conf.tri_wei)
+                    # if conf.online_imp:
                     #     # todo the order not correct
                     #     grad = torch.autograd.grad(loss, embeddings,
                     #                                retain_graph=True, create_graph=False,
@@ -1734,30 +1781,30 @@ class face_learner(object):
                     #     grad.requires_grad_(False)
                     #     gi = torch.norm(grad, dim=1)
                     #     gi /= gi.sum()
-                    if gl_conf.fp16:
+                    if conf.fp16:
                         with  self.optimizer.scale_loss(loss) as scaled_loss:
                             scaled_loss.backward()
                     else:
                         loss.backward()
                     with torch.no_grad():
-                        if gl_conf.mining == 'dop':
-                            update_dop_cls(thetas, labels_cpu, gl_conf.dop)
-                        #  if gl_conf.mining == 'imp' :
+                        if conf.mining == 'dop':
+                            update_dop_cls(thetas, labels_cpu, conf.dop)
+                        #  if conf.mining == 'imp' :
                         #  for lable_, ind_ind_, gi_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy()):
-                        #      gl_conf.id2range_dop[str(lable_)][ind_ind_] = gl_conf.id2range_dop[str(lable_)][
+                        #      conf.id2range_dop[str(lable_)][ind_ind_] = conf.id2range_dop[str(lable_)][
                         #      ind_ind_] * 0.9 + 0.1 * gi_
-                        #                             gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].sum()  # todo should be sum?
-                        if gl_conf.mining == 'rand.id':
-                            gl_conf.dop[labels_cpu.numpy()] = 1
-                gl_conf.explored[labels_cpu.numpy()] = 1
+                        #                             conf.dop[lable_] = conf.id2range_dop[str(lable_)].sum()  # todo should be sum?
+                        if conf.mining == 'rand.id':
+                            conf.dop[labels_cpu.numpy()] = 1
+                conf.explored[labels_cpu.numpy()] = 1
                 with torch.no_grad():
                     acc_t = (thetas.argmax(dim=1) == labels)
                     acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
-                if gl_conf.online_imp:
+                if conf.online_imp:
                     tau = alpha_tau * tau + \
                           (1 - alpha_tau) * (1 - (1 / (gi ** 2).sum()).item() * (
                             torch.norm(gi - 1 / len(gi), dim=0) ** 2).item()) ** (-1 / 2)
-                
+
                 #                 elif conf.fgg == 'g':
                 #                     embeddings_o = self.model(imgs)
                 #                     thetas_o = self.head(embeddings, labels)
@@ -1793,25 +1840,25 @@ class face_learner(object):
                                  f'data time: {data_time.avg:.2f} ' +
                                  f'loss time: {loss_time.avg:.2f} ' +
                                  f'acc: {acc:.2e} ' +
-                                 f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                                 f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     writer.add_scalar('loss/xent', loss.item(), self.step)
-                    if gl_conf.tri_wei != 0:
+                    if conf.tri_wei != 0:
                         writer.add_scalar('loss/triplet', loss_triplet.item(), self.step)
                         writer.add_scalar('loss/dap', info['dap'], self.step)
                         writer.add_scalar('loss/dan', info['dan'], self.step)
-                    
+
                     writer.add_scalar('info/acc', acc, self.step)
                     writer.add_scalar('info/speed',
-                                      gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                                      conf.batch_size / (data_time.avg + loss_time.avg), self.step)
                     writer.add_scalar('info/datatime', data_time.avg, self.step)
                     writer.add_scalar('info/losstime', loss_time.avg, self.step)
                     writer.add_scalar('info/epoch', e, self.step)
-                    dop = gl_conf.dop
+                    dop = conf.dop
                     writer.add_histogram('top_imp', dop, self.step)
                     writer.add_scalar('info/doprat',
-                                      np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
-                
+                                      np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
+
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1822,20 +1869,20 @@ class face_learner(object):
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-                
+
                 self.step += 1
-                if gl_conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step % 29 == 28:
                     break
-            if gl_conf.prof and e > 5:
+            if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-    
+
     def train_fgg(self, conf, epochs, mode='train', name=None):
         self.model.train()
         if mode == 'train':
             loader = self.loader
-            self.evaluate_every = gl_conf.other_every or len(loader) // 3
-            self.save_every = gl_conf.other_every or len(loader) // 3
+            self.evaluate_every = conf.other_every or len(loader) // 3
+            self.save_every = conf.other_every or len(loader) // 3
         elif mode == 'finetune':
             loader = DataLoader(
                 self.dataset, batch_size=conf.batch_size * conf.ftbs_mult,
@@ -1843,18 +1890,18 @@ class face_learner(object):
                 sampler=RandomIdSampler(self.dataset.imgidx,
                                         self.dataset.ids, self.dataset.id2range),
                 drop_last=True, pin_memory=True,
-                collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
+                collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
             )
-            self.evaluate_every = gl_conf.other_every or len(loader) // 3
-            self.save_every = gl_conf.other_every or len(loader) // 3
+            self.evaluate_every = conf.other_every or len(loader) // 3
+            self.save_every = conf.other_every or len(loader) // 3
         else:
             raise ValueError(mode)
-        self.step = gl_conf.start_step
+        self.step = conf.start_step
         if name is None:
             writer = self.writer
         else:
             writer = SummaryWriter(str(conf.log_path) + '/ft')
-        
+
         lz.timer.since_last_check('start train')
         data_time = lz.AverageMeter()
         loss_time = lz.AverageMeter()
@@ -1863,7 +1910,7 @@ class face_learner(object):
             lz.timer.since_last_check('epoch {} started'.format(e))
             self.schedule_lr(e)
             loader_enum = data_prefetcher(enumerate(loader))
-            
+
             while True:
                 ind_data, data = next(loader_enum)
                 if ind_data is None:
@@ -1882,7 +1929,7 @@ class face_learner(object):
                 self.optimizer.zero_grad()
                 embeddings = self.model(imgs, mode=mode)
                 thetas = self.head(embeddings, labels)
-                if not gl_conf.fgg:
+                if not conf.fgg:
                     loss = conf.ce_loss(thetas, labels)
                     loss.backward()
                 elif conf.fgg == 'g':
@@ -1909,18 +1956,18 @@ class face_learner(object):
                     loss.backward()
                 else:
                     raise ValueError(f'{conf.fgg}')
-                
+
                 with torch.no_grad():
-                    if gl_conf.mining == 'dop':
-                        update_dop_cls(thetas, labels_cpu, gl_conf.dop)
-                    if gl_conf.mining == 'rand.id':
-                        gl_conf.dop[labels_cpu.numpy()] = 1
-                
-                gl_conf.explored[labels_cpu.numpy()] = 1
+                    if conf.mining == 'dop':
+                        update_dop_cls(thetas, labels_cpu, conf.dop)
+                    if conf.mining == 'rand.id':
+                        conf.dop[labels_cpu.numpy()] = 1
+
+                conf.explored[labels_cpu.numpy()] = 1
                 with torch.no_grad():
                     acc_t = (thetas.argmax(dim=1) == labels)
                     acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
-                
+
                 self.optimizer.step()
                 loss_time.update(
                     lz.timer.since_last_check(verbose=False)
@@ -1932,20 +1979,20 @@ class face_learner(object):
                                  f'data time: {data_time.avg:.2f} ' +
                                  f'loss time: {loss_time.avg:.2f} ' +
                                  f'acc: {acc:.2e} ' +
-                                 f'speed: {gl_conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                                 f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     writer.add_scalar('loss/xent', loss.item(), self.step)
                     writer.add_scalar('info/acc', acc, self.step)
                     writer.add_scalar('info/speed',
-                                      gl_conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                                      conf.batch_size / (data_time.avg + loss_time.avg), self.step)
                     writer.add_scalar('info/datatime', data_time.avg, self.step)
                     writer.add_scalar('info/losstime', loss_time.avg, self.step)
                     writer.add_scalar('info/epoch', e, self.step)
-                    dop = gl_conf.dop
+                    dop = conf.dop
                     writer.add_histogram('top_imp', dop, self.step)
                     writer.add_scalar('info/doprat',
-                                      np.count_nonzero(gl_conf.explored == 0) / dop.shape[0], self.step)
-                
+                                      np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
+
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1956,29 +2003,29 @@ class face_learner(object):
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-                
+
                 self.step += 1
-                if gl_conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step % 29 == 28:
                     break
-            if gl_conf.prof and e > 5:
+            if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-    
+
     def schedule_lr(self, e=0):
         from bisect import bisect_right
-        
-        e2lr = {epoch: gl_conf.lr * gl_conf.lr_gamma ** bisect_right(self.milestones, epoch) for epoch in
-                range(gl_conf.epochs)}
+
+        e2lr = {epoch: conf.lr * conf.lr_gamma ** bisect_right(self.milestones, epoch) for epoch in
+                range(conf.epochs)}
         logging.info(f'map e to lr is {e2lr}')
         lr = e2lr[e]
         for params in self.optimizer.param_groups:
             params['lr'] = lr
         logging.info(f'lr is {lr}')
-    
+
     init_lr = schedule_lr
-    
+
     def save_state(self, conf, accuracy, to_save_folder=False, extra=None, model_only=False):
-        # if gl_conf.local_rank is not None and gl_conf.local_rank != 0:
+        # if conf.local_rank is not None and conf.local_rank != 0:
         #     return
         if to_save_folder:
             save_path = conf.save_path
@@ -1993,8 +2040,8 @@ class face_learner(object):
             ('model_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
                                                           extra)))
         # self.model.cuda()
-        lz.msgpack_dump({'dop': gl_conf.dop,
-                         'id2range_dop': gl_conf.id2range_dop,
+        lz.msgpack_dump({'dop': conf.dop,
+                         'id2range_dop': conf.id2range_dop,
                          }, str(save_path) + f'/extra_{time_now}_accuracy:{accuracy}_step:{self.step}_{extra}.pk')
         if not model_only:
             if self.head is not None:
@@ -2010,7 +2057,7 @@ class face_learner(object):
                 save_path /
                 ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy,
                                                                   self.step, extra)))
-    
+
     def list_steps(self, resume_path):
         from pathlib import Path
         save_path = Path(resume_path)
@@ -2018,19 +2065,16 @@ class face_learner(object):
         steps = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
         steps = np.asarray(steps, int)
         return steps
-    
+
     def load_state(self, fixed_str='',
                    resume_path=None, latest=True,
                    load_optimizer=False, load_imp=False, load_head=False
                    ):
         from pathlib import Path
         save_path = Path(resume_path)
-        find_model = False
         modelp = save_path / '{}'.format(fixed_str)
         if not modelp.exists() or not modelp.is_file():
             modelp = save_path / 'model_{}'.format(fixed_str)
-        else:
-            find_model = True
         if not modelp.exists() or not modelp.is_file():
             fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
             if latest:
@@ -2038,20 +2082,14 @@ class face_learner(object):
             else:  # best
                 step = [fixed_str.split('_')[-3].split(':')[-1] for fixed_str in fixed_strs]
             step = np.asarray(step, dtype=float)
-            if step.shape[0] > 0:
-                step_ind = step.argmax()
-                fixed_str = fixed_strs[step_ind].replace('model_', '')
-                modelp = save_path / 'model_{}'.format(fixed_str)
-                find_model = True
-            else:
-                logging.error(f'chk {modelp} !')
-        else:
-            find_model = True
-        assert find_model
+            assert step.shape[0] > 0, f"{resume_path} chk!"
+            step_ind = step.argmax()
+            fixed_str = fixed_strs[step_ind].replace('model_', '')
+            modelp = save_path / 'model_{}'.format(fixed_str)
         logging.info(f'you are using gpu, load model, {modelp}')
         model_state_dict = torch.load(modelp)
         model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
-        if gl_conf.cvt_ipabn:
+        if conf.cvt_ipabn:
             import copy
             model_state_dict2 = copy.deepcopy(model_state_dict)
             for k in model_state_dict2.keys():
@@ -2063,7 +2101,7 @@ class face_learner(object):
             self.model.load_state_dict(model_state_dict, strict=True)
         else:
             self.model.module.load_state_dict(model_state_dict, strict=True)
-        
+
         if load_head:
             assert osp.exists(save_path / 'head_{}'.format(fixed_str))
             logging.info(f'load head from {modelp}')
@@ -2074,15 +2112,15 @@ class face_learner(object):
             self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
         if load_imp and (save_path / f'extra_{fixed_str.replace(".pth", ".pk")}').exists():
             extra = lz.msgpack_load(save_path / f'extra_{fixed_str.replace(".pth", ".pk")}')
-            gl_conf.dop = extra['dop'].copy()
-            gl_conf.id2range_dop = extra['id2range_dop'].copy()
-    
+            conf.dop = extra['dop'].copy()
+            conf.id2range_dop = extra['id2range_dop'].copy()
+
     def board_val(self, db_name, accuracy, best_threshold, roc_curve_tensor, writer=None):
         writer = writer or self.writer
         writer.add_scalar('{}_accuracy'.format(db_name), accuracy, self.step)
         writer.add_scalar('{}_best_threshold'.format(db_name), best_threshold, self.step)
         # writer.add_image('{}_roc_curve'.format(db_name), roc_curve_tensor, self.step)
-    
+
     def evaluate(self, conf, path, name, nrof_folds=10, tta=True):
         # from utils import ccrop_batch
         self.model.eval()
@@ -2124,9 +2162,9 @@ class face_learner(object):
         # roc_curve_tensor = trans.ToTensor()(roc_curve)
         self.model.train()
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
-    
+
     evaluate_accelerate = evaluate
-    
+
     # todo this evaluate is depracated
     def evaluate_accelerate_dingyi(self, conf, path, name, nrof_folds=10, tta=True):
         lz.timer.since_last_check('start eval')
@@ -2145,7 +2183,7 @@ class face_learner(object):
         length = len(loader.dataset)
         embeddings = np.zeros([length, conf.embedding_size])
         issame = np.zeros(length)
-        
+
         with torch.no_grad():
             for data in loader:
                 carray_batch = data['carray']
@@ -2162,7 +2200,7 @@ class face_learner(object):
                 issame[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
                         idx + conf.batch_size)] = issame_batch
                 idx += conf.batch_size
-        
+
         # tpr/fpr is averaged over various fold division
         try:
             tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
@@ -2175,7 +2213,7 @@ class face_learner(object):
         self.model.train()
         lz.timer.since_last_check('eval end')
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
-    
+
     def validate_ori(self, conf, resume_path=None):
         res = {}
         if resume_path is not None:
@@ -2186,10 +2224,10 @@ class face_learner(object):
                                                                        ds)
             logging.info(f'validation accuracy on {ds} is {accuracy} ')
             res[ds] = accuracy
-        
+
         self.model.train()
         return res
-    
+
     # todo deprecated
     def validate_dingyi(self, conf, resume_path=None):
         if resume_path is not None:
@@ -2198,16 +2236,16 @@ class face_learner(object):
         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
                                                                               'agedb_30')
         logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-        
+
         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
                                                                               'lfw')
         logging.info(f'validation accuracy on lfw is {accuracy} ')
-        
+
         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
                                                                               'cfp_fp')
         logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
         self.model.train()
-    
+
     def infer(self, conf, faces, target_embs, tta=False):
         '''
         faces : list of PIL Image
@@ -2225,20 +2263,19 @@ class face_learner(object):
             else:
                 embs.append(self.model(conf.test_transform(img).cuda().unsqueeze(0)))
         source_embs = torch.cat(embs)
-        
+
         diff = source_embs.unsqueeze(-1) - target_embs.transpose(1, 0).unsqueeze(0)
         dist = torch.sum(torch.pow(diff, 2), dim=1)
         minimum, min_idx = torch.min(dist, dim=1)
         min_idx[minimum > self.threshold] = -1  # if no match, set idx to -1
         return min_idx, minimum
-    
+
     def push2redis(self, limits=6 * 10 ** 6 // 8):
-        conf = gl_conf
         self.model.eval()
         loader = DataLoader(
             self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
             shuffle=False, sampler=SeqSampler(), drop_last=False,
-            pin_memory=True, collate_fn=torch.utils.data.default_collate if not gl_conf.fast_load else fast_collate
+            pin_memory=True, collate_fn=torch.utils.data.default_collate if not conf.fast_load else fast_collate
         )
         meter = lz.AverageMeter()
         lz.timer.since_last_check(verbose=False)
@@ -2248,15 +2285,14 @@ class face_learner(object):
                 print(ind_data, meter.avg)
             if ind_data > limits:
                 break
-    
+
     def calc_teacher_logits(self, out='work_space/teacher_embedding.h5'):
         db = lz.Database(out, 'a')
-        conf = gl_conf
         loader = DataLoader(
             self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
             shuffle=False, sampler=SeqSampler(), drop_last=False,
             pin_memory=True,
-            collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
+            collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
         )
         for ind_data, data in data_prefetcher(enumerate(loader)):
             if ind_data % 99 == 3:
@@ -2274,19 +2310,24 @@ class face_learner(object):
                     db[str(index)] = output
         db.flush()
         db.close()
-    
+
     def calc_img_feas(self, out='t.h5'):
-        conf = gl_conf
         self.model.eval()
-        loader = DataLoader(
-            self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
-            shuffle=False, sampler=SeqSampler(), drop_last=False,
-            pin_memory=True,
-            collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
-        )
+        if not ('webface' in str(conf.use_data_folder) or 'casia' in str(conf.use_data_folder)):
+            loader = DataLoader(
+                self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
+                shuffle=False, sampler=SeqSampler(), drop_last=False,
+                pin_memory=True,
+                collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
+            )
+        else:
+            loader = DataLoader(self.dataset, batch_size=conf.batch_size,
+                                num_workers=conf.num_workers, shuffle=False,
+                                drop_last=True, pin_memory=True, )
+            self.class_num = conf.num_clss = self.dataset.num_classes
         import h5py
         from sklearn.preprocessing import normalize
-        
+
         f = h5py.File(out, 'w')
         chunksize = 80 * 10 ** 3
         dst = f.create_dataset("feas", (chunksize, 512), maxshape=(None, 512), dtype='f2')
@@ -2311,7 +2352,7 @@ class face_learner(object):
                 dst_gxent_norm.resize((dst.shape[0] + chunksize,), )
                 dst_img.resize((dst.shape[0] + chunksize, 3, 112, 112))
             assert (data['indexes'].numpy() == np.arange(ind_dst + 1, ind_dst + bs + 1)).all()
-            
+
             with torch.no_grad():
                 embeddings = self.model(imgs, normalize=True)
             embeddings.requires_grad_(True)
@@ -2322,7 +2363,7 @@ class face_learner(object):
                                             retain_graph=True,
                                             create_graph=False, only_inputs=True,
                                             allow_unused=True)[0].detach()
-            
+
             with torch.no_grad():
                 dst[ind_dst:ind_dst + bs, :] = normalize(embeddings.cpu().numpy(), axis=1).astype(np.float16)
                 # dst_img[ind_dst:ind_dst + bs, :, :, :] = imgs.cpu().numpy()
@@ -2330,21 +2371,20 @@ class face_learner(object):
                 dst_gxent_norm[ind_dst:ind_dst + bs] = grad_xent.norm(dim=1).cpu().numpy()
                 dst_xent[ind_dst:ind_dst + bs] = nn.CrossEntropyLoss(reduction='none')(thetas, labels).cpu().numpy()
             ind_dst += bs
-            
+
             if ind_data % 99 == 0:
                 logging.info(f'{ind_data} / {len(loader)}, {loss_xent.item()} {grad_xent.norm(dim=1)[0].item()}')
                 # break
         f.flush()
         f.close()
-    
+
     def calc_fc_feas(self, out='t.pk'):
-        conf = gl_conf
         self.model.eval()
         loader = DataLoader(
             self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
             shuffle=False, sampler=SeqSampler(), drop_last=False,
             pin_memory=True,
-            collate_fn=torch.utils.data.dataloader.default_collate if not gl_conf.fast_load else fast_collate
+            collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
         )
         features = np.empty((self.dataset.num_classes, 512))
         import collections
@@ -2380,24 +2420,23 @@ class face_learner(object):
             fea = normalize(fea.reshape(1, -1)).flatten()
             features[ind_fea, :] = fea
         lz.msgpack_dump(features, out)
-    
+
     def calc_importance(self, out):
-        conf = gl_conf
         self.model.eval()
         loader = DataLoader(
             self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
             shuffle=False, sampler=SeqSampler(), drop_last=False,
             pin_memory=True,
         )
-        gl_conf.dop = np.ones(ds.ids.max() + 1, dtype=int) * 1e-8
-        gl_conf.id2range_dop = {str(id_):
-                                    np.ones((range_[1] - range_[0],)) * 1e-8
-                                for id_, range_ in
-                                ds.id2range.items()}
-        gl_conf.sub_imp_loss = {str(id_):
-                                    np.ones((range_[1] - range_[0],)) * 1e-8
-                                for id_, range_ in
-                                ds.id2range.items()}
+        conf.dop = np.ones(ds.ids.max() + 1, dtype=int) * 1e-8
+        conf.id2range_dop = {str(id_):
+                                 np.ones((range_[1] - range_[0],)) * 1e-8
+                             for id_, range_ in
+                             ds.id2range.items()}
+        conf.sub_imp_loss = {str(id_):
+                                 np.ones((range_[1] - range_[0],)) * 1e-8
+                             for id_, range_ in
+                             ds.id2range.items()}
         for ind_data, data in enumerate(loader):
             if ind_data % 999 == 0:
                 logging.info(f'{ind_data} / {len(loader)}')
@@ -2406,30 +2445,30 @@ class face_learner(object):
             ind_inds = data['ind_inds']
             imgs = imgs.cuda()
             labels = labels_cpu.cuda()
-            
+
             with torch.no_grad():
                 embeddings = self.model(imgs)
             embeddings.requires_grad_(True)
             thetas = self.head(embeddings, labels)
             losses = nn.CrossEntropyLoss(reduction='none')(thetas, labels)
             loss = losses.mean()
-            if gl_conf.tri_wei != 0:
+            if conf.tri_wei != 0:
                 loss_triplet = self.head_triplet(embeddings, labels)
-                loss = ((1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet) / (1 - gl_conf.tri_wei)
+                loss = ((1 - conf.tri_wei) * loss + conf.tri_wei * loss_triplet) / (1 - conf.tri_wei)
             grad = torch.autograd.grad(loss, embeddings,
                                        retain_graph=True, create_graph=False,
                                        only_inputs=True)[0].detach()
             gi = torch.norm(grad, dim=1)
             for lable_, ind_ind_, gi_, loss_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy(),
                                                     losses.detach().cpu().numpy()):
-                gl_conf.id2range_dop[str(lable_)][ind_ind_] = gi_
-                gl_conf.sub_imp_loss[str(lable_)][ind_ind_] = loss_
-                gl_conf.dop[lable_] = gl_conf.id2range_dop[str(lable_)].mean()
-        lz.msgpack_dump({'dop': gl_conf.dop,
-                         'id2range_dop': gl_conf.id2range_dop,
-                         'sub_imp_loss': gl_conf.sub_imp_loss
+                conf.id2range_dop[str(lable_)][ind_ind_] = gi_
+                conf.sub_imp_loss[str(lable_)][ind_ind_] = loss_
+                conf.dop[lable_] = conf.id2range_dop[str(lable_)].mean()
+        lz.msgpack_dump({'dop': conf.dop,
+                         'id2range_dop': conf.id2range_dop,
+                         'sub_imp_loss': conf.sub_imp_loss
                          }, out)
-    
+
     def find_lr(self,
                 conf,
                 init_value=1e-5,
@@ -2458,17 +2497,17 @@ class face_learner(object):
             imgs = imgs.cuda()
             labels = labels.cuda()
             batch_num += 1
-            
+
             self.optimizer.zero_grad()
-            
+
             embeddings = self.model(imgs)
             thetas = self.head(embeddings, labels)
-            
-            if not gl_conf.kd:
+
+            if not conf.kd:
                 loss = conf.ce_loss(thetas, labels)
             else:
-                alpha = gl_conf.alpha
-                T = gl_conf.temperature
+                alpha = conf.alpha
+                T = conf.temperature
                 outputs = thetas
                 with torch.no_grad():
                     teachers_embedding = self.teacher_model(imgs, )
@@ -2476,9 +2515,9 @@ class face_learner(object):
                 loss = -(F.softmax(teacher_outputs / T, dim=1) * F.log_softmax(outputs / T, dim=1)).sum(
                     dim=1).mean() * T * T * alpha + \
                        F.cross_entropy(outputs, labels) * (1. - alpha)  # todo wrong here
-            if gl_conf.tri_wei != 0:
+            if conf.tri_wei != 0:
                 loss_triplet = self.head_triplet(embeddings, labels)
-                loss = (1 - gl_conf.tri_wei) * loss + gl_conf.tri_wei * loss_triplet  # todo
+                loss = (1 - conf.tri_wei) * loss + conf.tri_wei * loss_triplet  # todo
             # Compute the smoothed loss
             avg_loss = beta * avg_loss + (1 - beta) * loss.item()
             self.writer.add_scalar('avg_loss', avg_loss, batch_num)
@@ -2498,13 +2537,13 @@ class face_learner(object):
             self.writer.add_scalar('log_lr', math.log10(lr), batch_num)
             # Do the SGD step
             # Update the lr for the next step
-            if gl_conf.fp16:
+            if conf.fp16:
                 with amp_handle.scale_loss(loss, self.optimizer) as scaled_loss:
                     scaled_loss.backward()
             else:
                 loss.backward()
             self.optimizer.step()
-            
+
             lr *= mult
             for params in self.optimizer.param_groups:
                 params['lr'] = lr
@@ -2517,12 +2556,320 @@ class face_learner(object):
                 return log_lrs, losses
 
 
+class face_cotching(face_learner):
+    def __init__(self, conf=conf, ):
+        self.milestones = conf.milestones
+        self.val_loader_cache = {}
+        ## torch reader
+        if 'webface' in str(conf.use_data_folder) or 'casia' in str(conf.use_data_folder):
+            file = '/data2/share/casia_landmark.txt'
+            df = pd.read_csv(file, sep='\t', header=None)
+            id2nimgs = {}
+            for key, frame in df.groupby(1):
+                id2nimgs[key] = frame.shape[0]
+
+            nimgs = list(id2nimgs.values())
+            nimgs = np.array(nimgs)
+            nimgs = nimgs / nimgs.sum()
+            id2wei = {ind: wei for ind, wei in enumerate(nimgs)}
+            weis = [id2wei[id_] for id_ in np.array(df.iloc[:, 1])]
+            weis = np.asarray(weis)
+
+            self.dataset = DatasetCasia(conf.use_data_folder, )
+            self.loader = DataLoader(self.dataset, batch_size=conf.batch_size,
+                                     num_workers=conf.num_workers,
+                                     sampler=torch.utils.data.sampler.WeightedRandomSampler(weis, weis.shape[0]),
+                                     drop_last=True, pin_memory=True, )
+            self.class_num = conf.num_clss = self.dataset.num_classes
+            conf.explored = np.zeros(self.class_num, dtype=int)
+            conf.dop = np.ones(self.class_num, dtype=int) * conf.mining_init
+        else:
+            self.dataset = TorchDataset(conf.use_data_folder)
+            self.loader = DataLoader(
+                self.dataset, batch_size=conf.batch_size,
+                num_workers=conf.num_workers,
+                sampler=RandomIdSampler(self.dataset.imgidx,
+                                        self.dataset.ids, self.dataset.id2range),
+                drop_last=True, pin_memory=True,
+                collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
+            )
+            self.class_num = self.dataset.num_classes
+        logging.info(f'{self.class_num} classes, load ok ')
+        if conf.need_log:
+            if torch.distributed.is_initialized():
+                lz.set_file_logger(str(conf.log_path) + f'/proc{torch.distributed.get_rank()}')
+                lz.set_file_logger_prt(str(conf.log_path) + f'/proc{torch.distributed.get_rank()}')
+                lz.mkdir_p(conf.log_path, delete=False)
+            else:
+                lz.mkdir_p(conf.log_path, delete=False)
+                lz.set_file_logger(str(conf.log_path))
+                lz.set_file_logger_prt(str(conf.log_path))
+                # todo why no log?
+        if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+            self.writer = SummaryWriter(str(conf.log_path))
+        else:
+            self.writer = None
+        self.step = 0
+
+        if conf.net_mode == 'mobilefacenet':
+            self.model = MobileFaceNet(conf.embedding_size)
+            logging.info('MobileFaceNet model generated')
+        elif conf.net_mode == 'nasnetamobile':
+            self.model = models.nasnetamobile(512)
+        elif conf.net_mode == 'resnext':
+            self.model = models.ResNeXt(**models.resnext._NETS[str(conf.net_depth)])
+        elif conf.net_mode == 'csmobilefacenet':
+            self.model = CSMobileFaceNet(conf.embedding_size)
+            logging.info('CSMobileFaceNet model generated')
+        elif conf.net_mode == 'densenet':
+            self.model = models.DenseNet(**models.densenet._NETS[str(conf.net_depth)])
+        elif conf.net_mode == 'widerresnet':
+            self.model = models.WiderResNet(**models.wider_resnet._NETS[str(conf.net_depth)])
+        elif conf.net_mode == 'ir_se' or conf.net_mode == 'ir':
+            self.model = Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)
+            self.model2 = Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)
+            logging.info('{}_{} model generated'.format(conf.net_mode, conf.net_depth))
+        else:
+            raise ValueError(conf.net_mode)
+        if conf.loss == 'arcface':
+            self.head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num)
+            self.head2 = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num)
+        elif conf.loss == 'softmax':
+            self.head = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num)
+            self.head2 = MySoftmax(embedding_size=conf.embedding_size, classnum=self.class_num)
+        elif conf.loss == 'arcfaceneg':
+            from models.model import ArcfaceNeg
+            self.head = ArcfaceNeg(embedding_size=conf.embedding_size, classnum=self.class_num)
+        else:
+            raise ValueError(f'{conf.loss}')
+
+        self.model = torch.nn.DataParallel(self.model,
+                                           device_ids=conf.model1_dev,
+                                           output_device=conf.model1_dev[0]
+                                           ).cuda()
+        self.model2 = torch.nn.DataParallel(self.model2,
+                                            device_ids=conf.model2_dev,
+                                            output_device=conf.model2_dev[0]
+                                            )
+
+        if self.head is not None:
+            self.head = self.head.to(device=conf.model2_dev[0])
+            self.head2 = self.head2.to(device=conf.model2_dev[0])
+
+        if conf.tri_wei != 0:
+            self.head_triplet = TripletLoss().cuda()
+        logging.info(' model heads generated')
+
+        paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
+        if conf.use_opt == 'adam':  # todo deprecated
+            self.optimizer = optim.Adam([{'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': 0},
+                                         {'params': paras_only_bn}, ],
+                                        betas=(conf.adam_betas1, conf.adam_betas2),
+                                        amsgrad=True,
+                                        lr=conf.lr,
+                                        )
+        elif conf.net_mode == 'mobilefacenet' or conf.net_mode == 'csmobilefacenet':
+            if conf.use_opt == 'sgd':
+                self.optimizer = optim.SGD([
+                    {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
+                    {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
+                    {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
+                # embed()
+            elif conf.use_opt == 'adabound':
+                from tools.adabound import AdaBound
+                self.optimizer = AdaBound([
+                    {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
+                    {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
+                    {'params': paras_only_bn}
+                ], lr=conf.lr, betas=(conf.adam_betas1, conf.adam_betas2),
+                    gamma=1e-3, final_lr=conf.final_lr, )
+        elif conf.use_opt == 'sgd':
+            self.optimizer = optim.SGD([
+                {'params': paras_wo_bn + [*self.head.parameters()],
+                 'weight_decay': conf.weight_decay},
+                {'params': paras_only_bn},
+            ], lr=conf.lr, momentum=conf.momentum)
+            paras_only_bn2, paras_wo_bn2 = separate_bn_paras(self.model2)
+            self.optimizer2 = optim.SGD([
+                {'params': paras_wo_bn2 + [*self.head2.parameters()],
+                 'weight_decay': conf.weight_decay},
+                {'params': paras_only_bn2},
+            ], lr=conf.lr, momentum=conf.momentum)
+        elif conf.use_opt == 'adabound':
+            from tools.adabound import AdaBound
+            self.optimizer = AdaBound([
+                {'params': paras_wo_bn + [*self.head.parameters()],
+                 'weight_decay': conf.weight_decay},
+                {'params': paras_only_bn},
+            ], lr=conf.lr, betas=(conf.adam_betas1, conf.adam_betas2),
+                gamma=1e-3, final_lr=conf.final_lr,
+            )
+        else:
+            raise ValueError(f'{conf.use_opt}')
+        if conf.fp16:
+            if conf.use_test:
+                nloss = 2
+            else:
+                nloss = 1
+            self.optimizer = amp_handle.wrap_optimizer(self.optimizer, num_loss=nloss)
+            self.optimizer2 = amp_handle.wrap_optimizer(self.optimizer2, num_loss=nloss)
+        logging.info(f'optimizers generated {self.optimizer}')
+        self.board_loss_every = conf.board_loss_every
+        self.head.train()
+        self.model.train()
+        self.head2.train()
+        self.model2.train()
+
+    def train_cotching(self, conf, epochs):
+        self.model.train()
+        self.model2.train()
+        loader = self.loader
+        self.evaluate_every = conf.other_every or len(loader) // 3
+        self.save_every = conf.other_every or len(loader) // 3
+        self.step = conf.start_step
+        writer = self.writer
+        lz.timer.since_last_check('start train')
+        data_time = lz.AverageMeter()
+        loss_time = lz.AverageMeter()
+        accuracy = 0
+        if conf.start_eval:
+            for ds in ['cfp_fp', ]:
+                accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                    conf,
+                    self.loader.dataset.root_path,
+                    ds)
+                self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                logging.info(f'validation accuracy on {ds} is {accuracy} ')
+        for e in range(conf.start_epoch, epochs):
+            lz.timer.since_last_check('epoch {} started'.format(e))
+            self.schedule_lr(e)
+            loader_enum = data_prefetcher(enumerate(loader))
+            while True:
+                ind_data, data = next(loader_enum)
+                if ind_data is None:
+                    logging.info(f'one epoch finish {e} {ind_data}')
+                    loader_enum = data_prefetcher(enumerate(loader))
+                    ind_data, data = next(loader_enum)
+                if (self.step + 1) % len(loader) == 0:
+                    self.step += 1
+                    break
+                imgs = data['imgs'].to(device=conf.model1_dev[0])
+                # imgs2 = data['imgs'].to(device=conf.model2_dev[0])
+                imgs2 = imgs
+                assert imgs.max() < 2
+                if 'labels_cpu' in data:
+                    labels_cpu = data['labels_cpu'].cpu()
+                else:
+                    labels_cpu = data['labels'].cpu()
+                labels = data['labels'].to(device=conf.model1_dev[0])
+                # labels2 = data['labels'].to(device=conf.model2_dev[0])
+                labels2 = labels
+                data_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
+
+                embeddings = self.model(imgs, mode='train')
+                embeddings2 = self.model(imgs2, mode='train')
+                thetas = self.head(embeddings, labels)
+                thetas2 = self.head2(embeddings2, labels2)
+                pred = thetas.argmax(dim=1)
+                pred2 = thetas2.argmax(dim=1)
+                disagree = pred != pred2
+                if disagree.sum().item() == 0:
+                    disagree = to_torch(np.random.randint(0, 1, disagree.shape)).type_as(disagree)  # todo
+                loss_xent = F.cross_entropy(thetas[disagree], labels[disagree], reduction='none')
+                loss_xent2 = F.cross_entropy(thetas2[disagree], labels2[disagree], reduction='none')
+                ind_sorted = loss_xent.argsort()
+                ind2_sorted = loss_xent2.argsort()
+                num_disagree = labels[disagree].shape[0]
+                assert num_disagree == disagree.sum().item()
+                tau = 0.35
+                Ek = len(loader)
+                Emax = len(loader) * conf.epochs
+                lambda_e = 1 - min(self.step / Ek * tau, (1 + (self.step - Ek) / (Emax - Ek)) * tau)
+                num_remember = max(int(round(num_disagree * lambda_e)), 1)
+                ind_update = ind_sorted[:num_remember]
+                ind2_update = ind2_sorted[:num_remember]
+                loss_xent = loss_xent[ind_update].mean()
+                loss_xent2 = loss_xent2[ind2_update].mean()
+
+                self.optimizer.zero_grad()
+                if conf.fp16:
+                    with self.optimizer.scale_loss(loss_xent) as scaled_loss:
+                        scaled_loss.backward()
+                else:
+                    loss_xent.backward()
+                self.optimizer.step()
+
+                self.optimizer2.zero_grad()
+                if conf.fp16:
+                    with self.optimizer2.scale_loss(loss_xent2) as scaled_loss:
+                        scaled_loss.backward()
+                else:
+                    loss_xent2.backward()
+                self.optimizer2.step()
+
+                with torch.no_grad():
+                    if conf.mining == 'dop':
+                        update_dop_cls(thetas, labels_cpu, conf.dop)
+                    if conf.mining == 'rand.id':
+                        conf.dop[labels_cpu.numpy()] = 1
+                conf.explored[labels_cpu.numpy()] = 1
+                with torch.no_grad():
+                    acc_t = (thetas.argmax(dim=1) == labels)
+                    acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
+                loss_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
+                if self.step % self.board_loss_every == 0:
+                    logging.info(f'epoch {e}/{epochs} step {self.step}/{len(loader)}: ' +
+                                 f'xent: {loss_xent.item():.2e} ' +
+                                 f'data time: {data_time.avg:.2f} ' +
+                                 f'loss time: {loss_time.avg:.2f} ' +
+                                 f'acc: {acc:.2e} ' +
+                                 f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                    writer.add_scalar('info/disagree', disagree.sum().item(), self.step)
+                    writer.add_scalar('info/remenber', num_remember, self.step)
+                    writer.add_scalar('info/lambda_e', lambda_e, self.step)
+                    writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
+                    writer.add_scalar('loss/xent', loss_xent.item(), self.step)
+                    writer.add_scalar('info/acc', acc, self.step)
+                    writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                    writer.add_scalar('info/datatime', data_time.avg, self.step)
+                    writer.add_scalar('info/losstime', loss_time.avg, self.step)
+                    writer.add_scalar('info/epoch', e, self.step)
+                    dop = conf.dop
+                    if dop is not None:
+                        writer.add_histogram('top_imp', dop, self.step)
+                        writer.add_scalar('info/doprat',
+                                          np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
+
+                if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
+                    for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
+                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                            conf,
+                            self.loader.dataset.root_path,
+                            ds)
+                        self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                        logging.info(f'validation accuracy on {ds} is {accuracy} ')
+                if self.step % self.save_every == 0 and self.step != 0:
+                    self.save_state(conf, accuracy)
+
+                self.step += 1
+                if conf.prof and self.step % 29 == 28:
+                    break
+            if conf.prof and e > 5:
+                break
+        self.save_state(conf, accuracy, to_save_folder=True, extra='final')
+
+
 if __name__ == '__main__':
     pass
+    # ds = DatasetCfpFp()
     ds = DatasetCasia()
     imgs = []
     for i in np.random.randint(0, 100, (10,)):
-        img, _ = ds[i]
+        img = ds[i]['imgs']
         imgs.append(img)
     plt_imshow_tensor(imgs)
     plt.show()
