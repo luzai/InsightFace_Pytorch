@@ -32,15 +32,6 @@ try:
     from apex.parallel import DistributedDataParallel as DDP
     from apex.fp16_utils import *
     from apex import amp
-
-    if conf.fp16:
-        # amp.register_half_function(torch, 'prelu')
-        # amp.register_promote_function(torch, 'prelu')
-        amp.register_float_function(torch, 'prelu')
-        # amp.register_half_function(torch, 'pow')
-        # amp.register_half_function(torch, 'norm') # dangerous
-        pass
-    amp_handle = amp.init(enabled=conf.fp16)
 except ImportError:
     logging.warning("if want to use fp16, install apex from https://www.github.com/nvidia/apex to run this example.")
     conf.fp16 = False
@@ -870,13 +861,8 @@ class face_learner(object):
             self.head = ArcfaceNeg(embedding_size=conf.embedding_size, classnum=self.class_num)
         else:
             raise ValueError(f'{conf.loss}')
-        if conf.local_rank is None:
-            self.model = torch.nn.DataParallel(self.model).cuda()
-        else:
-            self.model = torch.nn.parallel.DistributedDataParallel(self.model.cuda(),
-                                                                   device_ids=[conf.local_rank],
-                                                                   output_device=conf.local_rank)
-
+        self.model.cuda()
+        
         if conf.head_init:
             kernel = lz.msgpack_load(conf.head_init).astype(np.float32).transpose()
             kernel = torch.from_numpy(kernel)
@@ -930,11 +916,19 @@ class face_learner(object):
             raise ValueError(f'{conf.use_opt}')
         if conf.fp16:
             if conf.use_test:
-                nloss = 2
+                nloss = 2 # todo
             else:
                 nloss = 1
-            self.optimizer = amp_handle.wrap_optimizer(self.optimizer, num_loss=nloss)
+            self.model,self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O1")
         logging.info(f'optimizers generated {self.optimizer}')
+
+        if conf.local_rank is None:
+            self.model = torch.nn.DataParallel(self.model).cuda()
+        else:
+            self.model = torch.nn.parallel.DistributedDataParallel(self.model.cuda(),
+                                                                   device_ids=[conf.local_rank],
+                                                                   output_device=conf.local_rank)
+        
         self.board_loss_every = conf.board_loss_every
         self.head.train()
         self.model.train()
@@ -1739,7 +1733,7 @@ class face_learner(object):
                     thetas = self.head(embeddings, labels)
                     loss = (F.cross_entropy(thetas, labels, reduction='none') * wi).mean()
                     if conf.fp16:
-                        with amp_handle.scale_loss(loss, self.optimizer) as scaled_loss:
+                        with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                             scaled_loss.backward()
                     else:
                         loss.backward()
@@ -2538,7 +2532,7 @@ class face_learner(object):
             # Do the SGD step
             # Update the lr for the next step
             if conf.fp16:
-                with amp_handle.scale_loss(loss, self.optimizer) as scaled_loss:
+                with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                     scaled_loss.backward()
             else:
                 loss.backward()
@@ -2643,15 +2637,9 @@ class face_cotching(face_learner):
         else:
             raise ValueError(f'{conf.loss}')
 
-        self.model = torch.nn.DataParallel(self.model,
-                                           device_ids=conf.model1_dev,
-                                           output_device=conf.model1_dev[0]
-                                           ).cuda()
-        self.model2 = torch.nn.DataParallel(self.model2,
-                                            device_ids=conf.model2_dev,
-                                            output_device=conf.model2_dev[0]
-                                            )
-
+        self.model.cuda()
+        self.model2.cuda()
+        
         if self.head is not None:
             self.head = self.head.to(device=conf.model2_dev[0])
             self.head2 = self.head2.to(device=conf.model2_dev[0])
@@ -2711,9 +2699,20 @@ class face_cotching(face_learner):
                 nloss = 2
             else:
                 nloss = 1
-            self.optimizer = amp_handle.wrap_optimizer(self.optimizer, num_loss=nloss)
-            self.optimizer2 = amp_handle.wrap_optimizer(self.optimizer2, num_loss=nloss)
+            self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O1")
+            self.model2, self.optimizer2 = amp.initialize(self.model2, self.optimizer2, opt_level="O1")
+            
         logging.info(f'optimizers generated {self.optimizer}')
+
+        self.model = torch.nn.DataParallel(self.model,
+                                           device_ids=conf.model1_dev,
+                                           output_device=conf.model1_dev[0]
+                                           ).cuda()
+        self.model2 = torch.nn.DataParallel(self.model2,
+                                            device_ids=conf.model2_dev,
+                                            output_device=conf.model2_dev[0]
+                                            )
+        
         self.board_loss_every = conf.board_loss_every
         self.head.train()
         self.model.train()
@@ -2783,7 +2782,8 @@ class face_cotching(face_learner):
                 ind2_sorted = loss_xent2.argsort()
                 num_disagree = labels[disagree].shape[0]
                 assert num_disagree == disagree.sum().item()
-                tau = 0.35
+                # tau = 0.35
+                tau = 0.05
                 Ek = len(loader)
                 Emax = len(loader) * conf.epochs
                 lambda_e = 1 - min(self.step / Ek * tau, (1 + (self.step - Ek) / (Emax - Ek)) * tau)
@@ -2795,7 +2795,7 @@ class face_cotching(face_learner):
 
                 self.optimizer.zero_grad()
                 if conf.fp16:
-                    with self.optimizer.scale_loss(loss_xent) as scaled_loss:
+                    with amp.scale_loss(loss_xent, self.optimizer) as scaled_loss:
                         scaled_loss.backward()
                 else:
                     loss_xent.backward()
@@ -2803,7 +2803,7 @@ class face_cotching(face_learner):
 
                 self.optimizer2.zero_grad()
                 if conf.fp16:
-                    with self.optimizer2.scale_loss(loss_xent2) as scaled_loss:
+                    with amp.scale_loss(loss_xent2, self.optimizer2) as scaled_loss:
                         scaled_loss.backward()
                 else:
                     loss_xent2.backward()

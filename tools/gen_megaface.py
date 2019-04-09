@@ -261,6 +261,5 @@ def parse_arguments(argv):
 
 if __name__ == '__main__':
     import lz
-    
-    lz.init_dev(lz.get_dev())
+    # lz.init_dev(lz.get_dev())
     main(parse_arguments(sys.argv[1:]))

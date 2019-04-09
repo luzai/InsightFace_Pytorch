@@ -9,21 +9,19 @@ ALGO="insightface"
 
 
 FEALOC="emore.r152.ada.chkpnt.3"
-RESNAME="$FEALOC.cl.res.5"
+RESNAME="$FEALOC.cl.res"
 
-python -u gen_megaface.py --gpu 0 --algo "$ALGO" --model "$CODE_ROOT/work_space/$FEALOC/save" --output "$ROOT/$FEALOC"
+#python -u gen_megaface.py --gpu 0 --algo "$ALGO" --model "$CODE_ROOT/work_space/$FEALOC/save" --output "$ROOT/$FEALOC"
 
-python -u remove_noises.py --algo "$ALGO" --feature_dir_input "$ROOT/$FEALOC" --feature_dir_out "$ROOT/$FEALOC.cl"
+#python -u remove_noises.py --algo "$ALGO" --feature_dir_input "$ROOT/$FEALOC" --feature_dir_out "$ROOT/$FEALOC.cl"
 
 cd "$DEVKIT"
 source activate py2
 rm -rf "$ROOT/$RESNAME"
 
-LD_LIBRARY_PATH="/data/xinglu/anaconda3/envs/py2/lib:$LD_LIBRARY_PATH" python2 -u run_experiment.py "$ROOT/$FEALOC.cl/megaface" "$ROOT/$FEALOC.cl/facescrub" _"$ALGO".bin "$ROOT/$RESNAME" -s 1000000 -p ../templatelists/facescrub_features_list.json
+#LD_LIBRARY_PATH="/data/xinglu/anaconda3/envs/py2/lib:$LD_LIBRARY_PATH" python2 -u run_experiment.py "$ROOT/$FEALOC.cl/megaface" "$ROOT/$FEALOC.cl/facescrub" _"$ALGO".bin "$ROOT/$RESNAME" -s 1000000 -p ../templatelists/facescrub_features_list.json
 
-#LD_LIBRARY_PATH="/data/xinglu/anaconda3/envs/py2/lib:$LD_LIBRARY_PATH" python2 -u run_experiment.py "$ROOT/$FEALOC/megaface" "$ROOT/$FEALOC/facescrub" _"$ALGO".bin "$ROOT/$RESNAME" -s 1000000 -p ../templatelists/facescrub_features_list.json
-
-#LD_LIBRARY_PATH="/data/xinglu/anaconda3/envs/py2/lib:$LD_LIBRARY_PATH" python2 -u run_experiment.py "$ROOT/$FEALOC.cl/megaface" "$ROOT/$FEALOC.cl/facescrub" _"$ALGO".bin "$ROOT/$RESNAME" -s 100000 -p ../templatelists/facescrub_features_list_10000.4.json
+LD_LIBRARY_PATH="/data/xinglu/anaconda3/envs/py2/lib:$LD_LIBRARY_PATH" python2 -u run_experiment.py "$ROOT/$FEALOC.cl/megaface" "$ROOT/$FEALOC.cl/facescrub" _"$ALGO".bin "$ROOT/$RESNAME" -s 100000 -p ../templatelists/facescrub_features_list_10000.4.json
 
 conda deactivate
 cd -
