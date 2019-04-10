@@ -115,10 +115,10 @@ class DatasetCasia(torch.utils.data.Dataset):
         df = pd.read_csv(self.file, sep='\t', header=None)
         self.num_classes = np.unique(df.iloc[:, 1]).shape[0]
         self.root_path = Path('/data2/share/faces_emore/')
-
+    
     def __len__(self):
         return len(self.lines)
-
+    
     def __getitem__(self, item):
         line = self.lines[item].split()
         path = '/data2/share/casia/' + line[0]
@@ -137,7 +137,7 @@ class DatasetCasia(torch.utils.data.Dataset):
         warp /= 0.5
         warp = np.array(warp, dtype=np.float32)
         warp = warp.transpose((2, 0, 1))
-        return {'imgs': warp, 'labels': cid, 'indexes': item + 1,
+        return {'imgs': warp, 'labels': int(cid), 'indexes': item + 1,
                 'ind_inds': -1, 'is_trains': False}
 
 
@@ -157,10 +157,10 @@ class DatasetIJBC2(torch.utils.data.Dataset):
         self.img_path = img_path
         self.IJBC_path = IJBC_path
         self.files = files
-
+    
     def __len__(self):
         return len(self.files)
-
+    
     def __getitem__(self, item):
         import cvbase as cvb
         from PIL import Image
@@ -192,10 +192,10 @@ class MegaFaceDisDS(torch.utils.data.Dataset):
             trans.ToTensor(),
             trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
         ])
-
+    
     def __len__(self):
         return len(self.files)
-
+    
     def __getitem__(self, item):
         import cvbase as cvb
         img = cvb.read_img(self.files[item])
@@ -211,10 +211,10 @@ class DatasetCfpFp(torch.utils.data.Dataset):
         carray = np.array(carray, np.float32)
         carray = carray[:, ::-1, :, :].copy()  # to rgb
         self.carray = carray
-
+    
     def __len__(self):
         return len(self.carray)
-
+    
     def __getitem__(self, item):
         img = self.carray[item]
         if random.randint(0, 1) == 1:
@@ -236,7 +236,7 @@ class TestDataset(object):
             self.imglen = len(self.rec_test)
         else:
             raise ValueError(f'{conf.use_test}')
-
+    
     def _get_single_item(self, index):
         if conf.use_test == 'ijbc':
             imgs = self.rec_test[index]
@@ -253,10 +253,10 @@ class TestDataset(object):
             raise ValueError(f'{conf.use_test}')
         return {'imgs': np.array(imgs, dtype=np.float32), 'labels': -1, 'indexes': index,
                 'ind_inds': -1, 'is_trains': False}
-
+    
     def __len__(self):
         return self.imglen
-
+    
     def __getitem__(self, indices, ):
         res = self._get_single_item(indices)
         return res
@@ -276,14 +276,14 @@ class TorchDataset(object):
         self.path_imgrec = path_imgrec
         self.imgrecs = []
         self.locks = []
-
+        
         if conf.use_redis:
             import redis
-
+            
             self.r = redis.Redis()
         else:
             self.r = None
-
+        
         lz.timer.since_last_check('start timer for imgrec')
         for num_rec in range(conf.num_recs):
             if num_rec == 1:
@@ -325,7 +325,7 @@ class TorchDataset(object):
         self.ids = np.asarray(self.ids)
         self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
         lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + f'/info.{conf.cutoff}.pk')
-
+        
         conf.num_clss = self.num_classes
         conf.explored = np.zeros(self.ids.max() + 1, dtype=int)
         if conf.dop is None:
@@ -346,14 +346,14 @@ class TorchDataset(object):
         lz.timer.since_last_check('finish cal dataset info')
         if conf.kd and conf.sftlbl_from_file:  # todo deprecated
             self.teacher_embedding_db = lz.Database('work_space/teacher_embedding.h5', 'r')
-
+    
     def __len__(self):
         if conf.local_rank is not None:
             return len(self.imgidx) // torch.distributed.get_world_size()
         else:
             #             logging.info(f'ask me len {len(self.imgidx)} {self.imgidx}')
             return len(self.imgidx) // conf.epoch_less_iter
-
+    
     def __getitem__(self, indices, ):
         # if isinstance(indices, (tuple, list)) and len(indices[0])==3:
         #    if self.r:
@@ -370,17 +370,17 @@ class TorchDataset(object):
         #             torch.is_tensor(v)
         #     ), type(v)
         return res
-
+    
     def imdecode(self, s):
         """Decodes a string or byte string to an NDArray.
         See mx.img.imdecode for more details."""
         img = mx.image.imdecode(s)  # mx.ndarray
         return img
-
+    
     def postprocess_data(self, datum):
         """Final postprocessing step before image is loaded into the batch."""
         return nd.transpose(datum, axes=(2, 0, 1))
-
+    
     def preprocess_img(self, imgs):
         if self.flip and random.randint(0, 1) == 1:
             imgs = mx.ndarray.flip(data=imgs, axis=1)
@@ -392,7 +392,7 @@ class TorchDataset(object):
             imgs = np.array(imgs, dtype=np.float32)
         imgs = imgs.transpose((2, 0, 1))
         return imgs
-
+    
     def _get_single_item(self, index):
         # self.cur += 1
         # index += 1  # noneed,  here it index (imgidx) start from 1,.rec start from 1
@@ -412,14 +412,14 @@ class TorchDataset(object):
                 succ = self.locks[ind_rec].acquire(timeout=0)
                 if succ: break
             if succ: break
-
+        
         ##  locality based
         # if index < self.imgidx[len(self.imgidx) // 2]:
         #     ind_rec = 0
         # else:
         #     ind_rec = 1
         # succ = self.locks[ind_rec].acquire()
-
+        
         s = self.imgrecs[ind_rec].read_idx(index)  # from [ 1 to 3804846 ]
         rls_succ = self.locks[ind_rec].release()
         header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
@@ -451,14 +451,14 @@ class Dataset_val(torch.utils.data.Dataset):
         self.carray, self.issame = get_val_pair(path, name)
         self.carray = self.carray[:, ::-1, :, :]  # BGR 2 RGB!
         self.transform = transform
-
+    
     def __getitem__(self, index):
         if self.transform:
             fliped_carray = self.transform(torch.tensor(self.carray[index]))
             return {'carray': self.carray[index], 'issame': 1.0 * self.issame[index], 'fliped_carray': fliped_carray}
         else:
             return {'carray': self.carray[index], 'issame': 1.0 * self.issame[index]}
-
+    
     def __len__(self):
         return len(self.issame)
 
@@ -490,13 +490,13 @@ class RandomIdSampler(Sampler):
             if num < self.num_instances:
                 num = self.num_instances
             self.length += num - num % self.num_instances
-
+    
     def __len__(self):
         if conf.local_rank is not None:
             return self.length // torch.distributed.get_world_size()
         else:
             return self.length
-
+    
     def get_batch_ids(self):
         pids = []
         dop = conf.dop
@@ -531,9 +531,9 @@ class RandomIdSampler(Sampler):
             else:
                 pids = pids[: self.num_pids_per_batch]
         # assert len(pids) == np.unique(pids).shape[0]
-
+        
         return pids
-
+    
     def get_batch_idxs(self):
         pids = self.get_batch_ids()
         cnt = 0
@@ -569,7 +569,7 @@ class RandomIdSampler(Sampler):
                     break
             if cnt == self.batch_size:
                 break
-
+    
     def __iter__(self):
         if conf.mining == 'rand.img':  # quite slow
             for _ in range(len(self)):
@@ -605,14 +605,14 @@ class SeqSampler(Sampler):
         self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1])))).tolist()
                           for id, idxs in self.id2range.items()}  # it index based on 1
         self.ids = list(self.ids)
-
+        
         # estimate number of examples in an epoch
         self.nimgs_lst = [len(idxs) for idxs in self.index_dic.values()]
         self.length = sum(self.nimgs_lst)
-
+    
     def __len__(self):
         return self.length
-
+    
     def __iter__(self):
         for pid in self.id2range:
             for ind_ind in range(len(self.index_dic[pid])):
@@ -640,7 +640,7 @@ class FaceInfer():
         self.model = self.model.eval()
         self.model = torch.nn.DataParallel(self.model,
                                            device_ids=list(gpuid), output_device=gpuid[0]).to(gpuid[0])
-
+    
     def load_model_only(self, fpath):
         model_state_dict = torch.load(fpath, map_location=lambda storage, loc: storage)
         model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
@@ -648,7 +648,7 @@ class FaceInfer():
             self.model.load_state_dict(model_state_dict, strict=True, )
         else:
             self.model.module.load_state_dict(model_state_dict, strict=True, )
-
+    
     def load_state(self, fixed_str=None,
                    resume_path=None, latest=True,
                    ):
@@ -699,7 +699,7 @@ if conf.fast_load:
                 self.std = self.std.half()
             self.buffer = []
             self.preload()
-
+        
         def preload(self):
             try:
                 ind_loader, data_loader = next(self.loader)
@@ -716,15 +716,15 @@ if conf.fast_load:
             except StopIteration:
                 self.buffer.append((None, None))
                 return
-
+        
         def next(self):
             torch.cuda.current_stream().wait_stream(self.stream)
             self.preload()
             res = self.buffer.pop(0)
             return res
-
+        
         __next__ = next
-
+        
         def __iter__(self):
             while True:
                 ind, data = self.next()
@@ -750,7 +750,7 @@ def fast_collate(batch):
             nump_array = np.expand_dims(nump_array, axis=-1)
         # nump_array = np.rollaxis(nump_array, 2)
         tensor[i] += torch.from_numpy(nump_array)
-
+    
     return {'imgs': tensor, 'labels': targets,
             'ind_inds': ind_inds, 'indexes': indexes,
             'is_trains': is_trains}
@@ -767,14 +767,14 @@ class face_learner(object):
             id2nimgs = {}
             for key, frame in df.groupby(1):
                 id2nimgs[key] = frame.shape[0]
-
+            
             nimgs = list(id2nimgs.values())
             nimgs = np.array(nimgs)
             nimgs = nimgs / nimgs.sum()
             id2wei = {ind: wei for ind, wei in enumerate(nimgs)}
             weis = [id2wei[id_] for id_ in np.array(df.iloc[:, 1])]
             weis = np.asarray(weis)
-
+            
             self.dataset = DatasetCasia(conf.use_data_folder, )
             self.loader = DataLoader(self.dataset, batch_size=conf.batch_size,
                                      num_workers=conf.num_workers,
@@ -810,7 +810,7 @@ class face_learner(object):
         else:
             self.writer = None
         self.step = 0
-
+        
         if conf.net_mode == 'mobilefacenet':
             self.model = MobileFaceNet(conf.embedding_size)
             logging.info('MobileFaceNet model generated')
@@ -873,7 +873,7 @@ class face_learner(object):
         if conf.tri_wei != 0:
             self.head_triplet = TripletLoss().cuda()
         logging.info(' model heads generated')
-
+        
         paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
         if conf.use_opt == 'adam':  # todo deprecated
             self.optimizer = optim.Adam([{'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': 0},
@@ -916,12 +916,12 @@ class face_learner(object):
             raise ValueError(f'{conf.use_opt}')
         if conf.fp16:
             if conf.use_test:
-                nloss = 2 # todo
+                nloss = 2  # todo
             else:
                 nloss = 1
-            self.model,self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O1")
+            self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O1")
         logging.info(f'optimizers generated {self.optimizer}')
-
+        
         if conf.local_rank is None:
             self.model = torch.nn.DataParallel(self.model).cuda()
         else:
@@ -932,7 +932,7 @@ class face_learner(object):
         self.board_loss_every = conf.board_loss_every
         self.head.train()
         self.model.train()
-
+    
     def train_dist(self, conf, epochs):
         self.model.train()
         loader = self.loader
@@ -945,7 +945,7 @@ class face_learner(object):
         loss_time = lz.AverageMeter()
         accuracy = 0
         dist_need_log = not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0
-
+        
         if conf.start_eval:
             for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1022,7 +1022,7 @@ class face_learner(object):
                         # writer.add_histogram('top_imp', dop, self.step)
                         writer.add_scalar('info/doprat',
                                           np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
-
+                
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1032,17 +1032,17 @@ class face_learner(object):
                         if dist_need_log:
                             self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                             logging.info(f'validation accuracy on {ds} is {accuracy} ')
-
+                
                 if dist_need_log and self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-
+                
                 self.step += 1
                 if conf.prof and self.step % 29 == 28:
                     break
             if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-
+    
     def warmup(self, conf, epochs):
         self.model.train()
         loader = self.loader
@@ -1122,7 +1122,7 @@ class face_learner(object):
                         writer.add_histogram('top_imp', dop, self.step)
                         writer.add_scalar('info/doprat',
                                           np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
-
+                
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1133,14 +1133,14 @@ class face_learner(object):
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-
+                
                 self.step += 1
                 if conf.prof and self.step % 29 == 28:
                     break
             if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-
+    
     def train_simple(self, conf, epochs):
         self.model.train()
         loader = self.loader
@@ -1224,7 +1224,7 @@ class face_learner(object):
                         writer.add_histogram('top_imp', dop, self.step)
                         writer.add_scalar('info/doprat',
                                           np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
-
+                
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1235,14 +1235,14 @@ class face_learner(object):
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-
+                
                 self.step += 1
                 if conf.prof and self.step % 29 == 28:
                     break
             if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-
+    
     def train_ghm(self, conf, epochs):
         self.ghm_mom = 0.75
         self.gmax = 350
@@ -1251,7 +1251,7 @@ class face_learner(object):
         self.gmax = self.bins * self.ginterv
         self.edges = np.asarray([self.ginterv * x for x in range(self.bins + 1)])
         self.acc_sum = np.zeros(self.bins)
-
+        
         self.model.train()
         loader = self.loader
         self.evaluate_every = conf.other_every or len(loader) // 3
@@ -1352,7 +1352,7 @@ class face_learner(object):
                         writer.add_histogram('top_imp', dop, self.step)
                         writer.add_scalar('info/doprat',
                                           np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
-
+                
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1363,14 +1363,14 @@ class face_learner(object):
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-
+                
                 self.step += 1
                 if conf.prof and self.step % 29 == 28:
                     break
             if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-
+    
     def train_with_wei(self, conf, epochs):
         self.model.train()
         loader = self.loader
@@ -1429,7 +1429,7 @@ class face_learner(object):
                     # plt.plot(weis_batch,); plt.show()
                     weis_batch = to_torch(np.asarray(weis_batch, dtype=np.float32)).cuda()
                 loss_xent = (weis_batch * loss_xent).sum()
-
+                
                 if conf.fp16:
                     with self.optimizer.scale_loss(loss_xent) as scaled_loss:
                         scaled_loss.backward()
@@ -1467,7 +1467,7 @@ class face_learner(object):
                         writer.add_histogram('top_imp', dop, self.step)
                         writer.add_scalar('info/doprat',
                                           np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
-
+                
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1478,14 +1478,14 @@ class face_learner(object):
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-
+                
                 self.step += 1
                 if conf.prof and self.step % 29 == 28:
                     break
             if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-
+    
     def train_use_test(self, conf, epochs):
         self.model.train()
         loader = self.loader
@@ -1505,7 +1505,7 @@ class face_learner(object):
         data_time = lz.AverageMeter()
         loss_time = lz.AverageMeter()
         accuracy = 0
-
+        
         for e in range(conf.start_epoch, epochs):
             lz.timer.since_last_check('epoch {} started'.format(e))
             self.schedule_lr(e)
@@ -1606,7 +1606,7 @@ class face_learner(object):
                         writer.add_histogram('top_imp', dop, self.step)
                         writer.add_scalar('info/doprat',
                                           np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
-
+                
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1617,14 +1617,14 @@ class face_learner(object):
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-
+                
                 self.step += 1
                 if conf.prof and self.step % 29 == 28:
                     break
             if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-
+    
     # todo train_tri
     def train(self, conf, epochs, mode='train', name=None):
         self.model.train()
@@ -1650,7 +1650,7 @@ class face_learner(object):
             writer = self.writer
         else:
             writer = SummaryWriter(str(conf.log_path) + '/ft')
-
+        
         lz.timer.since_last_check('start train')
         data_time = lz.AverageMeter()
         loss_time = lz.AverageMeter()
@@ -1666,7 +1666,7 @@ class face_learner(object):
             lz.timer.since_last_check('epoch {} started'.format(e))
             self.schedule_lr(e)
             loader_enum = data_prefetcher(enumerate(loader))
-
+            
             while True:
                 ind_data, data = next(loader_enum)
                 if ind_data is None:
@@ -1761,7 +1761,7 @@ class face_learner(object):
                         loss_triplet, info = self.head_triplet(embeddings, labels, return_info=True)
                         grad_tri = torch.autograd.grad(loss_triplet, embeddings, retain_graph=True, create_graph=False,
                                                        only_inputs=True)[0].detach()
-
+                        
                         writer.add_scalar('info/grad_tri', torch.norm(grad_tri, dim=1).mean().item(), self.step)
                         grad_xent = torch.autograd.grad(loss, embeddings, retain_graph=True, create_graph=False,
                                                         only_inputs=True)[0].detach()
@@ -1798,7 +1798,7 @@ class face_learner(object):
                     tau = alpha_tau * tau + \
                           (1 - alpha_tau) * (1 - (1 / (gi ** 2).sum()).item() * (
                             torch.norm(gi - 1 / len(gi), dim=0) ** 2).item()) ** (-1 / 2)
-
+                
                 #                 elif conf.fgg == 'g':
                 #                     embeddings_o = self.model(imgs)
                 #                     thetas_o = self.head(embeddings, labels)
@@ -1841,7 +1841,7 @@ class face_learner(object):
                         writer.add_scalar('loss/triplet', loss_triplet.item(), self.step)
                         writer.add_scalar('loss/dap', info['dap'], self.step)
                         writer.add_scalar('loss/dan', info['dan'], self.step)
-
+                    
                     writer.add_scalar('info/acc', acc, self.step)
                     writer.add_scalar('info/speed',
                                       conf.batch_size / (data_time.avg + loss_time.avg), self.step)
@@ -1852,7 +1852,7 @@ class face_learner(object):
                     writer.add_histogram('top_imp', dop, self.step)
                     writer.add_scalar('info/doprat',
                                       np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
-
+                
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1863,14 +1863,14 @@ class face_learner(object):
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-
+                
                 self.step += 1
                 if conf.prof and self.step % 29 == 28:
                     break
             if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-
+    
     def train_fgg(self, conf, epochs, mode='train', name=None):
         self.model.train()
         if mode == 'train':
@@ -1895,7 +1895,7 @@ class face_learner(object):
             writer = self.writer
         else:
             writer = SummaryWriter(str(conf.log_path) + '/ft')
-
+        
         lz.timer.since_last_check('start train')
         data_time = lz.AverageMeter()
         loss_time = lz.AverageMeter()
@@ -1904,7 +1904,7 @@ class face_learner(object):
             lz.timer.since_last_check('epoch {} started'.format(e))
             self.schedule_lr(e)
             loader_enum = data_prefetcher(enumerate(loader))
-
+            
             while True:
                 ind_data, data = next(loader_enum)
                 if ind_data is None:
@@ -1950,18 +1950,18 @@ class face_learner(object):
                     loss.backward()
                 else:
                     raise ValueError(f'{conf.fgg}')
-
+                
                 with torch.no_grad():
                     if conf.mining == 'dop':
                         update_dop_cls(thetas, labels_cpu, conf.dop)
                     if conf.mining == 'rand.id':
                         conf.dop[labels_cpu.numpy()] = 1
-
+                
                 conf.explored[labels_cpu.numpy()] = 1
                 with torch.no_grad():
                     acc_t = (thetas.argmax(dim=1) == labels)
                     acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
-
+                
                 self.optimizer.step()
                 loss_time.update(
                     lz.timer.since_last_check(verbose=False)
@@ -1986,7 +1986,7 @@ class face_learner(object):
                     writer.add_histogram('top_imp', dop, self.step)
                     writer.add_scalar('info/doprat',
                                       np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
-
+                
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -1997,17 +1997,17 @@ class face_learner(object):
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-
+                
                 self.step += 1
                 if conf.prof and self.step % 29 == 28:
                     break
             if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-
+    
     def schedule_lr(self, e=0):
         from bisect import bisect_right
-
+        
         e2lr = {epoch: conf.lr * conf.lr_gamma ** bisect_right(self.milestones, epoch) for epoch in
                 range(conf.epochs)}
         logging.info(f'map e to lr is {e2lr}')
@@ -2015,9 +2015,9 @@ class face_learner(object):
         for params in self.optimizer.param_groups:
             params['lr'] = lr
         logging.info(f'lr is {lr}')
-
+    
     init_lr = schedule_lr
-
+    
     def save_state(self, conf, accuracy, to_save_folder=False, extra=None, model_only=False):
         # if conf.local_rank is not None and conf.local_rank != 0:
         #     return
@@ -2051,7 +2051,7 @@ class face_learner(object):
                 save_path /
                 ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy,
                                                                   self.step, extra)))
-
+    
     def list_steps(self, resume_path):
         from pathlib import Path
         save_path = Path(resume_path)
@@ -2059,7 +2059,7 @@ class face_learner(object):
         steps = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
         steps = np.asarray(steps, int)
         return steps
-
+    
     def load_state(self, fixed_str='',
                    resume_path=None, latest=True,
                    load_optimizer=False, load_imp=False, load_head=False
@@ -2095,7 +2095,7 @@ class face_learner(object):
             self.model.load_state_dict(model_state_dict, strict=True)
         else:
             self.model.module.load_state_dict(model_state_dict, strict=True)
-
+        
         if load_head:
             assert osp.exists(save_path / 'head_{}'.format(fixed_str))
             logging.info(f'load head from {modelp}')
@@ -2108,13 +2108,13 @@ class face_learner(object):
             extra = lz.msgpack_load(save_path / f'extra_{fixed_str.replace(".pth", ".pk")}')
             conf.dop = extra['dop'].copy()
             conf.id2range_dop = extra['id2range_dop'].copy()
-
+    
     def board_val(self, db_name, accuracy, best_threshold, roc_curve_tensor, writer=None):
         writer = writer or self.writer
         writer.add_scalar('{}_accuracy'.format(db_name), accuracy, self.step)
         writer.add_scalar('{}_best_threshold'.format(db_name), best_threshold, self.step)
         # writer.add_image('{}_roc_curve'.format(db_name), roc_curve_tensor, self.step)
-
+    
     def evaluate(self, conf, path, name, nrof_folds=10, tta=True):
         # from utils import ccrop_batch
         self.model.eval()
@@ -2156,9 +2156,9 @@ class face_learner(object):
         # roc_curve_tensor = trans.ToTensor()(roc_curve)
         self.model.train()
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
-
+    
     evaluate_accelerate = evaluate
-
+    
     # todo this evaluate is depracated
     def evaluate_accelerate_dingyi(self, conf, path, name, nrof_folds=10, tta=True):
         lz.timer.since_last_check('start eval')
@@ -2177,7 +2177,7 @@ class face_learner(object):
         length = len(loader.dataset)
         embeddings = np.zeros([length, conf.embedding_size])
         issame = np.zeros(length)
-
+        
         with torch.no_grad():
             for data in loader:
                 carray_batch = data['carray']
@@ -2194,7 +2194,7 @@ class face_learner(object):
                 issame[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
                         idx + conf.batch_size)] = issame_batch
                 idx += conf.batch_size
-
+        
         # tpr/fpr is averaged over various fold division
         try:
             tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
@@ -2207,7 +2207,7 @@ class face_learner(object):
         self.model.train()
         lz.timer.since_last_check('eval end')
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
-
+    
     def validate_ori(self, conf, resume_path=None):
         res = {}
         if resume_path is not None:
@@ -2218,10 +2218,10 @@ class face_learner(object):
                                                                        ds)
             logging.info(f'validation accuracy on {ds} is {accuracy} ')
             res[ds] = accuracy
-
+        
         self.model.train()
         return res
-
+    
     # todo deprecated
     def validate_dingyi(self, conf, resume_path=None):
         if resume_path is not None:
@@ -2230,16 +2230,16 @@ class face_learner(object):
         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
                                                                               'agedb_30')
         logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-
+        
         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
                                                                               'lfw')
         logging.info(f'validation accuracy on lfw is {accuracy} ')
-
+        
         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
                                                                               'cfp_fp')
         logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
         self.model.train()
-
+    
     def infer(self, conf, faces, target_embs, tta=False):
         '''
         faces : list of PIL Image
@@ -2257,13 +2257,13 @@ class face_learner(object):
             else:
                 embs.append(self.model(conf.test_transform(img).cuda().unsqueeze(0)))
         source_embs = torch.cat(embs)
-
+        
         diff = source_embs.unsqueeze(-1) - target_embs.transpose(1, 0).unsqueeze(0)
         dist = torch.sum(torch.pow(diff, 2), dim=1)
         minimum, min_idx = torch.min(dist, dim=1)
         min_idx[minimum > self.threshold] = -1  # if no match, set idx to -1
         return min_idx, minimum
-
+    
     def push2redis(self, limits=6 * 10 ** 6 // 8):
         self.model.eval()
         loader = DataLoader(
@@ -2279,7 +2279,7 @@ class face_learner(object):
                 print(ind_data, meter.avg)
             if ind_data > limits:
                 break
-
+    
     def calc_teacher_logits(self, out='work_space/teacher_embedding.h5'):
         db = lz.Database(out, 'a')
         loader = DataLoader(
@@ -2304,7 +2304,7 @@ class face_learner(object):
                     db[str(index)] = output
         db.flush()
         db.close()
-
+    
     def calc_img_feas(self, out='t.h5'):
         self.model.eval()
         if not ('webface' in str(conf.use_data_folder) or 'casia' in str(conf.use_data_folder)):
@@ -2321,7 +2321,7 @@ class face_learner(object):
             self.class_num = conf.num_clss = self.dataset.num_classes
         import h5py
         from sklearn.preprocessing import normalize
-
+        
         f = h5py.File(out, 'w')
         chunksize = 80 * 10 ** 3
         dst = f.create_dataset("feas", (chunksize, 512), maxshape=(None, 512), dtype='f2')
@@ -2346,7 +2346,7 @@ class face_learner(object):
                 dst_gxent_norm.resize((dst.shape[0] + chunksize,), )
                 dst_img.resize((dst.shape[0] + chunksize, 3, 112, 112))
             assert (data['indexes'].numpy() == np.arange(ind_dst + 1, ind_dst + bs + 1)).all()
-
+            
             with torch.no_grad():
                 embeddings = self.model(imgs, normalize=True)
             embeddings.requires_grad_(True)
@@ -2357,7 +2357,7 @@ class face_learner(object):
                                             retain_graph=True,
                                             create_graph=False, only_inputs=True,
                                             allow_unused=True)[0].detach()
-
+            
             with torch.no_grad():
                 dst[ind_dst:ind_dst + bs, :] = normalize(embeddings.cpu().numpy(), axis=1).astype(np.float16)
                 # dst_img[ind_dst:ind_dst + bs, :, :, :] = imgs.cpu().numpy()
@@ -2365,13 +2365,13 @@ class face_learner(object):
                 dst_gxent_norm[ind_dst:ind_dst + bs] = grad_xent.norm(dim=1).cpu().numpy()
                 dst_xent[ind_dst:ind_dst + bs] = nn.CrossEntropyLoss(reduction='none')(thetas, labels).cpu().numpy()
             ind_dst += bs
-
+            
             if ind_data % 99 == 0:
                 logging.info(f'{ind_data} / {len(loader)}, {loss_xent.item()} {grad_xent.norm(dim=1)[0].item()}')
                 # break
         f.flush()
         f.close()
-
+    
     def calc_fc_feas(self, out='t.pk'):
         self.model.eval()
         loader = DataLoader(
@@ -2414,7 +2414,7 @@ class face_learner(object):
             fea = normalize(fea.reshape(1, -1)).flatten()
             features[ind_fea, :] = fea
         lz.msgpack_dump(features, out)
-
+    
     def calc_importance(self, out):
         self.model.eval()
         loader = DataLoader(
@@ -2439,7 +2439,7 @@ class face_learner(object):
             ind_inds = data['ind_inds']
             imgs = imgs.cuda()
             labels = labels_cpu.cuda()
-
+            
             with torch.no_grad():
                 embeddings = self.model(imgs)
             embeddings.requires_grad_(True)
@@ -2462,7 +2462,7 @@ class face_learner(object):
                          'id2range_dop': conf.id2range_dop,
                          'sub_imp_loss': conf.sub_imp_loss
                          }, out)
-
+    
     def find_lr(self,
                 conf,
                 init_value=1e-5,
@@ -2491,12 +2491,12 @@ class face_learner(object):
             imgs = imgs.cuda()
             labels = labels.cuda()
             batch_num += 1
-
+            
             self.optimizer.zero_grad()
-
+            
             embeddings = self.model(imgs)
             thetas = self.head(embeddings, labels)
-
+            
             if not conf.kd:
                 loss = conf.ce_loss(thetas, labels)
             else:
@@ -2537,7 +2537,7 @@ class face_learner(object):
             else:
                 loss.backward()
             self.optimizer.step()
-
+            
             lr *= mult
             for params in self.optimizer.param_groups:
                 params['lr'] = lr
@@ -2561,14 +2561,14 @@ class face_cotching(face_learner):
             id2nimgs = {}
             for key, frame in df.groupby(1):
                 id2nimgs[key] = frame.shape[0]
-
+            
             nimgs = list(id2nimgs.values())
             nimgs = np.array(nimgs)
             nimgs = nimgs / nimgs.sum()
             id2wei = {ind: wei for ind, wei in enumerate(nimgs)}
             weis = [id2wei[id_] for id_ in np.array(df.iloc[:, 1])]
             weis = np.asarray(weis)
-
+            
             self.dataset = DatasetCasia(conf.use_data_folder, )
             self.loader = DataLoader(self.dataset, batch_size=conf.batch_size,
                                      num_workers=conf.num_workers,
@@ -2604,7 +2604,7 @@ class face_cotching(face_learner):
         else:
             self.writer = None
         self.step = 0
-
+        
         if conf.net_mode == 'mobilefacenet':
             self.model = MobileFaceNet(conf.embedding_size)
             logging.info('MobileFaceNet model generated')
@@ -2636,18 +2636,18 @@ class face_cotching(face_learner):
             self.head = ArcfaceNeg(embedding_size=conf.embedding_size, classnum=self.class_num)
         else:
             raise ValueError(f'{conf.loss}')
-
+        
         self.model.cuda()
         self.model2.cuda()
         
         if self.head is not None:
             self.head = self.head.to(device=conf.model2_dev[0])
             self.head2 = self.head2.to(device=conf.model2_dev[0])
-
+        
         if conf.tri_wei != 0:
             self.head_triplet = TripletLoss().cuda()
         logging.info(' model heads generated')
-
+        
         paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
         if conf.use_opt == 'adam':  # todo deprecated
             self.optimizer = optim.Adam([{'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': 0},
@@ -2701,9 +2701,9 @@ class face_cotching(face_learner):
                 nloss = 1
             self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O1")
             self.model2, self.optimizer2 = amp.initialize(self.model2, self.optimizer2, opt_level="O1")
-            
+        
         logging.info(f'optimizers generated {self.optimizer}')
-
+        
         self.model = torch.nn.DataParallel(self.model,
                                            device_ids=conf.model1_dev,
                                            output_device=conf.model1_dev[0]
@@ -2718,7 +2718,7 @@ class face_cotching(face_learner):
         self.model.train()
         self.head2.train()
         self.model2.train()
-
+    
     def train_cotching(self, conf, epochs):
         self.model.train()
         self.model2.train()
@@ -2766,7 +2766,7 @@ class face_cotching(face_learner):
                 data_time.update(
                     lz.timer.since_last_check(verbose=False)
                 )
-
+                
                 embeddings = self.model(imgs, mode='train')
                 embeddings2 = self.model(imgs2, mode='train')
                 thetas = self.head(embeddings, labels)
@@ -2792,7 +2792,7 @@ class face_cotching(face_learner):
                 ind2_update = ind2_sorted[:num_remember]
                 loss_xent = loss_xent[ind_update].mean()
                 loss_xent2 = loss_xent2[ind2_update].mean()
-
+                
                 self.optimizer.zero_grad()
                 if conf.fp16:
                     with amp.scale_loss(loss_xent, self.optimizer) as scaled_loss:
@@ -2800,7 +2800,7 @@ class face_cotching(face_learner):
                 else:
                     loss_xent.backward()
                 self.optimizer.step()
-
+                
                 self.optimizer2.zero_grad()
                 if conf.fp16:
                     with amp.scale_loss(loss_xent2, self.optimizer2) as scaled_loss:
@@ -2808,7 +2808,7 @@ class face_cotching(face_learner):
                 else:
                     loss_xent2.backward()
                 self.optimizer2.step()
-
+                
                 with torch.no_grad():
                     if conf.mining == 'dop':
                         update_dop_cls(thetas, labels_cpu, conf.dop)
@@ -2843,7 +2843,7 @@ class face_cotching(face_learner):
                         writer.add_histogram('top_imp', dop, self.step)
                         writer.add_scalar('info/doprat',
                                           np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
-
+                
                 if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -2854,7 +2854,172 @@ class face_cotching(face_learner):
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
-
+                
+                self.step += 1
+                if conf.prof and self.step % 29 == 28:
+                    break
+            if conf.prof and e > 5:
+                break
+        self.save_state(conf, accuracy, to_save_folder=True, extra='final')
+    
+    def train_cotching_accbs(self, conf, epochs):
+        self.model.train()
+        self.model2.train()
+        loader = self.loader
+        self.evaluate_every = conf.other_every or len(loader) // 3
+        self.save_every = conf.other_every or len(loader) // 3
+        self.step = conf.start_step
+        writer = self.writer
+        lz.timer.since_last_check('start train')
+        data_time = lz.AverageMeter()
+        loss_time = lz.AverageMeter()
+        imgs_l = []
+        labels_l = []
+        imgs2_l = []
+        labels2_l = []
+        accuracy = 0
+        if conf.start_eval:
+            for ds in ['cfp_fp', ]:
+                accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                    conf,
+                    self.loader.dataset.root_path,
+                    ds)
+                self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                logging.info(f'validation accuracy on {ds} is {accuracy} ')
+        for e in range(conf.start_epoch, epochs):
+            lz.timer.since_last_check('epoch {} started'.format(e))
+            self.schedule_lr(e)
+            loader_enum = data_prefetcher(enumerate(loader))
+            while True:
+                ind_data, data = next(loader_enum)
+                if ind_data is None:
+                    logging.info(f'one epoch finish {e} {ind_data}')
+                    loader_enum = data_prefetcher(enumerate(loader))
+                    ind_data, data = next(loader_enum)
+                if (self.step + 1) % len(loader) == 0:
+                    self.step += 1
+                    break
+                if not imgs_l or sum([imgs.shape[0] for imgs in imgs_l]) < conf.batch_size:
+                    imgs = data['imgs'].to(device=conf.model1_dev[0])
+                    imgs2 = imgs
+                    assert imgs.max() < 2
+                    if 'labels_cpu' in data:
+                        labels_cpu = data['labels_cpu'].cpu()
+                    else:
+                        labels_cpu = data['labels'].cpu()
+                    labels = data['labels'].to(device=conf.model1_dev[0])
+                    labels2 = labels
+                    data_time.update(
+                        lz.timer.since_last_check(verbose=False)
+                    )
+                    with torch.no_grad():
+                        embeddings = self.model(imgs, mode='train')
+                        embeddings2 = self.model(imgs2, mode='train')
+                        thetas = self.head(embeddings, labels)
+                        thetas2 = self.head2(embeddings2, labels2)
+                        pred = thetas.argmax(dim=1)
+                        pred2 = thetas2.argmax(dim=1)
+                        disagree = pred != pred2
+                        if disagree.sum().item() == 0:
+                            continue  # todo this assert acc can finally reach bs
+                        loss_xent = F.cross_entropy(thetas[disagree], labels[disagree], reduction='none')
+                        loss_xent2 = F.cross_entropy(thetas2[disagree], labels2[disagree], reduction='none')
+                        ind_sorted = loss_xent.argsort()
+                        ind2_sorted = loss_xent2.argsort()
+                        num_disagree = labels[disagree].shape[0]
+                        # tau = 0.35
+                        tau = 0.05
+                        Ek = len(loader)
+                        Emax = len(loader) * conf.epochs
+                        lambda_e = 1 - min(self.step / Ek * tau, (1 + (self.step - Ek) / (Emax - Ek)) * tau)
+                        num_remember = max(int(round(num_disagree * lambda_e)), 1)
+                        ind_update = ind_sorted[:num_remember]
+                        ind2_update = ind2_sorted[:num_remember]
+                        imgs_l.append(imgs[ind_update].cpu())
+                        labels_l.append(labels[ind_update].cpu())
+                        imgs2_l.append(imgs[ind2_update].cpu())
+                        labels2_l.append(labels[ind2_update].cpu())
+                        continue
+                else:
+                    imgs = torch.cat(imgs_l, dim=0)[:conf.batch_size].to(device=conf.model1_dev[0])
+                    labels = torch.cat(labels_l, dim=0)[:conf.batch_size].to(device=conf.model1_dev[0])
+                    imgs_l = []
+                    labels_l = []
+                    labels_cpu = labels.cpu()
+                    embeddings = self.model(imgs, mode='train')
+                    thetas = self.head(embeddings, labels)
+                    loss_xent = F.cross_entropy(thetas, labels)
+                    self.optimizer.zero_grad()
+                    if conf.fp16:
+                        with amp.scale_loss(loss_xent, self.optimizer) as scaled_loss:
+                            scaled_loss.backward()
+                    else:
+                        loss_xent.backward()
+                    self.optimizer.step()
+                    
+                    imgs2 = torch.cat(imgs2_l, dim=0)[:conf.batch_size].to(device=conf.model1_dev[0])
+                    labels2 = torch.cat(labels2_l, dim=0)[:conf.batch_size].to(device=conf.model1_dev[0])
+                    imgs2_l = []
+                    labels2_l = []
+                    embeddings2 = self.model(imgs2, mode='train')
+                    thetas2 = self.head(embeddings2, labels2)
+                    loss_xent2 = F.cross_entropy(thetas2, labels2)
+                    self.optimizer2.zero_grad()
+                    if conf.fp16:
+                        with amp.scale_loss(loss_xent2, self.optimizer2) as scaled_loss:
+                            scaled_loss.backward()
+                    else:
+                        loss_xent2.backward()
+                    self.optimizer2.step()
+                
+                with torch.no_grad():
+                    if conf.mining == 'dop':
+                        update_dop_cls(thetas, labels_cpu, conf.dop)
+                    if conf.mining == 'rand.id':
+                        conf.dop[labels_cpu.numpy()] = 1
+                conf.explored[labels_cpu.numpy()] = 1
+                with torch.no_grad():
+                    acc_t = (thetas.argmax(dim=1) == labels)
+                    acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
+                loss_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
+                if self.step % self.board_loss_every == 0:
+                    logging.info(f'epoch {e}/{epochs} step {self.step}/{len(loader)}: ' +
+                                 f'xent: {loss_xent.item():.2e} ' +
+                                 f'data time: {data_time.avg:.2f} ' +
+                                 f'loss time: {loss_time.avg:.2f} ' +
+                                 f'acc: {acc:.2e} ' +
+                                 f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                    writer.add_scalar('info/disagree', disagree.sum().item(), self.step)
+                    writer.add_scalar('info/disagree_ratio', num_disagree / conf.batch_size, self.step)
+                    writer.add_scalar('info/remenber', num_remember, self.step)
+                    writer.add_scalar('info/remenber_ratio', num_remember / conf.batch_size, self.step)
+                    writer.add_scalar('info/lambda_e', lambda_e, self.step)
+                    writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
+                    writer.add_scalar('loss/xent', loss_xent.item(), self.step)
+                    writer.add_scalar('info/acc', acc, self.step)
+                    writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                    writer.add_scalar('info/datatime', data_time.avg, self.step)
+                    writer.add_scalar('info/losstime', loss_time.avg, self.step)
+                    writer.add_scalar('info/epoch', e, self.step)
+                    dop = conf.dop
+                    if dop is not None:
+                        writer.add_histogram('top_imp', dop, self.step)
+                        writer.add_scalar('info/doprat',
+                                          np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
+                
+                if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
+                    for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
+                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                            conf,
+                            self.loader.dataset.root_path,
+                            ds)
+                        self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                        logging.info(f'validation accuracy on {ds} is {accuracy} ')
+                if self.step % self.save_every == 0 and self.step != 0:
+                    self.save_state(conf, accuracy)
+                
                 self.step += 1
                 if conf.prof and self.step % 29 == 28:
                     break

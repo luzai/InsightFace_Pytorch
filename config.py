@@ -11,7 +11,7 @@ from torchvision import transforms as trans
 # todo batch read redis
 
 dist = False
-num_devs = 1
+num_devs = 2
 if dist:
     num_devs = 1
 else:
@@ -33,7 +33,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/casia.cotching.2')
+conf.work_path = Path('work_space/casia.cotching.bak')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -94,7 +94,7 @@ conf.use_chkpnt = False
 conf.chs_first = True
 conf.prof = False
 conf.fast_load = False
-conf.fp16 = True
+conf.fp16 = False
 conf.ipabn = False
 conf.cvt_ipabn = False
 
@@ -108,7 +108,8 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 80 * num_devs
+# conf.batch_size = 50 * num_devs
+conf.batch_size = 200
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
 conf.other_every = None if not conf.prof else 51
