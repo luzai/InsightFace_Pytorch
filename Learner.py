@@ -1165,7 +1165,12 @@ class face_learner(object):
             self.schedule_lr(e)
             loader_enum = data_prefetcher(enumerate(loader))
             while True:
-                ind_data, data = next(loader_enum)
+                try:
+                    ind_data, data = next(loader_enum)
+                except StopIteration as err:
+                    logging.info(f'one epoch finish {e} {ind_data}')
+                    loader_enum = data_prefetcher(enumerate(loader))
+                    ind_data, data = next(loader_enum)
                 if ind_data is None:
                     logging.info(f'one epoch finish {e} {ind_data}')
                     loader_enum = data_prefetcher(enumerate(loader))
@@ -1188,7 +1193,7 @@ class face_learner(object):
                 thetas = self.head(embeddings, labels)
                 loss_xent = conf.ce_loss(thetas, labels)
                 if conf.fp16:
-                    with self.optimizer.scale_loss(loss_xent) as scaled_loss:
+                    with amp.scale_loss(loss_xent, self.optimizer) as scaled_loss:
                         scaled_loss.backward()
                 else:
                     loss_xent.backward()
@@ -2731,6 +2736,8 @@ class face_cotching(face_learner):
         data_time = lz.AverageMeter()
         loss_time = lz.AverageMeter()
         accuracy = 0
+        imgs_mem = []
+        labels_mem = []
         if conf.start_eval:
             for ds in ['cfp_fp', ]:
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -2744,7 +2751,12 @@ class face_cotching(face_learner):
             self.schedule_lr(e)
             loader_enum = data_prefetcher(enumerate(loader))
             while True:
-                ind_data, data = next(loader_enum)
+                try:
+                    ind_data, data = next(loader_enum)
+                except StopIteration as err:
+                    logging.info(f'one epoch finish {e} {ind_data}')
+                    loader_enum = data_prefetcher(enumerate(loader))
+                    ind_data, data = next(loader_enum)
                 if ind_data is None:
                     logging.info(f'one epoch finish {e} {ind_data}')
                     loader_enum = data_prefetcher(enumerate(loader))
@@ -2753,7 +2765,6 @@ class face_cotching(face_learner):
                     self.step += 1
                     break
                 imgs = data['imgs'].to(device=conf.model1_dev[0])
-                # imgs2 = data['imgs'].to(device=conf.model2_dev[0])
                 imgs2 = imgs
                 assert imgs.max() < 2
                 if 'labels_cpu' in data:
@@ -2761,7 +2772,6 @@ class face_cotching(face_learner):
                 else:
                     labels_cpu = data['labels'].cpu()
                 labels = data['labels'].to(device=conf.model1_dev[0])
-                # labels2 = data['labels'].to(device=conf.model2_dev[0])
                 labels2 = labels
                 data_time.update(
                     lz.timer.since_last_check(verbose=False)
@@ -2891,7 +2901,12 @@ class face_cotching(face_learner):
             self.schedule_lr(e)
             loader_enum = data_prefetcher(enumerate(loader))
             while True:
-                ind_data, data = next(loader_enum)
+                try:
+                    ind_data, data = next(loader_enum)
+                except StopIteration as err:
+                    logging.info(f'one epoch finish {e} {ind_data}')
+                    loader_enum = data_prefetcher(enumerate(loader))
+                    ind_data, data = next(loader_enum)
                 if ind_data is None:
                     logging.info(f'one epoch finish {e} {ind_data}')
                     loader_enum = data_prefetcher(enumerate(loader))
