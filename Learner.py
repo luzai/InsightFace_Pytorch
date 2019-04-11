@@ -2700,10 +2700,6 @@ class face_cotching(face_learner):
         else:
             raise ValueError(f'{conf.use_opt}')
         if conf.fp16:
-            if conf.use_test:
-                nloss = 2
-            else:
-                nloss = 1
             self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O1")
             self.model2, self.optimizer2 = amp.initialize(self.model2, self.optimizer2, opt_level="O1")
         
@@ -2736,8 +2732,6 @@ class face_cotching(face_learner):
         data_time = lz.AverageMeter()
         loss_time = lz.AverageMeter()
         accuracy = 0
-        imgs_mem = []
-        labels_mem = []
         if conf.start_eval:
             for ds in ['cfp_fp', ]:
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -2871,7 +2865,131 @@ class face_cotching(face_learner):
             if conf.prof and e > 5:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-    
+
+    def save_state(self, conf, accuracy, to_save_folder=False, extra=None, model_only=False):
+        # if conf.local_rank is not None and conf.local_rank != 0:
+        #     return
+        if to_save_folder:
+            save_path = conf.save_path
+        else:
+            save_path = conf.model_path
+        time_now = get_time()
+        lz.mkdir_p(save_path, delete=False)
+        # self.model.cpu()
+        torch.save(
+            self.model.module.state_dict(),
+            save_path /
+            ('model_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
+                                                          extra)))
+        torch.save(
+            self.model2.module.state_dict(),
+            save_path /
+            ('model2_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
+                                                          extra)))
+        # self.model.cuda()
+        lz.msgpack_dump({'dop': conf.dop,
+                         'id2range_dop': conf.id2range_dop,
+                         }, str(save_path) + f'/extra_{time_now}_accuracy:{accuracy}_step:{self.step}_{extra}.pk')
+        if not model_only:
+            if self.head is not None:
+                self.head.cpu()
+                torch.save(
+                    self.head.state_dict(),
+                    save_path /
+                    ('head_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
+                                                                 extra)))
+                self.head.cuda()
+
+                self.head2.cpu()
+                torch.save(
+                    self.head2.state_dict(),
+                    save_path /
+                    ('head2_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
+                                                                 extra)))
+                self.head2.cuda()
+
+            torch.save(
+                self.optimizer.state_dict(),
+                save_path /
+                ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy,
+                                                                  self.step, extra)))
+            torch.save(
+                self.optimizer2.state_dict(),
+                save_path /
+                ('optimizer2_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy,
+                                                                  self.step, extra)))
+
+    def load_state(self, fixed_str='',
+                   resume_path=None, latest=True,
+                   load_optimizer=False, load_imp=False, load_head=False,
+                   load_model2=False,
+                   ):
+        from pathlib import Path
+        save_path = Path(resume_path)
+        modelp = save_path / '{}'.format(fixed_str)
+        if not modelp.exists() or not modelp.is_file():
+            modelp = save_path / 'model_{}'.format(fixed_str)
+        if not modelp.exists() or not modelp.is_file():
+            fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
+            if latest:
+                step = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
+            else:  # best
+                step = [fixed_str.split('_')[-3].split(':')[-1] for fixed_str in fixed_strs]
+            step = np.asarray(step, dtype=float)
+            assert step.shape[0] > 0, f"{resume_path} chk!"
+            step_ind = step.argmax()
+            fixed_str = fixed_strs[step_ind].replace('model_', '')
+            modelp = save_path / 'model_{}'.format(fixed_str)
+        logging.info(f'you are using gpu, load model, {modelp}')
+        model_state_dict = torch.load(modelp)
+        model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
+        if load_model2:
+            model_state_dict2 = torch.load(str(modelp).replace('model', 'model2'))
+            model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
+        if conf.cvt_ipabn:
+            import copy
+            model_state_dict2 = copy.deepcopy(model_state_dict)
+            for k in model_state_dict2.keys():
+                if 'running_mean' in k:
+                    name = k.replace('running_mean', 'weight')
+                    model_state_dict2[name] = torch.abs(model_state_dict[name])
+            model_state_dict = model_state_dict2
+        # todo simply it, maybe if not need older model
+        if list(model_state_dict.keys())[0].startswith('module'):
+            self.model.load_state_dict(model_state_dict, strict=True)
+            if load_model2:
+                self.model2.load_state_dict(model_state_dict2, strict=True)
+            else:
+                self.model2.load_state_dict(model_state_dict, strict=True)
+        else:
+            self.model.module.load_state_dict(model_state_dict, strict=True)
+            if load_model2:
+                self.model2.module.load_state_dict(model_state_dict2, strict=True)
+            else:
+                self.model2.module.load_state_dict(model_state_dict, strict=True)
+
+        if load_head:
+            assert osp.exists(save_path / 'head_{}'.format(fixed_str))
+            logging.info(f'load head from {modelp}')
+            head_state_dict = torch.load(save_path / 'head_{}'.format(fixed_str))
+            self.head.load_state_dict(head_state_dict)
+            if load_model2:
+                head_state_dict2 = torch.load(save_path / 'head2_{}'.format(fixed_str))
+                self.head2.load_state_dict(head_state_dict2)
+            else:
+                self.head2.load_state_dict(head_state_dict)
+        if load_optimizer:
+            logging.info(f'load opt from {modelp}')
+            self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
+            if load_model2:
+                self.optimizer2.load_state_dict(torch.load(save_path / 'optimizer2_{}'.format(fixed_str)))
+            else:
+                self.optimizer2.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
+        if load_imp and (save_path / f'extra_{fixed_str.replace(".pth", ".pk")}').exists():
+            extra = lz.msgpack_load(save_path / f'extra_{fixed_str.replace(".pth", ".pk")}')
+            conf.dop = extra['dop'].copy()
+            conf.id2range_dop = extra['id2range_dop'].copy()
+
     def train_cotching_accbs(self, conf, epochs):
         self.model.train()
         self.model2.train()
@@ -2936,7 +3054,7 @@ class face_cotching(face_learner):
                         pred2 = thetas2.argmax(dim=1)
                         disagree = pred != pred2
                         if disagree.sum().item() == 0:
-                            continue  # todo this assert acc can finally reach bs
+                            continue  #  this assert acc can finally reach bs
                         loss_xent = F.cross_entropy(thetas[disagree], labels[disagree], reduction='none')
                         loss_xent2 = F.cross_entropy(thetas2[disagree], labels2[disagree], reduction='none')
                         ind_sorted = loss_xent.argsort()
@@ -2956,10 +3074,12 @@ class face_cotching(face_learner):
                         labels2_l.append(labels[ind2_update].cpu())
                         continue
                 else:
-                    imgs = torch.cat(imgs_l, dim=0)[:conf.batch_size].to(device=conf.model1_dev[0])
-                    labels = torch.cat(labels_l, dim=0)[:conf.batch_size].to(device=conf.model1_dev[0])
-                    imgs_l = [] # todo save time ...
-                    labels_l = []
+                    imgs_new = torch.cat(imgs_l, dim=0)
+                    imgs = imgs_new[:conf.batch_size].to(device=conf.model1_dev[0])
+                    labels_new = torch.cat(labels_l, dim=0)
+                    labels = labels_new[:conf.batch_size].to(device=conf.model1_dev[0])
+                    imgs_l = [imgs_new[conf.batch_size:]] # whether this right
+                    labels_l = [labels_new[conf.batch_size:]]
                     labels_cpu = labels.cpu()
                     embeddings2 = self.model2(imgs, mode='train')
                     thetas2 = self.head(embeddings2, labels)
@@ -2972,10 +3092,12 @@ class face_cotching(face_learner):
                         loss_xent2.backward()
                     self.optimizer2.step()
 
-                    imgs2 = torch.cat(imgs2_l, dim=0)[:conf.batch_size].to(device=conf.model1_dev[0])
-                    labels2 = torch.cat(labels2_l, dim=0)[:conf.batch_size].to(device=conf.model1_dev[0])
-                    imgs2_l = []
-                    labels2_l = []
+                    imgs2_new = torch.cat(imgs2_l, dim=0)
+                    imgs2=imgs2_new[:conf.batch_size].to(device=conf.model1_dev[0])
+                    labels2_new = torch.cat(labels2_l, dim=0)
+                    labels2 = labels2_new[:conf.batch_size].to(device=conf.model1_dev[0])
+                    imgs2_l = [imgs2_new[conf.batch_size:]]
+                    labels2_l = [labels2_new[conf.batch_size:]]
                     embeddings = self.model(imgs2, mode='train')
                     thetas = self.head(embeddings, labels2)
                     loss_xent = F.cross_entropy(thetas, labels2)

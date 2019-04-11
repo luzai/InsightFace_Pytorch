@@ -54,7 +54,7 @@ if __name__ == '__main__':
         # 'emore.r152.ada.chkpnt',
         # 'emore.r152.ada.chkpnt.2',
         # 'emore.r152.ada.chkpnt.3',
-        'casia.r50.arc.bl',
+        # 'casia.r50.arc.bl',
         # 'casia.r50.sft',
         # 'casia.r50.arc.use_test'
     ]:
