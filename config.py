@@ -33,7 +33,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/casia.cotching.3')
+conf.work_path = Path('work_space/casia.cotching.4')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -128,7 +128,7 @@ conf.lr = 1e-1
 conf.lr_gamma = 0.1
 conf.start_epoch = 0
 conf.warmup = 0  # conf.epochs/25 # 1 0
-conf.epochs = 15
+conf.epochs = 16
 conf.milestones = [6, 10, 13]
 conf.epoch_less_iter = 1
 conf.momentum = 0.9

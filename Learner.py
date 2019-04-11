@@ -2778,7 +2778,7 @@ class face_cotching(face_learner):
                 )
                 
                 embeddings = self.model(imgs, mode='train')
-                embeddings2 = self.model(imgs2, mode='train')
+                embeddings2 = self.model2(imgs2, mode='train')
                 thetas = self.head(embeddings, labels)
                 thetas2 = self.head2(embeddings2, labels2)
                 pred = thetas.argmax(dim=1)
@@ -2800,8 +2800,8 @@ class face_cotching(face_learner):
                 num_remember = max(int(round(num_disagree * lambda_e)), 1)
                 ind_update = ind_sorted[:num_remember]
                 ind2_update = ind2_sorted[:num_remember]
-                loss_xent = loss_xent[ind_update].mean()
-                loss_xent2 = loss_xent2[ind2_update].mean()
+                loss_xent = loss_xent[ind2_update].mean()
+                loss_xent2 = loss_xent2[ind_update].mean()
                 
                 self.optimizer.zero_grad()
                 if conf.fp16:
@@ -2929,7 +2929,7 @@ class face_cotching(face_learner):
                     )
                     with torch.no_grad():
                         embeddings = self.model(imgs, mode='train')
-                        embeddings2 = self.model(imgs2, mode='train')
+                        embeddings2 = self.model2(imgs2, mode='train')
                         thetas = self.head(embeddings, labels)
                         thetas2 = self.head2(embeddings2, labels2)
                         pred = thetas.argmax(dim=1)
@@ -2958,27 +2958,12 @@ class face_cotching(face_learner):
                 else:
                     imgs = torch.cat(imgs_l, dim=0)[:conf.batch_size].to(device=conf.model1_dev[0])
                     labels = torch.cat(labels_l, dim=0)[:conf.batch_size].to(device=conf.model1_dev[0])
-                    imgs_l = []
+                    imgs_l = [] # todo save time ...
                     labels_l = []
                     labels_cpu = labels.cpu()
-                    embeddings = self.model(imgs, mode='train')
-                    thetas = self.head(embeddings, labels)
-                    loss_xent = F.cross_entropy(thetas, labels)
-                    self.optimizer.zero_grad()
-                    if conf.fp16:
-                        with amp.scale_loss(loss_xent, self.optimizer) as scaled_loss:
-                            scaled_loss.backward()
-                    else:
-                        loss_xent.backward()
-                    self.optimizer.step()
-                    
-                    imgs2 = torch.cat(imgs2_l, dim=0)[:conf.batch_size].to(device=conf.model1_dev[0])
-                    labels2 = torch.cat(labels2_l, dim=0)[:conf.batch_size].to(device=conf.model1_dev[0])
-                    imgs2_l = []
-                    labels2_l = []
-                    embeddings2 = self.model(imgs2, mode='train')
-                    thetas2 = self.head(embeddings2, labels2)
-                    loss_xent2 = F.cross_entropy(thetas2, labels2)
+                    embeddings2 = self.model2(imgs, mode='train')
+                    thetas2 = self.head(embeddings2, labels)
+                    loss_xent2 = F.cross_entropy(thetas2, labels)
                     self.optimizer2.zero_grad()
                     if conf.fp16:
                         with amp.scale_loss(loss_xent2, self.optimizer2) as scaled_loss:
@@ -2986,7 +2971,22 @@ class face_cotching(face_learner):
                     else:
                         loss_xent2.backward()
                     self.optimizer2.step()
-                
+
+                    imgs2 = torch.cat(imgs2_l, dim=0)[:conf.batch_size].to(device=conf.model1_dev[0])
+                    labels2 = torch.cat(labels2_l, dim=0)[:conf.batch_size].to(device=conf.model1_dev[0])
+                    imgs2_l = []
+                    labels2_l = []
+                    embeddings = self.model(imgs2, mode='train')
+                    thetas = self.head(embeddings, labels2)
+                    loss_xent = F.cross_entropy(thetas, labels2)
+                    self.optimizer.zero_grad()
+                    if conf.fp16:
+                        with amp.scale_loss(loss_xent, self.optimizer) as scaled_loss:
+                            scaled_loss.backward()
+                    else:
+                        loss_xent.backward()
+                    self.optimizer.step()
+
                 with torch.no_grad():
                     if conf.mining == 'dop':
                         update_dop_cls(thetas, labels_cpu, conf.dop)
