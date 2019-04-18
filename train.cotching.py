@@ -57,7 +57,7 @@ if __name__ == '__main__':
         # 'casia.r50.arc.bl',
         # 'casia.r50.sft',
         # 'casia.r50.arc.use_test',
-        'casia.coth',
+        # 'casia.coth',
     ]:
         learner.load_state(
             # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
@@ -86,8 +86,8 @@ if __name__ == '__main__':
     # learner.train(conf, conf.epochs)
     # learner.train_dist(conf, conf.epochs)
     # learner.train_simple(conf, conf.epochs)
-    # learner.train_cotching(conf, conf.epochs)
-    learner.train_cotching_accbs(conf, conf.epochs)
+    learner.train_cotching(conf, conf.epochs)
+    # learner.train_cotching_accbs(conf, conf.epochs)
     # learner.train_ghm(conf, conf.epochs)
     # learner.train_with_wei(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)

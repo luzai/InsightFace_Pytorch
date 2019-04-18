@@ -33,7 +33,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/casia.coth.accbs')
+conf.work_path = Path('work_space/casia.r20')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -79,7 +79,7 @@ conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
 conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
-conf.net_depth = 50  # 100 121 169 201 264
+conf.net_depth = 20  # 100 121 169 201 264 50 20
 
 conf.test_transform = trans.Compose([
     trans.ToTensor(),
@@ -94,7 +94,7 @@ conf.use_chkpnt = False
 conf.chs_first = True
 conf.prof = False
 conf.fast_load = False
-conf.fp16 = True
+conf.fp16 = False
 conf.ipabn = False
 conf.cvt_ipabn = False
 
@@ -118,14 +118,14 @@ conf.num_recs = 1
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
-conf.start_step = 8687
+conf.start_step = 0
 conf.use_opt = 'sgd'  # adabound
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
 conf.final_lr = 1e-1
 conf.lr = 1e-1
 conf.lr_gamma = 0.1
-conf.start_epoch = 5
+conf.start_epoch = 0
 conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epochs = 16
 conf.milestones = [6, 10, 13]

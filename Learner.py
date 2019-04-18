@@ -935,6 +935,11 @@ class face_learner(object):
         self.head.train()
         self.model.train()
 
+    def count_flops(self):
+        from thop import profile
+        flops, params = profile(self.model, input_size=(1, 3, 112, 112))
+        return flops, params
+
     def train_dist(self, conf, epochs):
         self.model.train()
         loader = self.loader
@@ -3086,7 +3091,7 @@ class face_cotching(face_learner):
                     imgs = imgs_new[:conf.batch_size].to(device=conf.model1_dev[0])
                     labels_new = torch.cat(labels_l, dim=0)
                     labels = labels_new[:conf.batch_size].to(device=conf.model1_dev[0])
-                    imgs_l = [imgs_new[conf.batch_size:]] # whether this right
+                    imgs_l = [imgs_new[conf.batch_size:]]  # whether this right
                     labels_l = [labels_new[conf.batch_size:]]
                     # imgs_l = []
                     # labels_l = []

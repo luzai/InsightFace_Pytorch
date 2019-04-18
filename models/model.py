@@ -185,6 +185,13 @@ def get_blocks(num_layers):
             get_block(in_channel=128, depth=256, num_units=36),
             get_block(in_channel=256, depth=512, num_units=3)
         ]
+    elif num_layers == 20:
+        blocks = [
+            get_block(in_channel=64, depth=64, num_units=2),
+            get_block(in_channel=64, depth=128, num_units=3),
+            get_block(in_channel=128, depth=256, num_units=5),
+            get_block(in_channel=256, depth=512, num_units=2)
+        ]
     return blocks
 
 
@@ -194,7 +201,7 @@ from torch.utils.checkpoint import checkpoint_sequential
 class Backbone(Module):
     def __init__(self, num_layers, drop_ratio, mode='ir'):
         super(Backbone, self).__init__()
-        assert num_layers in [50, 100, 152], 'num_layers should be 50,100, or 152'
+        assert num_layers in [50, 100, 152, 20], 'num_layers should be 50,100, or 152'
         assert mode in ['ir', 'ir_se'], 'mode should be ir or ir_se'
         blocks = get_blocks(num_layers)
         if mode == 'ir':
@@ -835,3 +842,26 @@ class TripletLoss(Module):
         ## soft margin
         loss = F.softplus(dist_ap - dist_an).mean()
         return loss
+
+
+if __name__ == '__main__':
+    model = Backbone(152, 0, 'ir_se')
+    model.eval()
+    from thop import profile
+
+    flops, params = profile(model, input_size=(1, 3, 112, 112), )
+    flops /= 10 ** 9
+    params /= 10 ** 6
+
+    for i in range(5):
+        img = torch.rand(1, 3, 112, 112)
+        model(img)
+    from lz import timer
+
+    timer.since_last_check()
+    for i in range(10):
+        img = torch.rand(1, 3, 112, 112)
+        model(img)
+    interval = timer.since_last_check('finish')
+    interval /= 10
+    print(flops, params, interval)
