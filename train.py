@@ -57,7 +57,7 @@ if __name__ == '__main__':
         # 'casia.r50.arc.bl',
         # 'casia.r50.sft',
         # 'casia.r50.arc.use_test',
-        # 'casia.cotching.4',
+        # 'casia.r20',
     ]:
         learner.load_state(
             # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
@@ -66,7 +66,6 @@ if __name__ == '__main__':
             load_head=True,
             load_imp=False,
             latest=False,
-            load_model2=True,
         )
         # res = learner.validate_ori(conf)
         # ress[p] = res

@@ -8,7 +8,7 @@ import redis
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--modelp', default='ms1m.mb.arc.cl.2',
+parser.add_argument('--modelp', default='work_space/retina.r50/save',
                     type=str)
 args = parser.parse_args()
 

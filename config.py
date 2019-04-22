@@ -33,7 +33,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/casia.r20')
+conf.work_path = Path('work_space/retina.r50')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -47,8 +47,9 @@ alpha_f64 = conf.data_path / 'alpha_f64'
 alpha_jk = conf.data_path / 'alpha_jk'
 casia_folder = conf.data_path / 'casia'  # the cleaned one
 webface_folder = conf.data_path / 'webface'  # todo
+retina_folder = conf.data_path/'ms1m-retinaface-t1'
 
-conf.use_data_folder = casia_folder  # asia_emore emore_folder glint_folder ms1m_folder alpha_f64
+conf.use_data_folder = retina_folder #casia_folder  asia_emore emore_folder glint_folder ms1m_folder alpha_f64
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 
 if conf.use_data_folder == ms1m_folder:
@@ -65,7 +66,7 @@ conf.mining = 'rand.id'  # todo balance opt # 'dop' 'imp' rand.img(slow) rand.id
 conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
 conf.rand_ratio = 9 / 27
 
-conf.margin = .3
+conf.margin = .5
 conf.margin2 = 0
 conf.topk = 0
 conf.fgg = ''  # g gg ''
@@ -79,7 +80,7 @@ conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
 conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
-conf.net_depth = 20  # 100 121 169 201 264 50 20
+conf.net_depth = 50  # 100 121 169 201 264 50 20
 
 conf.test_transform = trans.Compose([
     trans.ToTensor(),
@@ -108,7 +109,7 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 128*num_devs
+conf.batch_size = 80*num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
 conf.other_every = None if not conf.prof else 51
