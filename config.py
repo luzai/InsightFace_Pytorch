@@ -11,12 +11,12 @@ from torchvision import transforms as trans
 # todo batch read redis
 
 dist = False
-num_devs = 4
+num_devs = 3
 if dist:
     num_devs = 1
 else:
     pass
-    # lz.init_dev(1)
+    # lz.init_dev(3)
     lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
@@ -24,7 +24,7 @@ conf.num_workers = 24 if not dist else 5
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
-conf.loss = 'arcface'  # softmax arcface arcfaceneg
+conf.loss = 'cosface'  # softmax arcface arcfaceneg arcface2 cosface
 
 conf.local_rank = None
 conf.num_clss = None
@@ -33,7 +33,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/retina.r50')
+conf.work_path = Path('work_space/casia.mb.stnconv.4')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -47,9 +47,10 @@ alpha_f64 = conf.data_path / 'alpha_f64'
 alpha_jk = conf.data_path / 'alpha_jk'
 casia_folder = conf.data_path / 'casia'  # the cleaned one
 webface_folder = conf.data_path / 'webface'  # todo
-retina_folder = conf.data_path/'ms1m-retinaface-t1'
+retina_folder = conf.data_path / 'ms1m-retinaface-t1'
+dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = retina_folder #casia_folder  asia_emore emore_folder glint_folder ms1m_folder alpha_f64
+conf.use_data_folder = casia_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 
 if conf.use_data_folder == ms1m_folder:
@@ -66,9 +67,9 @@ conf.mining = 'rand.id'  # todo balance opt # 'dop' 'imp' rand.img(slow) rand.id
 conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
 conf.rand_ratio = 9 / 27
 
-conf.margin = .5
-conf.margin2 = 0
-conf.topk = 0
+conf.margin = .25
+conf.margin2 = .25
+conf.topk = 5
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
 conf.tri_wei = 0
@@ -79,8 +80,8 @@ conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
-conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
-conf.net_depth = 50  # 100 121 169 201 264 50 20
+conf.net_mode = 'mobilefacenet'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
+conf.net_depth = 20  # 100 121 169 201 264 50 20
 
 conf.test_transform = trans.Compose([
     trans.ToTensor(),
@@ -89,7 +90,7 @@ conf.test_transform = trans.Compose([
 
 conf.flip = True
 conf.upgrade_irse = True
-conf.upgrade_bnneck = False  # todo # todo may pretrain by imgnet
+conf.upgrade_bnneck = False  # todo may pretrain by imgnet
 conf.use_redis = False
 conf.use_chkpnt = False
 conf.chs_first = True
@@ -109,7 +110,8 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 80*num_devs
+conf.batch_size = 210 * num_devs
+# conf.batch_size = 16
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
 conf.other_every = None if not conf.prof else 51
@@ -128,8 +130,10 @@ conf.lr = 1e-1
 conf.lr_gamma = 0.1
 conf.start_epoch = 0
 conf.warmup = 0  # conf.epochs/25 # 1 0
+# conf.epochs = 37
+# conf.milestones = (np.array([23, 32])).astype(int)
 conf.epochs = 16
-conf.milestones = [6, 10, 13]
+conf.milestones = (np.array([9, 13])).astype(int)
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True

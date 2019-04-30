@@ -1,7 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from lz import *
+
 init_dev(3)
+
+
 def show_adabound():
     T = 22709 * 9
     # T = 200 * 391
@@ -17,6 +20,7 @@ def show_adabound():
     # for ind in [T//8, T*3//4, ]:
     for ind in [T * 2 // 9, T * 5 // 9, T * 7 // 9]:
         print(high[ind] - 1)
+
 
 '''
 from nvidia.dali.pipeline import Pipeline

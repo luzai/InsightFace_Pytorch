@@ -115,6 +115,7 @@ class DatasetCasia(torch.utils.data.Dataset):
         df = pd.read_csv(self.file, sep='\t', header=None)
         self.num_classes = np.unique(df.iloc[:, 1]).shape[0]
         self.root_path = Path('/data2/share/faces_emore/')
+        self.cache = {}
 
     def __len__(self):
         return len(self.lines)
@@ -122,7 +123,14 @@ class DatasetCasia(torch.utils.data.Dataset):
     def __getitem__(self, item):
         line = self.lines[item].split()
         path = '/data2/share/casia/' + line[0]
-        img = cvb.read_img(path)
+        if item in self.cache:
+        # if False:
+            img = self.cache[item]
+        else:
+            img = open(path, 'rb').read()
+            self.cache[item] = img
+        fbs = np.asarray(bytearray(img), dtype=np.uint8)
+        img = cv2.imdecode(fbs, 1)
         cid = int(line[1])
         kpts = line[2:]
         kpts = np.asarray(kpts, int).reshape(-1, 2)
@@ -761,7 +769,7 @@ class face_learner(object):
         self.milestones = conf.milestones
         self.val_loader_cache = {}
         ## torch reader
-        if 'webface' in str(conf.use_data_folder) or 'casia' in str(conf.use_data_folder):
+        if conf.dataset_name == 'webface' or conf.dataset_name == 'casia':
             file = '/data2/share/casia_landmark.txt'
             df = pd.read_csv(file, sep='\t', header=None)
             id2nimgs = {}
@@ -780,7 +788,9 @@ class face_learner(object):
                                      num_workers=conf.num_workers,
                                      sampler=torch.utils.data.sampler.WeightedRandomSampler(weis, weis.shape[0],
                                                                                             replacement=True),
+                                     # shuffle=True,
                                      # todo if false, suddenly large loss on new epoch
+                                     # todo whether rebalance
                                      drop_last=True, pin_memory=True, )
             self.class_num = conf.num_clss = self.dataset.num_classes
             conf.explored = np.zeros(self.class_num, dtype=int)
@@ -861,6 +871,12 @@ class face_learner(object):
         elif conf.loss == 'arcfaceneg':
             from models.model import ArcfaceNeg
             self.head = ArcfaceNeg(embedding_size=conf.embedding_size, classnum=self.class_num)
+        elif conf.loss == 'cosface':
+            from models.model import CosFace
+            self.head = CosFace(conf.embedding_size, self.class_num)
+        elif conf.loss == 'arcface2':
+            from models.model import Arcface2
+            self.head = Arcface2(conf.embedding_size, self.class_num)
         else:
             raise ValueError(f'{conf.loss}')
         self.model.cuda()
@@ -1198,7 +1214,11 @@ class face_learner(object):
                 self.optimizer.zero_grad()
                 embeddings = self.model(imgs, mode='train')
                 thetas = self.head(embeddings, labels)
-                loss_xent = conf.ce_loss(thetas, labels)
+                # with torch.no_grad():
+                #     embeddings = self.model(imgs, mode='train')
+                # loss_xent_all = F.cross_entropy(thetas , labels , reduction='none')
+                # loss_xent = loss_xent_all.mean()
+                loss_xent = F.cross_entropy(thetas, labels, )
                 if conf.fp16:
                     with amp.scale_loss(loss_xent, self.optimizer) as scaled_loss:
                         scaled_loss.backward()
@@ -1226,6 +1246,7 @@ class face_learner(object):
                                  f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     writer.add_scalar('loss/xent', loss_xent.item(), self.step)
+
                     writer.add_scalar('info/acc', acc, self.step)
                     writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
                     writer.add_scalar('info/datatime', data_time.avg, self.step)
@@ -2319,7 +2340,7 @@ class face_learner(object):
 
     def calc_img_feas(self, out='t.h5'):
         self.model.eval()
-        if not ('webface' in str(conf.use_data_folder) or 'casia' in str(conf.use_data_folder)):
+        if not (conf.dataset_name == 'webface' or conf.dataset_name == 'casia'):
             loader = DataLoader(
                 self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
                 shuffle=False, sampler=SeqSampler(), drop_last=False,
@@ -2567,7 +2588,7 @@ class face_cotching(face_learner):
         self.milestones = conf.milestones
         self.val_loader_cache = {}
         ## torch reader
-        if 'webface' in str(conf.use_data_folder) or 'casia' in str(conf.use_data_folder):
+        if conf.dataset_name == 'webface' or conf.dataset_name == 'casia':
             file = '/data2/share/casia_landmark.txt'
             df = pd.read_csv(file, sep='\t', header=None)
             id2nimgs = {}
@@ -2742,6 +2763,74 @@ class face_cotching(face_learner):
 
     init_lr = schedule_lr
 
+    def evaluate(self, conf, path, name, nrof_folds=10, tta=True, ensemble=False):
+        # from utils import ccrop_batch
+        self.model.eval()
+        self.model2.eval()
+        idx = 0
+        if name in self.val_loader_cache:
+            carray, issame = self.val_loader_cache[name]
+        else:
+            from data.data_pipe import get_val_pair
+            carray, issame = get_val_pair(path, name)
+            self.val_loader_cache[name] = carray, issame
+        carray = carray[:, ::-1, :, :]  # BGR 2 RGB!
+        embeddings = np.zeros([len(carray), conf.embedding_size])
+        with torch.no_grad():
+            while idx + conf.batch_size <= len(carray):
+                batch = torch.tensor(carray[idx:idx + conf.batch_size])
+                if tta:
+                    # batch = ccrop_batch(batch)
+                    fliped = hflip_batch(batch)
+                    emb_batch = self.model(batch.cuda()) + self.model(fliped.cuda())
+                    if ensemble:
+                        emb_batch2 = self.model2(batch.cuda()) + self.model2(fliped.cuda())
+                        emb_batch = emb_batch.cpu() + emb_batch2.cpu()
+                    else:
+                        emb_batch = emb_batch.cpu()
+                    embeddings[idx:idx + conf.batch_size] = l2_norm(emb_batch)
+                else:
+                    embeddings[idx:idx + conf.batch_size] = self.model(batch.cuda()).cpu()
+                    # todo ...
+                idx += conf.batch_size
+            if idx < len(carray):
+                batch = torch.tensor(carray[idx:])
+                if tta:
+                    # batch = ccrop_batch(batch)
+                    fliped = hflip_batch(batch)
+                    emb_batch = self.model(batch.cuda()) + self.model(fliped.cuda())
+                    if ensemble:
+                        emb_batch2 = self.model2(batch.cuda()) + self.model2(fliped.cuda())
+                        emb_batch = emb_batch.cpu() + emb_batch2.cpu()
+                    else:
+                        emb_batch = emb_batch.cpu()
+                    embeddings[idx:] = l2_norm(emb_batch)
+                else:
+                    embeddings[idx:] = self.model(batch.cuda()).cpu()
+                    # todo ...
+        tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
+        roc_curve_tensor = None
+        # buf = gen_plot(fpr, tpr)
+        # roc_curve = Image.open(buf)
+        # roc_curve_tensor = trans.ToTensor()(roc_curve)
+        self.model.train()
+        self.model2.train()
+        return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
+
+    evaluate_accelerate = evaluate
+
+    def validate_ori(self, *args):
+        res = {}
+        self.model.eval()
+        for ds in ['cfp_fp']:  # ['lfw', 'agedb_30', 'cfp_fp', 'cfp_ff', 'calfw', 'cplfw', 'vgg2_fp', ]
+            accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.loader.dataset.root_path,
+                                                                       ds)
+            logging.info(f'validation accuracy on {ds} is {accuracy} ')
+            res[ds] = accuracy
+
+        self.model.train()
+        return res
+
     def train_cotching(self, conf, epochs):
         self.model.train()
         self.model2.train()
@@ -2965,7 +3054,7 @@ class face_cotching(face_learner):
             step = np.asarray(step, dtype=float)
             assert step.shape[0] > 0, f"{resume_path} chk!"
             step_ind = step.argmax()
-            fixed_str = fixed_strs[step_ind].replace('model_', '')
+            fixed_str = fixed_strs[step_ind].replace('model_', '').replace('model2_', '')
             modelp = save_path / 'model_{}'.format(fixed_str)
         logging.info(f'you are using gpu, load model, {modelp}')
         model_state_dict = torch.load(modelp)
@@ -3024,6 +3113,7 @@ class face_cotching(face_learner):
         imgs2_l = []
         labels2_l = []
         accuracy = 0
+        step_det = 0
         if conf.start_eval:
             for ds in ['cfp_fp', ]:
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -3091,10 +3181,10 @@ class face_cotching(face_learner):
                     imgs = imgs_new[:conf.batch_size].to(device=conf.model1_dev[0])
                     labels_new = torch.cat(labels_l, dim=0)
                     labels = labels_new[:conf.batch_size].to(device=conf.model1_dev[0])
-                    imgs_l = [imgs_new[conf.batch_size:]]  # whether this right
-                    labels_l = [labels_new[conf.batch_size:]]
-                    # imgs_l = []
-                    # labels_l = []
+                    # imgs_l = [imgs_new[conf.batch_size:]]  # whether this right
+                    # labels_l = [labels_new[conf.batch_size:]]
+                    imgs_l = []
+                    labels_l = []
                     labels_cpu = labels.cpu()
                     embeddings2 = self.model2(imgs, mode='train')
                     thetas2 = self.head2(embeddings2, labels)
@@ -3111,10 +3201,16 @@ class face_cotching(face_learner):
                     imgs2 = imgs2_new[:conf.batch_size].to(device=conf.model1_dev[0])
                     labels2_new = torch.cat(labels2_l, dim=0)
                     labels2 = labels2_new[:conf.batch_size].to(device=conf.model1_dev[0])
-                    imgs2_l = [imgs2_new[conf.batch_size:]]
-                    labels2_l = [labels2_new[conf.batch_size:]]
-                    # imgs2_l = []
-                    # labels2_l = []
+                    # imgs2_l = [imgs2_new[conf.batch_size:]]
+                    # labels2_l = [labels2_new[conf.batch_size:]]
+                    # logging.info(f'{imgs2_new.shape[0]} {step_det}')
+                    step_det += imgs2_new[conf.batch_size:].shape[0] / conf.batch_size
+                    if step_det > 1:
+                        self.step -= 1
+                        step_det -= 1
+                    imgs2_l = []
+                    labels2_l = []
+
                     embeddings = self.model(imgs2, mode='train')
                     thetas = self.head(embeddings, labels2)
                     loss_xent = F.cross_entropy(thetas, labels2)
@@ -3188,7 +3284,7 @@ class face_cotching_head(face_learner):
         self.milestones = conf.milestones
         self.val_loader_cache = {}
         ## torch reader
-        if 'webface' in str(conf.use_data_folder) or 'casia' in str(conf.use_data_folder):
+        if conf.dataset_name == 'webface' or conf.dataset_name == 'casia':
             file = '/data2/share/casia_landmark.txt'
             df = pd.read_csv(file, sep='\t', header=None)
             id2nimgs = {}
@@ -3254,7 +3350,6 @@ class face_cotching_head(face_learner):
             self.model = models.WiderResNet(**models.wider_resnet._NETS[str(conf.net_depth)])
         elif conf.net_mode == 'ir_se' or conf.net_mode == 'ir':
             self.model = Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)
-            self.model2 = Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)
             logging.info('{}_{} model generated'.format(conf.net_mode, conf.net_depth))
         else:
             raise ValueError(conf.net_mode)
@@ -3271,7 +3366,6 @@ class face_cotching_head(face_learner):
             raise ValueError(f'{conf.loss}')
 
         self.model.cuda()
-        self.model2.cuda()
 
         if self.head is not None:
             self.head = self.head.to(device=conf.model2_dev[0])
@@ -3306,15 +3400,9 @@ class face_cotching_head(face_learner):
                     gamma=1e-3, final_lr=conf.final_lr, )
         elif conf.use_opt == 'sgd':
             self.optimizer = optim.SGD([
-                {'params': paras_wo_bn + [*self.head.parameters()],
+                {'params': paras_wo_bn + [*self.head.parameters()] + [*self.head2.parameters()],
                  'weight_decay': conf.weight_decay},
                 {'params': paras_only_bn},
-            ], lr=conf.lr, momentum=conf.momentum)
-            paras_only_bn2, paras_wo_bn2 = separate_bn_paras(self.model2)
-            self.optimizer2 = optim.SGD([
-                {'params': paras_wo_bn2 + [*self.head2.parameters()],
-                 'weight_decay': conf.weight_decay},
-                {'params': paras_only_bn2},
             ], lr=conf.lr, momentum=conf.momentum)
         elif conf.use_opt == 'adabound':
             from tools.adabound import AdaBound
@@ -3329,7 +3417,6 @@ class face_cotching_head(face_learner):
             raise ValueError(f'{conf.use_opt}')
         if conf.fp16:
             self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O1")
-            self.model2, self.optimizer2 = amp.initialize(self.model2, self.optimizer2, opt_level="O1")
 
         logging.info(f'optimizers generated {self.optimizer}')
 
@@ -3337,16 +3424,11 @@ class face_cotching_head(face_learner):
                                            device_ids=conf.model1_dev,
                                            output_device=conf.model1_dev[0]
                                            ).cuda()
-        self.model2 = torch.nn.DataParallel(self.model2,
-                                            device_ids=conf.model2_dev,
-                                            output_device=conf.model2_dev[0]
-                                            )
 
         self.board_loss_every = conf.board_loss_every
         self.head.train()
         self.model.train()
         self.head2.train()
-        self.model2.train()
 
     def schedule_lr(self, e=0):
         from bisect import bisect_right
@@ -3357,13 +3439,12 @@ class face_cotching_head(face_learner):
         lr = e2lr[e]
         for params in self.optimizer.param_groups:
             params['lr'] = lr
-        for params in self.optimizer2.param_groups:
-            params['lr'] = lr
         logging.info(f'lr is {lr}')
+
+    init_lr = schedule_lr
 
     def train_cotching(self, conf, epochs):
         self.model.train()
-        self.model2.train()
         loader = self.loader
         self.evaluate_every = conf.other_every or len(loader) // 3
         self.save_every = conf.other_every or len(loader) // 3
@@ -3400,23 +3481,20 @@ class face_cotching_head(face_learner):
                     self.step += 1
                     break
                 imgs = data['imgs'].to(device=conf.model1_dev[0])
-                # imgs.requires_grad_(True)
-                imgs2 = imgs
                 assert imgs.max() < 2
                 if 'labels_cpu' in data:
                     labels_cpu = data['labels_cpu'].cpu()
                 else:
                     labels_cpu = data['labels'].cpu()
                 labels = data['labels'].to(device=conf.model1_dev[0])
-                labels2 = labels
                 data_time.update(
                     lz.timer.since_last_check(verbose=False)
                 )
 
                 embeddings = self.model(imgs, mode='train')
-                embeddings2 = self.model2(imgs2, mode='train')
+                embeddings = rescale(embeddings)
                 thetas = self.head(embeddings, labels)
-                thetas2 = self.head2(embeddings2, labels2)
+                thetas2 = self.head2(embeddings, labels)
                 pred = thetas.argmax(dim=1)
                 pred2 = thetas2.argmax(dim=1)
                 disagree = pred != pred2
@@ -3424,13 +3502,13 @@ class face_cotching_head(face_learner):
                     logging.info(f'disagree is zero!')
                     disagree = to_torch(np.random.randint(0, 1, disagree.shape)).type_as(disagree)  # todo
                 loss_xent = F.cross_entropy(thetas[disagree], labels[disagree], reduction='none')
-                loss_xent2 = F.cross_entropy(thetas2[disagree], labels2[disagree], reduction='none')
+                loss_xent2 = F.cross_entropy(thetas2[disagree], labels[disagree], reduction='none')
                 ind_sorted = loss_xent.argsort()
                 ind2_sorted = loss_xent2.argsort()
                 num_disagree = labels[disagree].shape[0]
                 assert num_disagree == disagree.sum().item()
                 # tau = 0.35
-                tau = 0.05
+                tau = 0.05  # todo
                 Ek = len(loader)
                 Emax = len(loader) * conf.epochs
                 lambda_e = 1 - min(self.step / Ek * tau, (1 + (self.step - Ek) / (Emax - Ek)) * tau)
@@ -3440,6 +3518,8 @@ class face_cotching_head(face_learner):
                 loss_xent = loss_xent[ind2_update].mean()
                 loss_xent2 = loss_xent2[ind_update].mean()
 
+                loss_xent = loss_xent + loss_xent2
+
                 self.optimizer.zero_grad()
                 if conf.fp16:
                     with amp.scale_loss(loss_xent, self.optimizer) as scaled_loss:
@@ -3447,14 +3527,6 @@ class face_cotching_head(face_learner):
                 else:
                     loss_xent.backward()
                 self.optimizer.step()
-
-                self.optimizer2.zero_grad()
-                if conf.fp16:
-                    with amp.scale_loss(loss_xent2, self.optimizer2) as scaled_loss:
-                        scaled_loss.backward()
-                else:
-                    loss_xent2.backward()
-                self.optimizer2.step()
 
                 with torch.no_grad():
                     if conf.mining == 'dop':
@@ -3527,11 +3599,6 @@ class face_cotching_head(face_learner):
             save_path /
             ('model_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
                                                           extra)))
-        torch.save(
-            self.model2.module.state_dict(),
-            save_path /
-            ('model2_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
-                                                           extra)))
         # self.model.cuda()
         lz.msgpack_dump({'dop': conf.dop,
                          'id2range_dop': conf.id2range_dop,
@@ -3559,11 +3626,6 @@ class face_cotching_head(face_learner):
                 save_path /
                 ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy,
                                                                   self.step, extra)))
-            torch.save(
-                self.optimizer2.state_dict(),
-                save_path /
-                ('optimizer2_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy,
-                                                                   self.step, extra)))
 
     def load_state(self, fixed_str='',
                    resume_path=None, latest=True,
@@ -3589,21 +3651,10 @@ class face_cotching_head(face_learner):
         logging.info(f'you are using gpu, load model, {modelp}')
         model_state_dict = torch.load(modelp)
         model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
-        if load_model2:
-            model_state_dict2 = torch.load(str(modelp).replace('model', 'model2'))
-            model_state_dict2 = {k: v for k, v in model_state_dict2.items() if 'num_batches_tracked' not in k}
         if list(model_state_dict.keys())[0].startswith('module'):
             self.model.load_state_dict(model_state_dict, strict=True)
-            if load_model2:
-                self.model2.load_state_dict(model_state_dict2, strict=True)
-            else:
-                self.model2.load_state_dict(model_state_dict, strict=True)
         else:
             self.model.module.load_state_dict(model_state_dict, strict=True)
-            if load_model2:
-                self.model2.module.load_state_dict(model_state_dict2, strict=True)
-            else:
-                self.model2.module.load_state_dict(model_state_dict, strict=True)
 
         if load_head:
             assert osp.exists(save_path / 'head_{}'.format(fixed_str))
@@ -3618,15 +3669,23 @@ class face_cotching_head(face_learner):
         if load_optimizer:
             logging.info(f'load opt from {modelp}')
             self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
-            if load_model2:
-                self.optimizer2.load_state_dict(torch.load(save_path / 'optimizer2_{}'.format(fixed_str)))
-            else:
-                self.optimizer2.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
         if load_imp and (save_path / f'extra_{fixed_str.replace(".pth", ".pk")}').exists():
             extra = lz.msgpack_load(save_path / f'extra_{fixed_str.replace(".pth", ".pk")}')
             conf.dop = extra['dop'].copy()
             conf.id2range_dop = extra['id2range_dop'].copy()
 
+
+class ReScale(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input):
+        return input
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output / 2  # todo 2 head here
+
+
+rescale = ReScale.apply
 
 if __name__ == '__main__':
     pass

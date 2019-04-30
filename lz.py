@@ -571,11 +571,17 @@ def df2md(df1):
 def stat(arr):
     def stat_np(array):
         array = np.asarray(array)
-        return np.min(array), np.mean(array), np.median(array), np.max(array), np.shape(array)
+        return dict(zip(
+            ['min','mean','median','max','shape'],
+            [np.min(array), np.mean(array), np.median(array), np.max(array), np.shape(array)]
+        ))
     
     def stat_th(tensor):
-        return torch.min(tensor).item(), torch.mean(tensor).item(), torch.median(tensor).item(), torch.max(
-            tensor).item()
+        return dict(zip(
+            ['min','mean','median','max',],
+            [torch.min(tensor).item(), torch.mean(tensor).item(), torch.median(tensor).item(), torch.max(
+            tensor).item()]
+        ))
     
     if type(arr).__module__ == 'numpy':
         return stat_np(arr)
@@ -1788,6 +1794,10 @@ def softmax_ch(arr):
     arr = np.array(arr).reshape(-1)
     return arr
 
+def softmax_th(arr,dim=1):
+    arr = np.asarray(arr, dtype= np.float32)
+    arr = to_torch(arr)
+    return F.softmax(arr,dim=dim).numpy()
 
 def l2_normalize_th(x):
     # can only handle (128,2048) or (128,2048,8,4)

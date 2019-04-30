@@ -1,34 +1,26 @@
 h5py
-tensorboardX
 tabulate
 # tensorflow-gpu
 # torch
-tensorboard
 tqdm
 # mxnet-cu90
 # mxnet-cu100
-tqdm
-easydict
-scikit-learn
-ipython
-matplotlib
-pandas
 bcolz
-numpy
-Pillow
-scipy
 # torchvision
-gpustat
-easydict
-msgpack-numpy
-msgpack
 colorlog
 cvbase
 keras
-trash-cli
-scikit-image
-opencv-python
 lmdb
 redis
 future-fstrings
-dlib==19.10
+# dlib==19.10
+# conda create -n py3 python=3.7 anaconda pytorch faiss-cpu tensorflow-gpu torchvision tensorboard trash-cli scikit-learn scikit-image opencv trash-cli easydict  gpustat tensorboardX
+# conda install anaconda pytorch faiss-cpu tensorflow-gpu torchvision tensorboard trash-cli scikit-learn scikit-image opencv trash-cli easydict  gpustat tensorboardX
+msgpack
+msgpack-numpy
+ipython
+matplotlib
+pandas
+numpy
+Pillow
+scipy

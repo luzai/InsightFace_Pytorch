@@ -8,7 +8,7 @@ import redis
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--modelp', default='work_space/retina.r50/save',
+parser.add_argument('--modelp', default='retina.r50',
                     type=str)
 args = parser.parse_args()
 
@@ -47,7 +47,7 @@ else:
     conf.fp16 = False
     conf.ipabn = False
     conf.cvt_ipabn = False
-    # conf.net_depth = 152
+    # conf.net_depth = 50
     # conf.net_mode = 'mobilefacenet'
     conf.use_chkpnt = False
     

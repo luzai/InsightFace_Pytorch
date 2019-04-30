@@ -58,12 +58,14 @@ if __name__ == '__main__':
         # 'casia.r50.sft',
         # 'casia.r50.arc.use_test',
         # 'casia.r20',
+        # 'casia.r50.mg.5.arcface2',
+        # 'retina.r50',
     ]:
         learner.load_state(
             # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
-            resume_path=Path(f'work_space/{p}/save/'),
+            resume_path=Path(f'work_space/{p}/models/'),
             load_optimizer=False,
-            load_head=True,
+            load_head=True,  # todo note!
             load_imp=False,
             latest=False,
         )
@@ -71,7 +73,7 @@ if __name__ == '__main__':
         # ress[p] = res
         # logging.warning(f'{p} res: {res}')
     print(ress)
-    # learner.calc_img_feas(out='work_space/casia.r50.arc.h5')
+    # learner.calc_img_feas(out='work_space/retina.r50.h5')
     # exit(0)
 
     # learner.init_lr()

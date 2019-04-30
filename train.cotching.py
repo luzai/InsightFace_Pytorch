@@ -32,8 +32,8 @@ if __name__ == '__main__':
             set_stream_logger(logging.WARNING)
     from Learner import *
 
-    # learner = face_learner(conf, )
     learner = face_cotching(conf, )
+    # learner = face_cotching_head(conf, )
     ress = {}
     for p in [
         # 'ms1m.mb.arc.warmup.ghm',
@@ -57,13 +57,14 @@ if __name__ == '__main__':
         # 'casia.r50.arc.bl',
         # 'casia.r50.sft',
         # 'casia.r50.arc.use_test',
-        # 'casia.coth',
+        # 'casia.coth.cont',
+        # 'casia.r20.cotch',
     ]:
         learner.load_state(
             # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
-            resume_path=Path(f'work_space/{p}/models/'),
+            resume_path=Path(f'work_space/{p}/save/'),
             load_optimizer=False,
-            load_head=True,
+            load_head=False, # todo note !!!
             load_imp=False,
             latest=False,
             load_model2=True,
@@ -86,8 +87,8 @@ if __name__ == '__main__':
     # learner.train(conf, conf.epochs)
     # learner.train_dist(conf, conf.epochs)
     # learner.train_simple(conf, conf.epochs)
-    learner.train_cotching(conf, conf.epochs)
-    # learner.train_cotching_accbs(conf, conf.epochs)
+    # learner.train_cotching(conf, conf.epochs)
+    learner.train_cotching_accbs(conf, conf.epochs)
     # learner.train_ghm(conf, conf.epochs)
     # learner.train_with_wei(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)

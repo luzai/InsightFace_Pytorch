@@ -54,17 +54,20 @@ class SEModule(Module):
         return module_input * x
 
 
-from modules.bn import InPlaceABN
+from modules.bn import InPlaceABN, InPlaceABNSync
 
 
 def bn_act(depth, with_act):
     if gl_conf.ipabn:
         if with_act:
-            return [InPlaceABN(depth, activation='none'),
-                    PReLU(depth, ), ]
+            if gl_conf.ipabn == 'sync':
+                return [InPlaceABNSync(depth, activation='none'),
+                        PReLU(depth, ), ]
+            else:
+                return [InPlaceABN(depth, activation='none'),
+                        PReLU(depth, ), ]
         else:
-            return [
-                InPlaceABN(depth, activation='none')]
+            return [InPlaceABN(depth, activation='none')]
     else:
         if with_act:
             return [BatchNorm2d(depth), PReLU(depth, ), ]
@@ -74,7 +77,10 @@ def bn_act(depth, with_act):
 
 def bn2d(depth):
     if gl_conf.ipabn:
-        return InPlaceABN(depth, activation='none')
+        if gl_conf.ipabn == 'sync':
+            return InPlaceABNSync(depth, activation='none')
+        else:
+            return InPlaceABN(depth, activation='none')
     else:
         return BatchNorm2d(depth)
 
@@ -185,7 +191,7 @@ def get_blocks(num_layers):
             get_block(in_channel=128, depth=256, num_units=36),
             get_block(in_channel=256, depth=512, num_units=3)
         ]
-    elif num_layers == 20:
+    elif num_layers == 20:  # this is 26 in fact!
         blocks = [
             get_block(in_channel=64, depth=64, num_units=2),
             get_block(in_channel=64, depth=128, num_units=3),
@@ -274,9 +280,175 @@ class Backbone(Module):
 
 ##################################  MobileFaceNet
 
+class DoubleConv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1,
+                 padding=0, dilation=1, groups=1, bias=False,
+                 ):
+        super(DoubleConv, self).__init__()
+        if isinstance(kernel_size, tuple) and kernel_size[0] == kernel_size[1]:
+            kernel_size = kernel_size[0]
+        zp = kernel_size + 1
+        self.cl, self.cl2, self.zp, self.z, = in_channels, out_channels, zp, kernel_size,
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.stride, self.padding = stride, padding
+        self.bias = None
+        self.groups = groups
+        self.dilation = dilation
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels // groups, zp, zp))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        from torch.nn import init
+        n = self.in_channels
+        init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        if self.bias is not None:
+            fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
+            bound = 1 / math.sqrt(fan_in)
+            init.uniform_(self.bias, -bound, bound)
+
+    def forward(self, input):
+        cl, cl2, zp, z, = self.cl, self.cl2, self.zp, self.z,
+        cl //= self.groups
+        with torch.no_grad():
+            Il = torch.eye(cl * z * z).type_as(self.weight)
+            Il = Il.view(cl * z * z, cl, z, z)
+        Wtl = F.conv2d(self.weight, Il)
+        zpz = zp - z + 1
+        Wtl = Wtl.view(cl2 * zpz * zpz, cl, z, z)
+        Ol2 = F.conv2d(input, Wtl, bias=None, stride=self.stride,
+                       padding=self.padding,
+                       dilation=self.dilation, groups=self.groups, )
+        bs, _, wl2, hl2 = Ol2.size()
+        Ol2 = Ol2.view(bs, -1, zpz, zpz)
+        Il2 = F.adaptive_avg_pool2d(Ol2, (1, 1))
+        res = Il2.view(bs, -1, wl2, hl2)
+        return res
+
+
+# DoubleConv(16,32)(torch.randn(4,16,112,112))
+def count_double_conv(m, x, y):
+    x = x[0]
+
+    cin = m.in_channels
+    cout = m.out_channels
+    kh = kw = m.kernel_size
+    batch_size = x.size()[0]
+
+    out_h = y.size(2)
+    out_w = y.size(3)
+    multiply_adds = 1
+    kernel_ops = multiply_adds * kh * kw
+    output_elements = batch_size * out_w * out_h * cout
+    total_ops = output_elements * kernel_ops * cin // m.groups
+    zp, z = m.zp, m.z
+    zpz = zp - z + 1
+    total_ops *= zpz ** 2
+    total_ops += y.numel() * zpz ** 2
+    m.total_ops = torch.Tensor([int(total_ops)])
+
+
+class STNConv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1,
+                 padding=0, dilation=1, groups=1, bias=False,
+                 controller=None, ):
+        super(STNConv, self).__init__()
+
+        if isinstance(kernel_size, tuple) and kernel_size[0] == kernel_size[1]:
+            kernel_size = kernel_size[0]
+        zmeta = kernel_size + 1
+        if controller is None:
+            controller = get_controller(scale=(1,   )) # kernel_size / (kernel_size + .5)
+        self.in_plates, self.out_plates, self.zmeta, self.z, = in_channels, out_channels, zmeta, kernel_size,
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.stride = stride
+        self.kernel_size = kernel_size
+        self.padding = padding
+        self.bias = None
+        self.groups = groups
+        self.dilation = dilation
+        self.weight = nn.Parameter(
+            torch.FloatTensor(out_channels, in_channels // groups, zmeta, zmeta))
+        self.reset_parameters()
+        self.register_buffer('theta', torch.FloatTensor(controller).view(-1, 2, 3))
+        self.stride2 = stride2 = self.theta.shape[0]
+        self.n_inst, self.n_inst_sqrt = (self.zmeta - self.z + 1) * (self.zmeta - self.z + 1), self.zmeta - self.z + 1
+
+    def reset_parameters(self):
+        from torch.nn import init
+        n = self.in_channels
+        init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        if self.bias is not None:
+            fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
+            bound = 1 / math.sqrt(fan_in)
+            init.uniform_(self.bias, -bound, bound)
+
+    def forward(self, input):
+        bs = input.size(0)
+        weight_l = []
+        # for theta_ in (self.theta):
+        #     grid = F.affine_grid(theta_.expand(self.weight.size(0), 2, 3), self.weight.size())
+        #     weight_l.append(F.grid_sample(self.weight, grid))
+        weight_l.append(self.weight)
+        weight_l.append(self.weight.transpose(2,3))
+        weight_l.append(self.weight.transpose(2,3).flip(3))
+        weight_inst = torch.cat(weight_l)
+        weight_inst = weight_inst[:, :, :self.kernel_size, :self.kernel_size]
+        out = F.conv2d(input, weight_inst, bias=None, stride=self.stride,
+                       padding=self.padding,
+                       dilation=self.dilation, groups=self.groups, )
+        # self.out_inst = out
+        h, w = out.shape[2], out.shape[3]
+        out = out.view(bs, self.stride2, self.out_plates, h, w)
+        out = out.permute(0, 3, 4, 1, 2).contiguous().view(bs, -1, self.stride2)
+        out = F.avg_pool1d(out, self.stride2)
+        # out = F.max_pool1d(out, self.stride2)
+        out = out.permute(0, 2, 1).contiguous().view(bs, -1, h, w)
+        # self.out=out
+        # out = F.avg_pool2d(out, out.size()[2:])
+        # out = out.view(out.size(0), -1)
+        return out
+
+
+def get_controller(
+        scale=(1,
+                # 3 / 3.5,
+               ),
+        translation=(0,
+                # 2 / (meta_kernel_size - 1),
+                     ),
+        theta=(0,
+               # np.pi,
+               # np.pi / 16, -np.pi / 16,
+               np.pi / 2, -np.pi / 2,
+                # np.pi / 4, -np.pi / 4,
+                # np.pi * 3 / 4, -np.pi * 3 / 4,
+               )
+):
+    controller = []
+    for sx in scale:
+        # for sy in scale:
+        sy = sx
+        for tx in translation:
+            for ty in translation:
+                for th in theta:
+                    controller.append([sx * np.cos(th), -sx * np.sin(th), tx,
+                                       sy * np.sin(th), sy * np.cos(th), ty])
+    # print('controller stride is ', len(controller))
+    controller = np.stack(controller)
+    controller = controller.reshape(-1, 2, 3)
+    controller = np.ascontiguousarray(controller, np.float32)
+    return controller
+
+
+# m = STNConv(4, 16, controller=get_controller()).cuda()
+# m(torch.randn(1, 4, 112, 112).cuda())
+
 
 class Conv_block(Module):
-    def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1):
+    def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1, ):
         super(Conv_block, self).__init__()
         self.conv = Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding,
                            bias=False)
@@ -318,6 +490,7 @@ class Depth_Wise(Module):
         x = self.conv_dw(x)
         x = self.project(x)
         if self.residual:
+            # print(short_cut.shape, x.shape)
             output = short_cut + x
         else:
             output = x
@@ -340,19 +513,50 @@ class Residual(Module):
 class MobileFaceNet(Module):
     def __init__(self, embedding_size):
         super(MobileFaceNet, self).__init__()
+        global Conv2d
+        # Conv2d = DoubleConv
         self.conv1 = Conv_block(3, 64, kernel=(3, 3), stride=(2, 2), padding=(1, 1))
+        # Conv2d = nn.Conv2d
         self.conv2_dw = Conv_block(64, 64, kernel=(3, 3), stride=(1, 1), padding=(1, 1), groups=64)
         self.conv_23 = Depth_Wise(64, 64, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=128)
         self.conv_3 = Residual(64, num_block=4, groups=128, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
         self.conv_34 = Depth_Wise(64, 128, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=256)
         self.conv_4 = Residual(128, num_block=6, groups=256, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
+        # Conv2d = DoubleConv
+        # Conv2d = STNConv
         self.conv_45 = Depth_Wise(128, 128, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=512)
+        # Conv2d = DoubleConv
+        # Conv2d = STNConv
         self.conv_5 = Residual(128, num_block=2, groups=256, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
+        Conv2d = STNConv
         self.conv_6_sep = Conv_block(128, 512, kernel=(1, 1), stride=(1, 1), padding=(0, 0))
+        # Conv2d = DoubleConv
+        # Conv2d = nn.Conv2d
         self.conv_6_dw = Linear_block(512, 512, groups=512, kernel=(7, 7), stride=(1, 1), padding=(0, 0))
+        Conv2d = nn.Conv2d
+
         self.conv_6_flatten = Flatten()
         self.linear = Linear(512, embedding_size, bias=False)
         self.bn = BatchNorm1d(embedding_size)
+
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, DoubleConv, STNConv)):
+                nn.init.xavier_uniform_(m.weight.data)
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm1d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight.data)
+                if m.bias is not None:
+                    m.bias.data.zero_()
 
     def forward(self, x, *args, **kwargs):
         # from IPython import embed; embed()
@@ -523,6 +727,58 @@ from torch.nn.utils import weight_norm
 # nB = gl_conf.batch_size
 # idx_ = torch.arange(0, nB, dtype=torch.long)
 
+class Arcface2(Module):
+    # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599
+    def __init__(self, embedding_size=gl_conf.embedding_size, classnum=None, s=gl_conf.scale, m=gl_conf.margin):
+        super(Arcface2, self).__init__()
+        self.classnum = classnum
+        kernel = Parameter(torch.Tensor(embedding_size, classnum))
+        kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
+        # kernel = torch.chunk(kernel, gl_conf.num_devs, dim=1)
+        self.device_id = list(range(gl_conf.num_devs))
+        # kernel = tuple(kernel[ind].cuda(self.device_id[ind]) for ind in range(gl_conf.num_devs))
+        self.kernel = kernel
+
+        if gl_conf.fp16:
+            m = np.float16(m)
+            pi = np.float16(np.pi)
+        else:
+            m = np.float32(m)
+            pi = np.float32(np.pi)
+        self.m = m  # the margin value, default is 0.5
+        self.s = s  # scalar value default is 64, see normface https://arxiv.org/abs/1704.06369
+        self.cos_m = np.cos(m)
+        self.sin_m = np.sin(m)
+        self.mm = self.sin_m * m  # issue 1
+        self.threshold = math.cos(pi - m)
+        self.easy_margin = False
+
+    def forward_eff(self, embbedings, label=None):
+        assert not torch.isnan(embbedings).any().item()
+        nB = embbedings.shape[0]
+        idx_ = torch.arange(0, nB, dtype=torch.long)
+        kernel_norm = l2_norm(self.kernel, axis=0)
+        cos_theta = torch.mm(embbedings, kernel_norm)
+        cos_theta = cos_theta.clamp(-1, 1)
+        if label is None:
+            cos_theta *= self.s
+            return cos_theta
+        output = cos_theta.clone()  # todo avoid copy ttl
+        cos_theta_need = cos_theta[idx_, label]
+        theta = torch.acos(cos_theta_need)
+        cos_theta_m = torch.cos(theta + self.m)
+        cond_mask = (cos_theta_need - self.threshold) <= 0
+
+        if torch.any(cond_mask).item():
+            logging.info(f'this concatins a difficult sample, {cond_mask.sum().item()}')
+            # from IPython import embed; embed()
+        output[idx_, label] = cos_theta_m.type_as(output)
+        output *= self.s  # scale up in order to make softmax work, first introduced in normface
+        return output
+
+    forward = forward_eff
+
+
 class Arcface(Module):
     # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599
     def __init__(self, embedding_size=gl_conf.embedding_size, classnum=None, s=gl_conf.scale, m=gl_conf.margin):
@@ -580,7 +836,7 @@ class Arcface(Module):
         sin_theta_2 = 1 - cos_theta_2
         sin_theta = torch.sqrt(sin_theta_2)
         cos_theta_m = (cos_theta_need * self.cos_m - sin_theta * self.sin_m)
-        cond_mask = torch.acos(cos_theta_need) + self.m >= np.pi - self.m
+        cond_mask = (cos_theta_need - self.threshold) <= 0
 
         if torch.any(cond_mask).item():
             logging.info(f'this concatins a difficult sample, {cond_mask.sum().item()}')
@@ -689,7 +945,7 @@ class ArcfaceNeg(Module):
             cos_theta_m = (cos_theta_need * self.cos_m - sin_theta * self.sin_m)
             cond_mask = (cos_theta_need - self.threshold) <= 0  # those should be replaced
             if torch.any(cond_mask).item():
-                logging.info('this concatins a difficult sample')
+                logging.info(f'this concatins a difficult sample {cond_mask.sum().item()}')
             keep_val = (cos_theta_need - self.mm)  # when theta not in [0,pi], use cosface instead
             cos_theta_m[cond_mask] = keep_val[cond_mask].type_as(cos_theta_m)
             output[idx_, label] = cos_theta_m.type_as(output)
@@ -704,7 +960,9 @@ class ArcfaceNeg(Module):
             sin_theta_neg_2 = 1 - cos_theta_neg_need_2
             sin_theta_neg = torch.sqrt(sin_theta_neg_2)
             cos_theta_neg_m = (cos_theta_neg_need * np.cos(self.m2) + sin_theta_neg * np.sin(self.m2))
-            cond_mask = (cos_theta_neg_need < self.threshold2)  # those should not be replaced
+            cond_mask = (cos_theta_neg_need < self.threshold2)  # what is masked is waht should not be replaced
+            if torch.any(cos_theta_neg_need >= self.threshold2).item():
+                logging.info(f'neg concatins difficult samples {(cos_theta_neg_need >= self.threshold2).sum().item()}')
             cos_theta_neg_need = cos_theta_neg_need.clone()
             cos_theta_neg_need[cond_mask] = cos_theta_neg_m[cond_mask]
             output[idx, topkind] = cos_theta_neg_need.type_as(output)
@@ -715,6 +973,115 @@ class ArcfaceNeg(Module):
 
 
 ##################################  Cosface head #################
+
+class CosFace(nn.Module):
+    r"""Implement of CosFace (https://arxiv.org/pdf/1801.09414.pdf):
+    Args:
+        in_features: size of each input sample
+        out_features: size of each output sample
+        device_id: the ID of GPU where the model will be trained by model parallel.
+                       if device_id=None, it will be trained on CPU without model parallel.
+        s: norm of input feature
+        m: margin
+        cos(theta)-m
+    """
+
+    def __init__(self, embedding_size, classnum, s=64.0, m=0.35):
+        super(CosFace, self).__init__()
+        self.in_features = embedding_size
+        self.out_features = classnum
+        self.s = s
+        self.m = m
+
+        self.weight = Parameter(torch.FloatTensor(classnum, embedding_size))
+        nn.init.xavier_uniform_(self.weight)
+
+    def forward(self, input, label):
+        assert not torch.isnan(input).any().item()
+        # --------------------------- cos(theta) & phi(theta) ---------------------------
+        # if self.device_id == None:
+        cosine = F.linear((input), F.normalize(self.weight))
+        # else:
+        #     x = input
+        #     sub_weights = torch.chunk(self.weight, len(self.device_id), dim=0)
+        #     temp_x = x.cuda(self.device_id[0])
+        #     weight = sub_weights[0].cuda(self.device_id[0])
+        #     cosine = F.linear(F.normalize(temp_x), F.normalize(weight))
+        #     for i in range(1, len(self.device_id)):
+        #         temp_x = x.cuda(self.device_id[i])
+        #         weight = sub_weights[i].cuda(self.device_id[i])
+        #         cosine = torch.cat((cosine, F.linear(F.normalize(temp_x), F.normalize(weight)).cuda(self.device_id[0])), dim=1)
+        phi = cosine - self.m
+        # --------------------------- convert label to one-hot ---------------------------
+        one_hot = torch.zeros(cosine.size())
+        one_hot = one_hot.cuda()
+        # one_hot = one_hot.cuda() if cosine.is_cuda else one_hot
+        one_hot.scatter_(1, label.view(-1, 1).long(), 1)
+        # -------------torch.where(out_i = {x_i if condition_i else y_i) -------------
+        output = (one_hot * phi) + (
+                (1.0 - one_hot) * cosine)  # you can use torch.where if your torch.__version__ is 0.4
+        output *= self.s
+
+        return output
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(' \
+               + 'in_features = ' + str(self.in_features) \
+               + ', out_features = ' + str(self.out_features) \
+               + ', s = ' + str(self.s) \
+               + ', m = ' + str(self.m) + ')'
+
+
+class AdaCosFace(nn.Module):
+    r"""Implement of CosFace (https://arxiv.org/pdf/1801.09414.pdf):
+    Args:
+        in_features: size of each input sample
+        out_features: size of each output sample
+        device_id: the ID of GPU where the model will be trained by model parallel.
+                       if device_id=None, it will be trained on CPU without model parallel.
+        s: norm of input feature
+        m: margin
+        cos(theta)-m
+    """
+
+    def __init__(self, embedding_size, classnum, m=0.35):
+        super(AdaCosFace, self).__init__()
+        self.in_features = embedding_size
+        self.out_features = classnum
+        s_init = np.sqrt(2) * np.log(classnum - 1)
+        self.s = s_init
+        self.m = m
+        self.weight = Parameter(torch.FloatTensor(classnum, embedding_size))
+        nn.init.xavier_uniform_(self.weight)
+
+    def forward(self, input, label):
+        # --------------------------- cos(theta) & phi(theta) ---------------------------
+        cosine = F.linear((input), F.normalize(self.weight))
+        phi = cosine - self.m
+        # --------------------------- convert label to one-hot ---------------------------
+        one_hot = torch.zeros(cosine.size())
+        one_hot = one_hot.cuda()
+        # one_hot = one_hot.cuda() if cosine.is_cuda else one_hot
+        one_hot.scatter_(1, label.view(-1, 1).long(), 1)
+        # -------------torch.where(out_i = {x_i if condition_i else y_i) -------------
+        output = (one_hot * phi) + (
+                (1.0 - one_hot) * cosine)  # you can use torch.where if your torch.__version__ is 0.4
+        nB = input.shape[0]
+        idx_ = torch.arange(0, nB, dtype=torch.long)
+        cos_need = cosine[idx_, label]
+        # todo
+        torch.median(cos_need)
+        output *= self.s
+
+        return output
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(' \
+               + 'in_features = ' + str(self.in_features) \
+               + ', out_features = ' + str(self.out_features) \
+               + ', s = ' + str(self.s) \
+               + ', m = ' + str(self.m) + ')'
+
 
 class Am_softmax(Module):
     # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599
@@ -845,23 +1212,53 @@ class TripletLoss(Module):
 
 
 if __name__ == '__main__':
-    model = Backbone(152, 0, 'ir_se')
-    model.eval()
-    from thop import profile
+    from lz import *
 
-    flops, params = profile(model, input_size=(1, 3, 112, 112), )
+    # model = Backbone(50, 0, 'ir_se').cuda()
+    model = MobileFaceNet(512).cuda()
+    model.eval()
+    # model2 = torch.jit.trace(model, torch.rand(1, 3, 112, 112).cuda())
+    # model2.eval()
+    #
+    # inp = torch.rand(1, 3, 112, 112).cuda()
+    # diff = model(inp) - model2(inp)
+    # print(diff, diff.sum())
+    #
+    # model.eval()
+    # timer.since_last_check('start')
+    # model(torch.rand(1, 3, 112, 112).cuda())
+    # timer.since_last_check('init')
+    # for _ in range(100):
+    #     model(torch.rand(1, 3, 112, 112).cuda())
+    # timer.since_last_check('100 times')
+    #
+    # model2.eval()
+    # timer.since_last_check('start')
+    # model2(torch.rand(1, 3, 112, 112).cuda())
+    # timer.since_last_check('init')
+    # for _ in range(100):
+    #     model2(torch.rand(1, 3, 112, 112).cuda())
+    # timer.since_last_check('100 times')
+    # exit()
+
+    from thop import profile
+    from lz import timer
+
+    flops, params = profile(model, input_size=(1, 3, 112, 112),
+                            custom_ops={DoubleConv: count_double_conv},
+                            device='cuda:0',
+                            )
     flops /= 10 ** 9
     params /= 10 ** 6
 
     for i in range(5):
-        img = torch.rand(1, 3, 112, 112)
+        img = torch.rand(1, 3, 112, 112).cuda()
         model(img)
-    from lz import timer
 
     timer.since_last_check()
-    for i in range(10):
-        img = torch.rand(1, 3, 112, 112)
+    for i in range(100):
+        img = torch.rand(1, 3, 112, 112).cuda()
         model(img)
     interval = timer.since_last_check('finish')
-    interval /= 10
+    interval /= 100
     print(flops, params, interval)
