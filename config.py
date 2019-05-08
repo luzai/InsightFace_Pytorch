@@ -20,11 +20,11 @@ else:
     lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
-conf.num_workers = 24 if not dist else 5
+conf.num_workers = 12 if not dist else 5
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
-conf.loss = 'cosface'  # softmax arcface arcfaceneg arcface2 cosface
+conf.loss = 'adacos'  # adacos softmax arcface arcfaceneg arcface2 cosface
 
 conf.local_rank = None
 conf.num_clss = None
@@ -33,7 +33,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/casia.mb.stnconv.4')
+conf.work_path = Path('work_space/casia.r20.nowei.norpls.adacos')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -80,7 +80,7 @@ conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
-conf.net_mode = 'mobilefacenet'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
+conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
 conf.net_depth = 20  # 100 121 169 201 264 50 20
 
 conf.test_transform = trans.Compose([
@@ -97,7 +97,7 @@ conf.chs_first = True
 conf.prof = False
 conf.fast_load = False
 conf.fp16 = False
-conf.ipabn = False
+conf.ipabn = 'sync'
 conf.cvt_ipabn = False
 
 conf.kd = False
@@ -110,7 +110,7 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 210 * num_devs
+conf.batch_size = 171 * num_devs
 # conf.batch_size = 16
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100

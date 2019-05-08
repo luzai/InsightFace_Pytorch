@@ -124,7 +124,7 @@ class DatasetCasia(torch.utils.data.Dataset):
         line = self.lines[item].split()
         path = '/data2/share/casia/' + line[0]
         if item in self.cache:
-        # if False:
+            # if False:
             img = self.cache[item]
         else:
             img = open(path, 'rb').read()
@@ -304,10 +304,7 @@ class TorchDataset(object):
             self.locks.append(mp.Lock())
         lz.timer.since_last_check(f'{conf.num_recs} imgrec readers init')  # 27 s / 5 reader
         lz.timer.since_last_check('start cal dataset info')
-        # try:
-        #     self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + f'/info.{conf.cutoff}.pk')
-        #     self.num_classes = len(self.ids)
-        # except:
+
         s = self.imgrecs[0].read_idx(0)
         header, _ = unpack_auto(s, self.path_imgidx)
         assert header.flag > 0, 'ms1m or glint ...'
@@ -354,6 +351,11 @@ class TorchDataset(object):
         lz.timer.since_last_check('finish cal dataset info')
         if conf.kd and conf.sftlbl_from_file:  # todo deprecated
             self.teacher_embedding_db = lz.Database('work_space/teacher_embedding.h5', 'r')
+
+        self.rec_cache = {}
+
+    def fill_cache(self):
+        pass
 
     def __len__(self):
         if conf.local_rank is not None:
@@ -512,8 +514,11 @@ class RandomIdSampler(Sampler):
             # lz.logging.info(f'dop smapler {np.count_nonzero( dop == conf.mining_init)} {dop}')
             pids = np.random.choice(self.ids,
                                     size=int(self.num_pids_per_batch),
-                                    # p=conf.dop / conf.dop.sum(), # comment to balance
-                                    replace=False)
+                                    p=conf.dop / conf.dop.sum(),
+                                    # comment, diff smpl diff wei; the smpl in few-smpl cls will more likely to smpled
+                                    # not comment, diff smpl same wei;
+                                    replace=False
+                                    )
         # todo dop with no replacement
         elif conf.mining == 'dop':
             # lz.logging.info(f'dop smapler {np.count_nonzero( dop ==-1)} {dop}')
@@ -782,13 +787,15 @@ class face_learner(object):
             id2wei = {ind: wei for ind, wei in enumerate(nimgs)}
             weis = [id2wei[id_] for id_ in np.array(df.iloc[:, 1])]
             weis = np.asarray(weis)
-
+            weis = np.ones((weis.shape[0]))  # todo
             self.dataset = DatasetCasia(conf.use_data_folder, )
             self.loader = DataLoader(self.dataset, batch_size=conf.batch_size,
                                      num_workers=conf.num_workers,
-                                     sampler=torch.utils.data.sampler.WeightedRandomSampler(weis, weis.shape[0],
-                                                                                            replacement=True),
-                                     # shuffle=True,
+                                     # sampler=torch.utils.data.sampler.WeightedRandomSampler(
+                                     #     weis, weis.shape[0],
+                                     #     replacement=True
+                                     # ),
+                                     shuffle=True,
                                      # todo if false, suddenly large loss on new epoch
                                      # todo whether rebalance
                                      drop_last=True, pin_memory=True, )
@@ -877,6 +884,9 @@ class face_learner(object):
         elif conf.loss == 'arcface2':
             from models.model import Arcface2
             self.head = Arcface2(conf.embedding_size, self.class_num)
+        elif conf.loss == 'adacos':
+            from models.model import AdaCos
+            self.head = AdaCos(num_classes=self.class_num)
         else:
             raise ValueError(f'{conf.loss}')
         self.model.cuda()

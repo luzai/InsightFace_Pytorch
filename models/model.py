@@ -15,9 +15,6 @@ if gl_conf.use_chkpnt:
     BatchNorm2d = functools.partial(BatchNorm2d, momentum=1 - np.sqrt(0.9))
 
 
-##################################  Original Arcface Model
-
-
 class Flatten(Module):
     def forward(self, input):
         return input.view(input.size(0), -1)
@@ -205,7 +202,7 @@ from torch.utils.checkpoint import checkpoint_sequential
 
 
 class Backbone(Module):
-    def __init__(self, num_layers, drop_ratio, mode='ir'):
+    def __init__(self, num_layers, drop_ratio, mode='ir', ebsize=gl_conf.embedding_size):
         super(Backbone, self).__init__()
         assert num_layers in [50, 100, 152, 20], 'num_layers should be 50,100, or 152'
         assert mode in ['ir', 'ir_se'], 'mode should be ir or ir_se'
@@ -221,8 +218,8 @@ class Backbone(Module):
         self.output_layer = Sequential(bn2d(512),
                                        Dropout(drop_ratio),
                                        Flatten(),
-                                       Linear(512 * 7 * 7, 512, bias=True if not gl_conf.upgrade_bnneck else False),
-                                       BatchNorm1d(512))
+                                       Linear(512 * 7 * 7, ebsize, bias=True if not gl_conf.upgrade_bnneck else False),
+                                       BatchNorm1d(ebsize))
 
         modules = []
         for block in blocks:
@@ -352,14 +349,16 @@ def count_double_conv(m, x, y):
 class STNConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=1, stride=1,
                  padding=0, dilation=1, groups=1, bias=False,
-                 controller=None, ):
+                 controller=None,
+                 reduction=1,
+                 ):
         super(STNConv, self).__init__()
 
         if isinstance(kernel_size, tuple) and kernel_size[0] == kernel_size[1]:
             kernel_size = kernel_size[0]
         zmeta = kernel_size + 1
         if controller is None:
-            controller = get_controller(scale=(1,   )) # kernel_size / (kernel_size + .5)
+            controller = get_controller(scale=(1,))  # todo kernel_size / (kernel_size + .5)
         self.in_plates, self.out_plates, self.zmeta, self.z, = in_channels, out_channels, zmeta, kernel_size,
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -370,10 +369,11 @@ class STNConv(nn.Module):
         self.groups = groups
         self.dilation = dilation
         self.weight = nn.Parameter(
-            torch.FloatTensor(out_channels, in_channels // groups, zmeta, zmeta))
+            torch.FloatTensor(out_channels // 4, in_channels // groups, zmeta, zmeta))  # todo
         self.reset_parameters()
         self.register_buffer('theta', torch.FloatTensor(controller).view(-1, 2, 3))
-        self.stride2 = stride2 = self.theta.shape[0]
+        # self.stride2 = self.theta.shape[0] # todo
+        self.stride2 = 1
         self.n_inst, self.n_inst_sqrt = (self.zmeta - self.z + 1) * (self.zmeta - self.z + 1), self.zmeta - self.z + 1
 
     def reset_parameters(self):
@@ -388,12 +388,12 @@ class STNConv(nn.Module):
     def forward(self, input):
         bs = input.size(0)
         weight_l = []
-        # for theta_ in (self.theta):
-        #     grid = F.affine_grid(theta_.expand(self.weight.size(0), 2, 3), self.weight.size())
-        #     weight_l.append(F.grid_sample(self.weight, grid))
-        weight_l.append(self.weight)
-        weight_l.append(self.weight.transpose(2,3))
-        weight_l.append(self.weight.transpose(2,3).flip(3))
+        for theta_ in (self.theta):
+            grid = F.affine_grid(theta_.expand(self.weight.size(0), 2, 3), self.weight.size())
+            weight_l.append(F.grid_sample(self.weight, grid))
+        # weight_l.append(self.weight)
+        # weight_l.append(self.weight.transpose(2,3))
+        # weight_l.append(self.weight.transpose(2,3).flip(3))
         weight_inst = torch.cat(weight_l)
         weight_inst = weight_inst[:, :, :self.kernel_size, :self.kernel_size]
         out = F.conv2d(input, weight_inst, bias=None, stride=self.stride,
@@ -401,10 +401,10 @@ class STNConv(nn.Module):
                        dilation=self.dilation, groups=self.groups, )
         # self.out_inst = out
         h, w = out.shape[2], out.shape[3]
-        out = out.view(bs, self.stride2, self.out_plates, h, w)
-        out = out.permute(0, 3, 4, 1, 2).contiguous().view(bs, -1, self.stride2)
+        out = out.view(bs, -1, self.out_plates, h, w)
+        out = out.permute(0, 3, 4, 1, 2).contiguous().view(bs, self.out_plates * h * w, -1)
         out = F.avg_pool1d(out, self.stride2)
-        # out = F.max_pool1d(out, self.stride2)
+        # out = F.max_pool1d(out, self.stride2) # todo
         out = out.permute(0, 2, 1).contiguous().view(bs, -1, h, w)
         # self.out=out
         # out = F.avg_pool2d(out, out.size()[2:])
@@ -420,7 +420,7 @@ def get_controller(
                 # 2 / (meta_kernel_size - 1),
                      ),
         theta=(0,
-               # np.pi,
+               np.pi,
                # np.pi / 16, -np.pi / 16,
                np.pi / 2, -np.pi / 2,
                 # np.pi / 4, -np.pi / 4,
@@ -436,7 +436,7 @@ def get_controller(
                 for th in theta:
                     controller.append([sx * np.cos(th), -sx * np.sin(th), tx,
                                        sy * np.sin(th), sy * np.cos(th), ty])
-    # print('controller stride is ', len(controller))
+    logging.info(f'controller stride is {len(controller)} ', )
     controller = np.stack(controller)
     controller = controller.reshape(-1, 2, 3)
     controller = np.ascontiguousarray(controller, np.float32)
@@ -779,6 +779,44 @@ class Arcface2(Module):
     forward = forward_eff
 
 
+class AdaCos(nn.Module):
+    def __init__(self, num_classes=None, m=0, num_features=gl_conf.embedding_size):
+        super(AdaCos, self).__init__()
+        self.num_features = num_features
+        self.n_classes = num_classes
+        self.s = math.sqrt(2) * math.log(num_classes - 1)
+        self.m = m
+        self.W = nn.Parameter(torch.FloatTensor(num_classes, num_features))
+        nn.init.xavier_uniform_(self.W)
+
+    def forward(self, input, label):
+        # normalize features
+        x = F.normalize(input)
+        # normalize weights
+        W = F.normalize(self.W)
+        # dot product
+        logits = F.linear(x, W)
+        # add margin
+        one_hot = torch.zeros_like(logits)
+        one_hot.scatter_(1, label.view(-1, 1).long(), 1)
+        theta = torch.acos(torch.clamp(logits, -1.0 + 1e-7, 1.0 - 1e-7))
+        if self.m != 0:
+            target_logits = torch.cos(theta + self.m)
+            output = logits * (1 - one_hot) + target_logits * one_hot
+        else:
+            output = logits
+        # feature re-scale
+        with torch.no_grad():
+            B_avg = torch.where(one_hot < 1, torch.exp(self.s * logits), torch.zeros_like(logits))
+            B_avg = torch.sum(B_avg) / input.size(0)
+            # print(B_avg)
+            theta_med = torch.median(theta)
+            self.s = torch.log(B_avg) / torch.cos(torch.min(math.pi / 4 * torch.ones_like(theta_med), theta_med))
+        # print(self.s)
+        output *= self.s
+        return output
+
+
 class Arcface(Module):
     # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599
     def __init__(self, embedding_size=gl_conf.embedding_size, classnum=None, s=gl_conf.scale, m=gl_conf.margin):
@@ -811,7 +849,7 @@ class Arcface(Module):
         nB = embbedings.shape[0]
         idx_ = torch.arange(0, nB, dtype=torch.long)
         # if gl_conf.num_devs == 0:
-        kernel_norm = l2_norm(self.kernel, axis=0)
+        kernel_norm = l2_norm(self.kernel, axis=0)  # 0 dim is emd dim
         cos_theta = torch.mm(embbedings, kernel_norm)
         # else:
         #     x = embbedings
@@ -1214,8 +1252,8 @@ class TripletLoss(Module):
 if __name__ == '__main__':
     from lz import *
 
-    # model = Backbone(50, 0, 'ir_se').cuda()
-    model = MobileFaceNet(512).cuda()
+    model = Backbone(50, 0, 'ir_se').cuda()
+    # model = MobileFaceNet(512).cuda()
     model.eval()
     # model2 = torch.jit.trace(model, torch.rand(1, 3, 112, 112).cuda())
     # model2.eval()

@@ -104,8 +104,8 @@ if os.environ.get('chainer', "1") == "1":
 
 if os.environ.get('pytorch', "1") == "1":
     tic = time.time()
-    os.environ["MKL_NUM_THREADS"] = "32"
-    os.environ["OMP_NUM_THREADS"] = "32"
+    os.environ["MKL_NUM_THREADS"] = "4"
+    os.environ["OMP_NUM_THREADS"] = "4"
     os.environ["NCCL_DEBUG"] = "INFO"
     # os.environ["NCCL_DEBUG_SUBSYS"] = "ALL"
     import torch
@@ -272,7 +272,6 @@ def get_mem():
 
 
 import gpustat
-
 ndevs = len(gpustat.GPUStatCollection.new_query().gpus)
 
 
@@ -416,7 +415,7 @@ class Timer(object):
 
     """
     
-    def __init__(self, start=True, print_tmpl=None):
+    def __init__(self, print_tmpl=None, start=True,):
         self._is_running = False
         self.print_tmpl = print_tmpl if print_tmpl else '{:.3f}'
         if start:
@@ -1298,12 +1297,12 @@ def to_img(img, ):
     return img.copy()
 
 
-def plt_matshow(mat):
-    fig, ax = plt.subplots()
+def plt_matshow(mat, figsize=(6,6)):
+    fig, ax = plt.subplots(figsize=figsize)
     ax.matshow(mat)
     ax.axis('off')
     
-    # plt.figure()
+    # plt.figure(figsize=(6,6))
     # plt.matshow(mat, fignum=1)
     # plt.axis('off')
     # plt.colorbar()
@@ -1794,9 +1793,10 @@ def softmax_ch(arr):
     arr = np.array(arr).reshape(-1)
     return arr
 
-def softmax_th(arr,dim=1):
+def softmax_th(arr,dim=1,temperature=1 ):
     arr = np.asarray(arr, dtype= np.float32)
     arr = to_torch(arr)
+    arr /=temperature
     return F.softmax(arr,dim=dim).numpy()
 
 def l2_normalize_th(x):
@@ -1805,6 +1805,14 @@ def l2_normalize_th(x):
     x1 = x.view(shape[0], -1)
     x2 = x1 / x1.norm(p=2, dim=1, keepdim=True)
     return x2.view(shape)
+
+def l2_norm(input, axis=1, need_norm=False, ):
+    norm = torch.norm(input, 2, axis, True)
+    output = torch.div(input, norm)
+    if need_norm:
+        return output, norm
+    else:
+        return output
 
 
 # from numba import  njit
