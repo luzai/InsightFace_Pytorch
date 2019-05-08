@@ -60,21 +60,22 @@ if __name__ == '__main__':
         # 'casia.r20',
         # 'casia.r50.mg.5.arcface2',
         # 'retina.r50',
+        'casia.mb.stnconv.7'
     ]:
         learner.load_state(
             # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
-            resume_path=Path(f'work_space/{p}/models/'),
+            resume_path=Path(f'work_space/{p}/save/'),
             load_optimizer=False,
-            load_head=True,  # todo note!
+            load_head=False,  # todo note!
             load_imp=False,
             latest=False,
         )
-        # res = learner.validate_ori(conf)
-        # ress[p] = res
-        # logging.warning(f'{p} res: {res}')
+        res = learner.validate_ori(conf)
+        ress[p] = res
+        logging.warning(f'{p} res: {res}')
     print(ress)
     # learner.calc_img_feas(out='work_space/retina.r50.h5')
-    # exit(0)
+    exit(0)
 
     # learner.init_lr()
     # conf.tri_wei = 0
