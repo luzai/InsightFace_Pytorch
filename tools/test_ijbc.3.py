@@ -108,8 +108,8 @@ cache_fn = lz.work_path + 'ijbc.feas.256.pk'
 # cache_fn = None
 if cache_fn and osp.exists(cache_fn):
     img_feats = msgpack_load(cache_fn).copy()
-    # clst = msgpack_load(lz.work_path + 'ijbc.clst.pk')
-    # gt = msgpack_load(work_path+'ijbc.gt.pk')
+    # clst = msgpack_load(lz.work_path + 'ijbc.clst.pk').copy()
+    # gt = msgpack_load(work_path+'ijbc.gt.pk').copy()
     # clst = gt
     # lbs = np.unique(clst)
     # for lb in lbs:
@@ -122,7 +122,6 @@ if cache_fn and osp.exists(cache_fn):
     #     img_feats[mask, :] = refinef
     #     if lb % 999 == 1:
     #         print('now refine ', lb, len(lbs), np.linalg.norm(nowf, axis=1), np.linalg.norm(refinef, axis=1))
-
 else:
     if use_mxnet:
         from recognition.embedding import Embedding
@@ -176,31 +175,53 @@ else:
         img_feats[ind * bs: (ind + 1) * bs, :] = fea
     if cache_fn:
         lz.msgpack_dump(img_feats, cache_fn)
+from sklearn.preprocessing import normalize
 
 templates, medias = df_tm.values[:, 1], df_tm.values[:, 2]
 p1, p2, label = df_pair.values[:, 0], df_pair.values[:, 1], df_pair.values[:, 2]
-
 unique_templates = np.unique(templates)
-template_feats = np.zeros((len(unique_templates), img_feats.shape[1]))
-
-for count_template, uqt in enumerate(unique_templates):
-    (ind_t,) = np.where(templates == uqt)
-    face_norm_feats = img_feats[ind_t]
-    face_medias = medias[ind_t]
-    unique_medias, unique_media_counts = np.unique(face_medias, return_counts=True)
-    media_norm_feats = []
-    for u, ct in zip(unique_medias, unique_media_counts):
-        (ind_m,) = np.where(face_medias == u)
-        if ct == 1:
-            media_norm_feats += [face_norm_feats[ind_m]]
-        else:  # image features from the same video will be aggregated into one feature
-            media_norm_feats += [np.mean(face_norm_feats[ind_m], 0, keepdims=True)]
-    media_norm_feats = np.array(media_norm_feats)
-    # media_norm_feats = media_norm_feats / np.sqrt(np.sum(media_norm_feats ** 2, -1, keepdims=True))
-    template_feats[count_template] = np.sum(media_norm_feats, 0)
-    if count_template % 2000 == 0:
-        print('Finish Calculating {} template features.'.format(count_template))
-template_norm_feats = template_feats / np.sqrt(np.sum(template_feats ** 2, -1, keepdims=True))
+cache_tfn = lz.work_path + 'ijbc.tfeas.256.pk'
+if cache_tfn and osp.exists(cache_tfn):
+    template_norm_feats = lz.msgpack_load(cache_tfn).copy()
+    clst = msgpack_load(lz.work_path + 'ijbc.tclst.pk').copy()
+    # gt = msgpack_load(work_path + 'ijbc.tgt.pk').copy()
+    # clst = gt
+    lbs = np.unique(clst)
+    for lb in lbs:
+        if lb == -1: continue
+        mask = clst == lb
+        if mask.sum() <= 4: continue
+        nowf = template_norm_feats[mask, :]
+        dist = cdist(nowf, nowf)
+        dist[np.arange(dist.shape[0]), np.arange(dist.shape[0])] = dist.max()*10
+        wei = lz.softmax_th(-dist, dim=1, temperature=1)
+        refinef = np.matmul(wei, nowf)
+        refinef = refinef*0.3 + nowf*0.7
+        refinef = normalize(refinef, axis=1)
+        template_norm_feats[mask, :] = refinef
+        if lb % 999 == 1:
+            print('now refine ', lb, len(lbs), np.linalg.norm(nowf, axis=1), np.linalg.norm(refinef, axis=1))
+else:
+    template_feats = np.zeros((len(unique_templates), img_feats.shape[1]))
+    for count_template, uqt in enumerate(unique_templates):
+        (ind_t,) = np.where(templates == uqt)
+        face_norm_feats = img_feats[ind_t]
+        face_medias = medias[ind_t]
+        unique_medias, unique_media_counts = np.unique(face_medias, return_counts=True)
+        media_norm_feats = []
+        for u, ct in zip(unique_medias, unique_media_counts):
+            (ind_m,) = np.where(face_medias == u)
+            if ct == 1:
+                media_norm_feats += [face_norm_feats[ind_m]]
+            else:  # image features from the same video will be aggregated into one feature
+                media_norm_feats += [np.mean(face_norm_feats[ind_m], 0, keepdims=True)]
+        media_norm_feats = np.array(media_norm_feats)
+        # media_norm_feats = media_norm_feats / np.sqrt(np.sum(media_norm_feats ** 2, -1, keepdims=True))
+        template_feats[count_template] = np.sum(media_norm_feats, 0)
+        if count_template % 2000 == 0:
+            print('Finish Calculating {} template features.'.format(count_template))
+    template_norm_feats = template_feats / np.sqrt(np.sum(template_feats ** 2, -1, keepdims=True))
+    lz.msgpack_dump(template_norm_feats, cache_tfn)
 
 template2id = np.zeros((max(unique_templates) + 1, 1), dtype=int)
 for count_template, uqt in enumerate(unique_templates):
@@ -212,10 +233,14 @@ total_pairs = np.array(range(len(p1)))
 batchsize = 100000  # small batchsize instead of all pairs in one batch due to the memory limiation
 sublists = [total_pairs[i:i + batchsize] for i in range(0, len(p1), batchsize)]
 total_sublists = len(sublists)
+from scipy.spatial.distance import cdist
+
 for c, s in enumerate(sublists):
-    feat1 = template_norm_feats[template2id[p1[s]]]
-    feat2 = template_norm_feats[template2id[p2[s]]]
-    similarity_score = np.sum(feat1 * feat2, -1)
+    feat1 = template_norm_feats[template2id[p1[s]]].reshape(-1, DIM)
+    feat2 = template_norm_feats[template2id[p2[s]]].reshape(-1, DIM)
+    # similarity_score = np.sum(feat1 * feat2, -1)
+    similarity_score = - (
+                np.linalg.norm(feat1, axis=-1) + np.linalg.norm(feat2, axis=-1) - 2 * np.sum(feat1 * feat2, -1))
     score[s] = similarity_score.flatten()
     if c % 10 == 0:
         print('Finish {}/{} pairs.'.format(c, total_sublists))

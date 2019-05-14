@@ -8,7 +8,7 @@ from collections import namedtuple
 import math
 from config import conf as gl_conf
 import functools, logging
-from torch import nn
+from torch import nn, jit
 import numpy as np
 
 if gl_conf.use_chkpnt:
@@ -16,6 +16,8 @@ if gl_conf.use_chkpnt:
 
 
 class Flatten(Module):
+# class Flatten(jit.ScriptModule):
+#     @jit.script_method
     def forward(self, input):
         return input.view(input.size(0), -1)
 
@@ -29,6 +31,7 @@ def l2_norm(input, axis=1, need_norm=False, ):
         return output
 
 
+# class SEModule(jit.ScriptModule):
 class SEModule(Module):
     def __init__(self, channels, reduction):
         super(SEModule, self).__init__()
@@ -41,6 +44,7 @@ class SEModule(Module):
             channels // reduction, channels, kernel_size=1, padding=0, bias=False)
         self.sigmoid = Sigmoid()
 
+    # @jit.script_method
     def forward(self, x):
         module_input = x
         x = self.avg_pool(x)
@@ -54,10 +58,10 @@ class SEModule(Module):
 from modules.bn import InPlaceABN, InPlaceABNSync
 
 
-def bn_act(depth, with_act):
-    if gl_conf.ipabn:
+def bn_act(depth, with_act, ipabn=None):
+    if ipabn:
         if with_act:
-            if gl_conf.ipabn == 'sync':
+            if ipabn == 'sync':
                 return [InPlaceABNSync(depth, activation='none'),
                         PReLU(depth, ), ]
             else:
@@ -72,9 +76,9 @@ def bn_act(depth, with_act):
             return [BatchNorm2d(depth)]
 
 
-def bn2d(depth):
-    if gl_conf.ipabn:
-        if gl_conf.ipabn == 'sync':
+def bn2d(depth, ipabn=None):
+    if ipabn:
+        if ipabn == 'sync':
             return InPlaceABNSync(depth, activation='none')
         else:
             return InPlaceABN(depth, activation='none')
@@ -83,9 +87,10 @@ def bn2d(depth):
 
 
 # todo gl_conf.upgrade_irse
-class bottleneck_IR(Module):
+class bottleneck_IR(jit.ScriptModule):
     def __init__(self, in_channel, depth, stride):
         super(bottleneck_IR, self).__init__()
+        ipabn = gl_conf.ipabn
         if in_channel == depth:
             self.shortcut_layer = MaxPool2d(1, stride)
         else:
@@ -94,42 +99,51 @@ class bottleneck_IR(Module):
                 BatchNorm2d(depth))
         if gl_conf.upgrade_irse:
             self.res_layer = Sequential(
-                *bn_act(in_channel, False),
+                *bn_act(in_channel, False, ipabn),
                 Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
-                *bn_act(depth, True),
+                *bn_act(depth, True, ipabn),
                 Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
-                *bn_act(depth, False))
+                *bn_act(depth, False, ipabn))
         else:
             self.res_layer = Sequential(
                 BatchNorm2d(in_channel),
                 Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False), PReLU(depth),
                 Conv2d(depth, depth, (3, 3), stride, 1, bias=False), BatchNorm2d(depth))
 
+    @jit.script_method
     def forward(self, x):
         shortcut = self.shortcut_layer(x)
         res = self.res_layer(x)
         return res + shortcut
 
+class Identity(Module):
+# class Identity(jit.ScriptModule):
+#     @jit.script_method
+    def forward(self, x):
+        return x
+
 
 class bottleneck_IR_SE(Module):
+# class bottleneck_IR_SE(jit.ScriptModule):
     def __init__(self, in_channel, depth, stride):
         super(bottleneck_IR_SE, self).__init__()
+        self.ipabn = int(bool(gl_conf.ipabn))
         if gl_conf.upgrade_irse and in_channel == depth and stride == 1:
-            self.shortcut_layer = None
+            self.shortcut_layer = Identity()
         elif not gl_conf.upgrade_irse and in_channel == depth:
             self.shortcut_layer = MaxPool2d(kernel_size=1, stride=stride)
         else:
             self.shortcut_layer = Sequential(
                 Conv2d(in_channel, depth, (1, 1), stride, bias=False),
-                *bn_act(depth, False)
+                *bn_act(depth, False, gl_conf.ipabn)
             )
         if gl_conf.upgrade_irse:
             self.res_layer = Sequential(
-                *bn_act(in_channel, False),
+                *bn_act(in_channel, False, gl_conf.ipabn),
                 Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
-                *bn_act(depth, True),
+                *bn_act(depth, True, gl_conf.ipabn),
                 Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
-                *bn_act(depth, False),
+                *bn_act(depth, False, gl_conf.ipabn),
                 SEModule(depth, 16)
             )
         else:
@@ -142,21 +156,24 @@ class bottleneck_IR_SE(Module):
                 SEModule(depth, 16)
             )
 
-    def forward(self, x):
-        if self.shortcut_layer is not None:
-            if gl_conf.ipabn:
-                shortcut = self.shortcut_layer(x.clone())
-            else:
-                shortcut = self.shortcut_layer(x)
-        else:
-            if gl_conf.ipabn:
-                shortcut = x.clone()
-            else:
-                shortcut = x
+    # @jit.script_method
+    def forward_ipabn(self, x):
+        shortcut = self.shortcut_layer(x.clone())
         res = self.res_layer(x)
         res.add_(shortcut)
         return res
 
+    # @jit.script_method
+    def forward_ori(self, x):
+        shortcut = self.shortcut_layer(x)
+        res = self.res_layer(x)
+        res.add_(shortcut)
+        return res
+
+    if gl_conf.ipabn:
+        forward = forward_ipabn
+    else:
+        forward = forward_ori
 
 class Bottleneck(namedtuple('Block', ['in_channel', 'depth', 'stride'])):
     '''A named tuple describing a ResNet block.'''
@@ -212,10 +229,10 @@ class Backbone(Module):
         elif mode == 'ir_se':
             unit_module = bottleneck_IR_SE
         self.input_layer = Sequential(Conv2d(3, 64, (3, 3), 1, 1, bias=False),
-                                      bn2d(64),
+                                      bn2d(64, gl_conf.ipabn),
                                       PReLU(64))
 
-        self.output_layer = Sequential(bn2d(512),
+        self.output_layer = Sequential(bn2d(512, gl_conf.ipabn),
                                        Dropout(drop_ratio),
                                        Flatten(),
                                        Linear(512 * 7 * 7, ebsize, bias=True if not gl_conf.upgrade_bnneck else False),
@@ -391,9 +408,10 @@ class STNConv(nn.Module):
         for theta_ in (self.theta):
             grid = F.affine_grid(theta_.expand(self.weight.size(0), 2, 3), self.weight.size())
             weight_l.append(F.grid_sample(self.weight, grid))
-        # weight_l.append(self.weight)
-        # weight_l.append(self.weight.transpose(2,3))
-        # weight_l.append(self.weight.transpose(2,3).flip(3))
+        # todo
+        # weight_l.append(self.weight.transpose(2,3).flip(3)) # 270
+        # weight_l.append(self.weight.flip(2).flip(3) # 180
+        # weight_l.append(self.weight.transpose(2,3).flip(2)) # 90
         weight_inst = torch.cat(weight_l)
         weight_inst = weight_inst[:, :, :self.kernel_size, :self.kernel_size]
         out = F.conv2d(input, weight_inst, bias=None, stride=self.stride,
@@ -447,7 +465,7 @@ def get_controller(
 # m(torch.randn(1, 4, 112, 112).cuda())
 
 
-class Conv_block(Module):
+class Conv_block(jit.ScriptModule):
     def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1, ):
         super(Conv_block, self).__init__()
         self.conv = Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding,
@@ -455,6 +473,7 @@ class Conv_block(Module):
         self.bn = BatchNorm2d(out_c)
         self.prelu = PReLU(out_c)
 
+    @jit.script_method
     def forward(self, x):
         x = self.conv(x)
         x = self.bn(x)
@@ -462,13 +481,14 @@ class Conv_block(Module):
         return x
 
 
-class Linear_block(Module):
+class Linear_block(jit.ScriptModule):
     def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1):
         super(Linear_block, self).__init__()
         self.conv = Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding,
                            bias=False)
         self.bn = BatchNorm2d(out_c)
 
+    @jit.script_method
     def forward(self, x):
         x = self.conv(x)
         x = self.bn(x)
@@ -490,14 +510,13 @@ class Depth_Wise(Module):
         x = self.conv_dw(x)
         x = self.project(x)
         if self.residual:
-            # print(short_cut.shape, x.shape)
             output = short_cut + x
         else:
             output = x
         return output
 
 
-class Residual(Module):
+class Residual(jit.ScriptModule):
     def __init__(self, c, num_block, groups, kernel=(3, 3), stride=(1, 1), padding=(1, 1)):
         super(Residual, self).__init__()
         modules = []
@@ -506,32 +525,26 @@ class Residual(Module):
                 Depth_Wise(c, c, residual=True, kernel=kernel, padding=padding, stride=stride, groups=groups))
         self.model = Sequential(*modules)
 
+    @jit.script_method
     def forward(self, x, ):
         return self.model(x)
 
 
+# class MobileFaceNet(jit.ScriptModule):
 class MobileFaceNet(Module):
     def __init__(self, embedding_size):
         super(MobileFaceNet, self).__init__()
         global Conv2d
-        # Conv2d = DoubleConv
         self.conv1 = Conv_block(3, 64, kernel=(3, 3), stride=(2, 2), padding=(1, 1))
-        # Conv2d = nn.Conv2d
         self.conv2_dw = Conv_block(64, 64, kernel=(3, 3), stride=(1, 1), padding=(1, 1), groups=64)
         self.conv_23 = Depth_Wise(64, 64, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=128)
         self.conv_3 = Residual(64, num_block=4, groups=128, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
         self.conv_34 = Depth_Wise(64, 128, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=256)
         self.conv_4 = Residual(128, num_block=6, groups=256, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
-        # Conv2d = DoubleConv
-        # Conv2d = STNConv
         self.conv_45 = Depth_Wise(128, 128, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=512)
-        # Conv2d = DoubleConv
-        # Conv2d = STNConv
         self.conv_5 = Residual(128, num_block=2, groups=256, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
-        Conv2d = STNConv
+        # Conv2d = STNConv
         self.conv_6_sep = Conv_block(128, 512, kernel=(1, 1), stride=(1, 1), padding=(0, 0))
-        # Conv2d = DoubleConv
-        # Conv2d = nn.Conv2d
         self.conv_6_dw = Linear_block(512, 512, groups=512, kernel=(7, 7), stride=(1, 1), padding=(0, 0))
         Conv2d = nn.Conv2d
 
@@ -558,6 +571,7 @@ class MobileFaceNet(Module):
                 if m.bias is not None:
                     m.bias.data.zero_()
 
+    # @jit.script_method
     def forward(self, x, *args, **kwargs):
         # from IPython import embed; embed()
         out = self.conv1(x)
@@ -573,7 +587,7 @@ class MobileFaceNet(Module):
         out = self.conv_6_flatten(out)
         out = self.linear(out)
         out = self.bn(out)
-        return l2_norm(out)
+        return F.normalize(out, dim=1)
 
 
 ##########################################################
@@ -780,7 +794,7 @@ class Arcface2(Module):
 
 
 class AdaCos(nn.Module):
-    def __init__(self, num_classes=None, m=0, num_features=gl_conf.embedding_size):
+    def __init__(self, num_classes=None, m=.0, num_features=gl_conf.embedding_size):
         super(AdaCos, self).__init__()
         self.num_features = num_features
         self.n_classes = num_classes
@@ -810,9 +824,12 @@ class AdaCos(nn.Module):
             B_avg = torch.where(one_hot < 1, torch.exp(self.s * logits), torch.zeros_like(logits))
             B_avg = torch.sum(B_avg) / input.size(0)
             # print(B_avg)
-            theta_med = torch.median(theta)
-            self.s = torch.log(B_avg) / torch.cos(torch.min(math.pi / 4 * torch.ones_like(theta_med), theta_med))
-        # print(self.s)
+            theta_med = torch.median(theta + self.m)
+            s_now = torch.log(B_avg) / torch.cos(torch.min(
+                (math.pi / 4 + self.m) * torch.ones_like(theta_med),
+                theta_med))
+            # self.s = self.s * 0.9 + s_now * 0.1
+            self.s = s_now
         output *= self.s
         return output
 
@@ -1011,8 +1028,14 @@ class ArcfaceNeg(Module):
 
 
 ##################################  Cosface head #################
+import torch.jit
+from torch import jit
 
-class CosFace(nn.Module):
+
+class CosFace(Module):
+    # class CosFace(jit.ScriptModule):
+    __constants__ = ['m', 's']
+
     r"""Implement of CosFace (https://arxiv.org/pdf/1801.09414.pdf):
     Args:
         in_features: size of each input sample
@@ -1028,36 +1051,29 @@ class CosFace(nn.Module):
         super(CosFace, self).__init__()
         self.in_features = embedding_size
         self.out_features = classnum
+        # self.s = torch.jit.const(s)
+        # self.m = torch.jit.Const(m)
         self.s = s
         self.m = m
-
         self.weight = Parameter(torch.FloatTensor(classnum, embedding_size))
         nn.init.xavier_uniform_(self.weight)
 
+    # @jit.script_method
     def forward(self, input, label):
-        assert not torch.isnan(input).any().item()
-        # --------------------------- cos(theta) & phi(theta) ---------------------------
-        # if self.device_id == None:
+        # assert not torch.isnan(input).any().item()
+        nB = input.shape[0]
+        idx_ = torch.arange(0, nB, dtype=torch.long)
         cosine = F.linear((input), F.normalize(self.weight))
-        # else:
-        #     x = input
-        #     sub_weights = torch.chunk(self.weight, len(self.device_id), dim=0)
-        #     temp_x = x.cuda(self.device_id[0])
-        #     weight = sub_weights[0].cuda(self.device_id[0])
-        #     cosine = F.linear(F.normalize(temp_x), F.normalize(weight))
-        #     for i in range(1, len(self.device_id)):
-        #         temp_x = x.cuda(self.device_id[i])
-        #         weight = sub_weights[i].cuda(self.device_id[i])
-        #         cosine = torch.cat((cosine, F.linear(F.normalize(temp_x), F.normalize(weight)).cuda(self.device_id[0])), dim=1)
-        phi = cosine - self.m
-        # --------------------------- convert label to one-hot ---------------------------
-        one_hot = torch.zeros(cosine.size())
-        one_hot = one_hot.cuda()
-        # one_hot = one_hot.cuda() if cosine.is_cuda else one_hot
-        one_hot.scatter_(1, label.view(-1, 1).long(), 1)
-        # -------------torch.where(out_i = {x_i if condition_i else y_i) -------------
-        output = (one_hot * phi) + (
-                (1.0 - one_hot) * cosine)  # you can use torch.where if your torch.__version__ is 0.4
+        phi = cosine[idx_, label] - self.m
+        output = cosine.clone()
+        output[idx_, label] = phi
+        # # --------------------------- convert label to one-hot ---------------------------
+        # one_hot = torch.zeros(cosine.size()).cuda()
+        # one_hot.scatter_(1, label.view(-1, 1).long(), 1)
+        # # -------------torch.where(out_i = {x_i if condition_i else y_i) -------------
+        # output = (one_hot * phi) + (
+        #         (1.0 - one_hot) * cosine)  # you can use torch.where if your torch.__version__ is 0.4
+
         output *= self.s
 
         return output
@@ -1252,32 +1268,33 @@ class TripletLoss(Module):
 if __name__ == '__main__':
     from lz import *
 
-    model = Backbone(50, 0, 'ir_se').cuda()
-    # model = MobileFaceNet(512).cuda()
+    # model = Backbone(50, 0, 'ir_se').cuda()
+    model = MobileFaceNet(512).cuda()
     model.eval()
-    # model2 = torch.jit.trace(model, torch.rand(1, 3, 112, 112).cuda())
-    # model2.eval()
-    #
-    # inp = torch.rand(1, 3, 112, 112).cuda()
-    # diff = model(inp) - model2(inp)
-    # print(diff, diff.sum())
-    #
-    # model.eval()
-    # timer.since_last_check('start')
-    # model(torch.rand(1, 3, 112, 112).cuda())
-    # timer.since_last_check('init')
-    # for _ in range(100):
-    #     model(torch.rand(1, 3, 112, 112).cuda())
-    # timer.since_last_check('100 times')
-    #
-    # model2.eval()
-    # timer.since_last_check('start')
-    # model2(torch.rand(1, 3, 112, 112).cuda())
-    # timer.since_last_check('init')
-    # for _ in range(100):
-    #     model2(torch.rand(1, 3, 112, 112).cuda())
-    # timer.since_last_check('100 times')
-    # exit()
+    model2 = torch.jit.trace(model, torch.rand(2, 3, 112, 112).cuda())
+    model2.eval()
+    # model.train(), model2.train()
+
+    inp = torch.rand(32, 3, 112, 112).cuda()
+    model(inp)
+    diff = model(inp) - model2(inp)
+    print(diff, diff.sum())
+
+    timer.since_last_check('start')
+    for _ in range(99):
+        f = model(torch.rand(32, 3, 112, 112).cuda())
+        f.mean().backward()
+    torch.cuda.synchronize()
+    timer.since_last_check('100 times')
+
+    timer.since_last_check('start')
+    for _ in range(99):
+        f = model2(torch.rand(32, 3, 112, 112).cuda())
+        f.mean().backward()
+    torch.cuda.synchronize()
+    timer.since_last_check('100 times')
+
+    exit()
 
     from thop import profile
     from lz import timer
@@ -1291,12 +1308,14 @@ if __name__ == '__main__':
 
     for i in range(5):
         img = torch.rand(1, 3, 112, 112).cuda()
-        model(img)
+        f = model(img)
+        f.mean().backward()
 
     timer.since_last_check()
     for i in range(100):
         img = torch.rand(1, 3, 112, 112).cuda()
-        model(img)
+        f = model(img)
+        f.mean().backward()
     interval = timer.since_last_check('finish')
     interval /= 100
     print(flops, params, interval)

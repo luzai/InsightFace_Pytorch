@@ -353,23 +353,21 @@ class TorchDataset(object):
             self.teacher_embedding_db = lz.Database('work_space/teacher_embedding.h5', 'r')
 
         self.rec_cache = {}
+        self.fill_cache()
 
     def fill_cache(self):
-        pass
+        for index in range(min(self.imgidx), max(self.imgidx)+1):
+            if index % 9999 == 1:
+                logging.info(f'loading {index} ')
+                self.rec_cache[index] = self.imgrecs[0].read_idx(index)
 
     def __len__(self):
         if conf.local_rank is not None:
             return len(self.imgidx) // torch.distributed.get_world_size()
         else:
-            #             logging.info(f'ask me len {len(self.imgidx)} {self.imgidx}')
             return len(self.imgidx) // conf.epoch_less_iter
 
     def __getitem__(self, indices, ):
-        # if isinstance(indices, (tuple, list)) and len(indices[0])==3:
-        #    if self.r:
-        #        pass
-        #    else:
-        #        return [self._get_single_item(index) for index in indices]
         res = self._get_single_item(indices)
         # for k, v in res.items():
         #     assert (
@@ -404,56 +402,54 @@ class TorchDataset(object):
         return imgs
 
     def _get_single_item(self, index):
-        # self.cur += 1
-        # index += 1  # noneed,  here it index (imgidx) start from 1,.rec start from 1
-        # assert index != 0 and index < len(self) + 1 # index can > len(self)
-        succ = False
-        index, pid, ind_ind = index
-        if self.r:
-            img = self.r.get(f'{conf.dataset_name}/imgs/{index}')
-            if img is not None:
-                imgs = self.imdecode(img)
-                imgs = self.preprocess_img(imgs)
-                return {'imgs': np.array(imgs, dtype=np.float32), 'labels': pid, 'indexes': index,
-                        'ind_inds': ind_ind, 'is_trains': True}
-        ## rand until lock
-        while True:
-            for ind_rec in range(len(self.locks)):
-                succ = self.locks[ind_rec].acquire(timeout=0)
+        if isinstance(index , tuple):
+            succ = False
+            index, pid, ind_ind = index
+            while True:
+                for ind_rec in range(len(self.locks)):
+                    succ = self.locks[ind_rec].acquire(timeout=0)
+                    if succ: break
                 if succ: break
-            if succ: break
-
-        ##  locality based
-        # if index < self.imgidx[len(self.imgidx) // 2]:
-        #     ind_rec = 0
-        # else:
-        #     ind_rec = 1
-        # succ = self.locks[ind_rec].acquire()
-
-        s = self.imgrecs[ind_rec].read_idx(index)  # from [ 1 to 3804846 ]
-        rls_succ = self.locks[ind_rec].release()
-        header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
-        imgs = self.imdecode(img)
-        assert imgs is not None
-        # label = header.label
-        # if not isinstance(label, numbers.Number):
-        #     assert label[-1] == 0. or label[-1] == 1., f'{label} {index} {imgs.shape}'
-        #     label = label[0]
-        # label = int(label)
-        # assert label in self.ids_map
-        # label = self.ids_map[label]
-        # assert label == pid
-        label = int(pid)
-        imgs = self.preprocess_img(imgs)
-        if conf.use_redis and self.r and lz.get_mem() >= 20:
-            self.r.set(f'{conf.dataset_name}/imgs/{index}', img)
-        res = {'imgs': imgs, 'labels': label,
-               'ind_inds': ind_ind, 'indexes': index,
-               'is_trains': True}
-        if hasattr(self, 'teacher_embedding_db'):
-            res['teacher_embedding'] = self.teacher_embedding_db[str(index)]
-        return res
-
+            if index in self.rec_cache:
+                s = self.rec_cache[index]
+            else:
+                s = self.imgrecs[ind_rec].read_idx(index)  # from [ 1 to 3804846 ]
+            rls_succ = self.locks[ind_rec].release()
+            header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
+            imgs = self.imdecode(img)
+            assert imgs is not None
+            label = int(pid)
+            imgs = self.preprocess_img(imgs)
+            if conf.use_redis and self.r and lz.get_mem() >= 20:
+                self.r.set(f'{conf.dataset_name}/imgs/{index}', img)
+            res = {'imgs': imgs, 'labels': label,
+                   'ind_inds': ind_ind, 'indexes': index,
+                   'is_trains': True}
+            if hasattr(self, 'teacher_embedding_db'):
+                res['teacher_embedding'] = self.teacher_embedding_db[str(index)]
+            return res
+        else:
+            index +=1 # 1 based!
+            if index in self.rec_cache:
+                s = self.rec_cache[index]
+            else:
+                s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
+            header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
+            imgs = self.imdecode(img)
+            assert imgs is not None
+            label = header.label
+            if not isinstance(label, numbers.Number):
+                assert label[-1] == 0. or label[-1] == 1., f'{label} {index} {imgs.shape}'
+                label = label[0]
+            label = int(label)
+            imgs = self.preprocess_img(imgs)
+            assert label in self.ids_map
+            label = self.ids_map[label]
+            label = int(label)
+            res = {'imgs': imgs, 'labels': label,
+                   'ind_inds': -1, 'indexes': index,
+                   }
+            return res
 
 class Dataset_val(torch.utils.data.Dataset):
     def __init__(self, path, name, transform=None):
@@ -477,7 +473,6 @@ class RandomIdSampler(Sampler):
     def __init__(self, imgidx, ids, id2range):
         path_ms1m = conf.use_data_folder
         self.imgidx, self.ids, self.id2range = imgidx, ids, id2range
-        # self.imgidx, self.ids, self.id2range = lz.msgpack_load(str(path_ms1m) + f'/info.{conf.cutoff}.pk')
         # above is the imgidx of .rec file
         # remember -1 to convert to pytorch imgidx
         self.num_instances = conf.instances
@@ -807,8 +802,9 @@ class face_learner(object):
             self.loader = DataLoader(
                 self.dataset, batch_size=conf.batch_size,
                 num_workers=conf.num_workers,
-                sampler=RandomIdSampler(self.dataset.imgidx,
-                                        self.dataset.ids, self.dataset.id2range),
+                # sampler=RandomIdSampler(self.dataset.imgidx,
+                #                         self.dataset.ids, self.dataset.id2range),
+                shuffle=True,
                 drop_last=True, pin_memory=True,
                 collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
             )
@@ -823,7 +819,6 @@ class face_learner(object):
                 lz.mkdir_p(conf.log_path, delete=False)
                 lz.set_file_logger(str(conf.log_path))
                 lz.set_file_logger_prt(str(conf.log_path))
-                # todo why no log?
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             self.writer = SummaryWriter(str(conf.log_path))
         else:
@@ -951,7 +946,15 @@ class face_learner(object):
         logging.info(f'optimizers generated {self.optimizer}')
 
         if conf.local_rank is None:
-            self.model = torch.nn.DataParallel(self.model).cuda()
+            # self.model.train()
+            # self.model.eval()
+            # self.model = torch.jit.trace(self.model, torch.rand(4, 3, 112, 112).cuda())
+            # self.model.train()
+            self.model = torch.nn.DataParallel(self.model)
+            self.model = self.model.cuda()
+            # self.model.eval()
+            # self.model = torch.jit.trace(self.model, torch.rand(4, 3, 112, 112).cuda())
+            # self.model.train()
         else:
             self.model = torch.nn.parallel.DistributedDataParallel(self.model.cuda(),
                                                                    device_ids=[conf.local_rank],
@@ -1222,7 +1225,8 @@ class face_learner(object):
                     lz.timer.since_last_check(verbose=False)
                 )
                 self.optimizer.zero_grad()
-                embeddings = self.model(imgs, mode='train')
+                embeddings = self.model(imgs, )
+                assert not torch.isnan(embeddings).any().item()
                 thetas = self.head(embeddings, labels)
                 # with torch.no_grad():
                 #     embeddings = self.model(imgs, mode='train')
