@@ -1,9 +1,11 @@
+from lz import *
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 __all__ = ['MobileNetV3', 'mobilenetv3']
+
+use_hard = False
 
 
 def conv_bn(inp, oup, stride, conv_layer=nn.Conv2d, norm_layer=nn.BatchNorm2d, nlin_layer=nn.ReLU):
@@ -28,7 +30,10 @@ class Hswish(nn.Module):
         self.inplace = inplace
 
     def forward(self, x):
-        return x * F.relu6(x + 3., inplace=self.inplace) / 6.
+        if use_hard:
+            return x * F.relu6(x + 3., inplace=self.inplace) / 6.
+        else:
+            return x * torch.sigmoid(x)
 
 
 class Hsigmoid(nn.Module):
@@ -37,7 +42,10 @@ class Hsigmoid(nn.Module):
         self.inplace = inplace
 
     def forward(self, x):
-        return F.relu6(x + 3., inplace=self.inplace) / 6.
+        if use_hard:
+            return F.relu6(x + 3., inplace=self.inplace) / 6.
+        else:
+            return torch.sigmoid(x)
 
 
 class SEModule(nn.Module):
@@ -67,6 +75,14 @@ class Identity(nn.Module):
         return x
 
 
+class Flatten(nn.Module):
+    def __init__(self):
+        super(Flatten, self).__init__()
+
+    def forward(self, input):
+        return input.view(input.size(0), -1)
+
+
 def make_divisible(x, divisible_by=8):
     import numpy as np
     return int(np.ceil(x * 1. / divisible_by) * divisible_by)
@@ -83,7 +99,7 @@ class MobileBottleneck(nn.Module):
         conv_layer = nn.Conv2d
         norm_layer = nn.BatchNorm2d
         if nl == 'RE':
-            nlin_layer = nn.ReLU # or ReLU6
+            nlin_layer = nn.ReLU  # or ReLU6
         elif nl == 'HS':
             nlin_layer = Hswish
         else:
@@ -115,52 +131,100 @@ class MobileBottleneck(nn.Module):
             return self.conv(x)
 
 
+class Linear_block(nn.Module):
+    def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1):
+        super(Linear_block, self).__init__()
+        self.conv = nn.Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride,
+                              padding=padding,
+                              bias=False)
+        self.bn = nn.BatchNorm2d(out_c)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bn(x)
+        return x
+
+
 class MobileNetV3(nn.Module):
-    def __init__(self, n_class=1000, input_size=224, mode='small', width_mult=1.0):
+    def __init__(self, n_class=None, mode='small', width_mult=1.0):
         super(MobileNetV3, self).__init__()
         input_channel = 16
-        last_channel = 1280
+        last_channel = 512
         if mode == 'large':
             # refer to Table 1 in paper
             mobile_setting = [
                 # k, exp, c,  se,     nl,  s,
-                [3, 16,  16,  False, 'RE', 1],
-                [3, 64,  24,  False, 'RE', 2],
-                [3, 72,  24,  False, 'RE', 1],
-                [5, 72,  40,  True,  'RE', 2],
-                [5, 120, 40,  True,  'RE', 1],
-                [5, 120, 40,  True,  'RE', 1],
-                [3, 240, 80,  False, 'HS', 2],
-                [3, 200, 80,  False, 'HS', 1],
-                [3, 184, 80,  False, 'HS', 1],
-                [3, 184, 80,  False, 'HS', 1],
-                [3, 480, 112, True,  'HS', 1],
-                [3, 672, 112, True,  'HS', 1],
-                [5, 672, 112, True,  'HS', 1],  # c = 112, paper set it to 160 by error
-                [5, 672, 160, True,  'HS', 2],
-                [5, 960, 160, True,  'HS', 1],
+                [3, 16, 16, False, 'RE', 1],
+                [3, 64, 24, False, 'RE', 2],
+                [3, 72, 24, False, 'RE', 1],
+                [5, 72, 40, True, 'RE', 2],
+                [5, 120, 40, True, 'RE', 1],
+                [5, 120, 40, True, 'RE', 1],
+                [3, 240, 80, False, 'HS', 2],
+                [3, 200, 80, False, 'HS', 1],
+                [3, 184, 80, False, 'HS', 1],
+                [3, 184, 80, False, 'HS', 1],
+                [3, 480, 112, True, 'HS', 1],
+                [3, 672, 112, True, 'HS', 1],
+                [5, 672, 112, True, 'HS', 1],  # c = 112, paper set it to 160 by error
+                [5, 672, 160, True, 'HS', 2],
+                [5, 960, 160, True, 'HS', 1],
+            ]
+        elif mode == 'face.large':
+            mobile_setting = [
+                # k, exp, c,  se,     nl,  s,
+                [3, 16, 16, False, 'RE', 1],
+                [3, 64, 24, False, 'RE', 1],
+                [3, 72, 24, False, 'RE', 1],
+                [5, 72, 40, True, 'RE', 2],
+                [5, 120, 40, True, 'RE', 1],
+                [5, 120, 40, True, 'RE', 1],
+                [3, 240, 80, False, 'HS', 2],
+                [3, 200, 80, False, 'HS', 1],
+                [3, 184, 80, False, 'HS', 1],
+                [3, 184, 80, False, 'HS', 1],
+                [3, 480, 112, True, 'HS', 1],
+                [3, 672, 112, True, 'HS', 1],
+                [5, 672, 112, True, 'HS', 1],  # c = 112, paper set it to 160 by error
+                [5, 672, 160, True, 'HS', 2],
+                [5, 960, 160, True, 'HS', 1],
             ]
         elif mode == 'small':
             # refer to Table 2 in paper
             mobile_setting = [
                 # k, exp, c,  se,     nl,  s,
-                [3, 16,  16,  True,  'RE', 2],
-                [3, 72,  24,  False, 'RE', 2],
-                [3, 88,  24,  False, 'RE', 1],
-                [5, 96,  40,  True,  'HS', 2],  # stride = 2, paper set it to 1 by error
-                [5, 240, 40,  True,  'HS', 1],
-                [5, 240, 40,  True,  'HS', 1],
-                [5, 120, 48,  True,  'HS', 1],
-                [5, 144, 48,  True,  'HS', 1],
-                [5, 288, 96,  True,  'HS', 2],
-                [5, 576, 96,  True,  'HS', 1],
-                [5, 576, 96,  True,  'HS', 1],
+                [3, 16, 16, True, 'RE', 2],
+                [3, 72, 24, False, 'RE', 2],
+                [3, 88, 24, False, 'RE', 1],
+                [5, 96, 40, True, 'HS', 2],  # stride = 2, paper set it to 1 by error
+                [5, 240, 40, True, 'HS', 1],
+                [5, 240, 40, True, 'HS', 1],
+                [5, 120, 48, True, 'HS', 1],
+                [5, 144, 48, True, 'HS', 1],
+                [5, 288, 96, True, 'HS', 2],
+                [5, 576, 96, True, 'HS', 1],
+                [5, 576, 96, True, 'HS', 1],
+            ]
+        elif mode == 'face.small':
+            mobile_setting = [
+                # k, exp, c,  se,     nl,  s,
+                [3, 16, 16, True, 'RE', 1],
+                [3, 72, 24, False, 'RE', 2],
+                [3, 88, 24, False, 'RE', 1],
+                [5, 96, 40, True, 'HS', 2],  # stride = 2, paper set it to 1 by error
+                [5, 240, 40, True, 'HS', 1],
+                [5, 240, 40, True, 'HS', 1],
+                [5, 120, 48, True, 'HS', 1],
+                [5, 144, 48, True, 'HS', 1],
+                [5, 288, 96, True, 'HS', 2],
+                [5, 576, 96, True, 'HS', 1],
+                [5, 576, 96, True, 'HS', 1],
             ]
         else:
             raise NotImplementedError
 
         # building first layer
-        assert input_size % 32 == 0
+        # assert input_size % 32 == 0
         # input_channel = make_divisible(input_channel * width_mult)  # first channel is always 16!
         self.last_channel = make_divisible(last_channel * width_mult) if width_mult > 1.0 else last_channel
         self.features = [conv_bn(3, input_channel, 2, nlin_layer=Hswish)]
@@ -189,6 +253,23 @@ class MobileNetV3(nn.Module):
             self.features.append(Hswish(inplace=True))
             self.features.append(conv_1x1_bn(last_conv, last_channel, nlin_layer=Hswish))
             self.features.append(conv_1x1_bn(last_channel, n_class, nlin_layer=Hswish))
+        elif mode == 'face.large':
+            last_conv = make_divisible(960 * width_mult)
+            self.features.append(conv_1x1_bn(input_channel, last_conv, nlin_layer=Hswish))
+            self.pool = Linear_block(last_conv, last_conv, groups=last_conv,
+                                     kernel=(7, 7), stride=(1, 1), padding=(0, 0))
+            self.flatten = Flatten()
+            self.linear = nn.Linear(last_conv, last_channel, bias=False)
+            self.bn = nn.BatchNorm1d(last_channel)
+        elif mode == 'face.small':
+            last_conv = make_divisible(576 * width_mult)
+            self.features.append(conv_1x1_bn(input_channel, last_conv, nlin_layer=Hswish))
+            self.features.append(SEModule(last_conv))  # refer to paper Table2
+            self.pool = Linear_block(last_conv, last_conv, groups=last_conv,
+                                     kernel=(7, 7), stride=(1, 1), padding=(0, 0))
+            self.flatten = Flatten()
+            self.linear = nn.Linear(last_conv, last_channel, bias=False)
+            self.bn = nn.BatchNorm1d(last_channel)
         else:
             raise NotImplementedError
 
@@ -198,8 +279,12 @@ class MobileNetV3(nn.Module):
         self._initialize_weights()
 
     def forward(self, x):
+        bs = x.shape[0]
         x = self.features(x)
-        x = x.mean(3).mean(2)
+        x = self.pool(x)
+        x = self.flatten(x)
+        x = self.linear(x)
+        x = self.bn(x)
         return x
 
     def _initialize_weights(self):
@@ -226,12 +311,24 @@ def mobilenetv3(pretrained=False, **kwargs):
 
 
 if __name__ == '__main__':
-    net = mobilenetv3(mode='small')
-    state_dict = torch.load('mobilenetv3_small_67.218.pth.tar')
-    net.load_state_dict(state_dict)
+    net = mobilenetv3(mode='face.small',
+                      width_mult=1.37,
+                      )
+    # state_dict = torch.load('mobilenetv3_small_67.218.pth.tar')
+    # net.load_state_dict(state_dict)
     print('mobilenetv3:\n', net)
-    print('Total params: %.2fM' % (sum(p.numel() for p in net.parameters())/1000000.0))
-    input_size=(16, 3, 224, 224)
+    print('Total params: %.2fM' % (sum(p.numel() for p in net.parameters()) / 1000000.0))
+    input_size = (16, 3, 112, 112)
     x = torch.randn(input_size)
     out = net(x)
+    exit()
+    from thop import profile
+    from lz import timer
 
+    model = net.cuda()
+    flops, params = profile(model, input_size=(1, 3, 112, 112),
+                            device='cuda:0',
+                            )
+    flops /= 10 ** 9
+    params /= 10 ** 6
+    print(flops, params)

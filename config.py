@@ -24,7 +24,7 @@ conf.num_workers = 12 if not dist else 5
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
-conf.loss = 'cosface'  # adacos softmax arcface arcfaceneg arcface2 cosface
+conf.loss = 'adacos'  # adacos softmax arcface arcfaceneg arcface2 cosface
 
 conf.local_rank = None
 conf.num_clss = None
@@ -80,7 +80,7 @@ conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
-conf.net_mode = 'ir_se'  # csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
+conf.net_mode = 'mbv3' # mbv3 csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
 conf.net_depth = 20  # 100 121 169 201 264 50 20
 
 conf.test_transform = trans.Compose([

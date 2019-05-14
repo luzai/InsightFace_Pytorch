@@ -87,7 +87,7 @@ def bn2d(depth, ipabn=None):
 
 
 # todo gl_conf.upgrade_irse
-class bottleneck_IR(jit.ScriptModule):
+class bottleneck_IR(Module):
     def __init__(self, in_channel, depth, stride):
         super(bottleneck_IR, self).__init__()
         ipabn = gl_conf.ipabn
@@ -110,7 +110,7 @@ class bottleneck_IR(jit.ScriptModule):
                 Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False), PReLU(depth),
                 Conv2d(depth, depth, (3, 3), stride, 1, bias=False), BatchNorm2d(depth))
 
-    @jit.script_method
+    # @jit.script_method
     def forward(self, x):
         shortcut = self.shortcut_layer(x)
         res = self.res_layer(x)
@@ -465,7 +465,7 @@ def get_controller(
 # m(torch.randn(1, 4, 112, 112).cuda())
 
 
-class Conv_block(jit.ScriptModule):
+class Conv_block(Module):
     def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1, ):
         super(Conv_block, self).__init__()
         self.conv = Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding,
@@ -473,7 +473,7 @@ class Conv_block(jit.ScriptModule):
         self.bn = BatchNorm2d(out_c)
         self.prelu = PReLU(out_c)
 
-    @jit.script_method
+    # @jit.script_method
     def forward(self, x):
         x = self.conv(x)
         x = self.bn(x)
@@ -481,14 +481,14 @@ class Conv_block(jit.ScriptModule):
         return x
 
 
-class Linear_block(jit.ScriptModule):
+class Linear_block(Module):
     def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1):
         super(Linear_block, self).__init__()
         self.conv = Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding,
                            bias=False)
         self.bn = BatchNorm2d(out_c)
 
-    @jit.script_method
+    # @jit.script_method
     def forward(self, x):
         x = self.conv(x)
         x = self.bn(x)
@@ -516,7 +516,7 @@ class Depth_Wise(Module):
         return output
 
 
-class Residual(jit.ScriptModule):
+class Residual(Module):
     def __init__(self, c, num_block, groups, kernel=(3, 3), stride=(1, 1), padding=(1, 1)):
         super(Residual, self).__init__()
         modules = []
@@ -525,7 +525,7 @@ class Residual(jit.ScriptModule):
                 Depth_Wise(c, c, residual=True, kernel=kernel, padding=padding, stride=stride, groups=groups))
         self.model = Sequential(*modules)
 
-    @jit.script_method
+    # @jit.script_method
     def forward(self, x, ):
         return self.model(x)
 
@@ -1271,30 +1271,30 @@ if __name__ == '__main__':
     # model = Backbone(50, 0, 'ir_se').cuda()
     model = MobileFaceNet(512).cuda()
     model.eval()
-    model2 = torch.jit.trace(model, torch.rand(2, 3, 112, 112).cuda())
-    model2.eval()
-    # model.train(), model2.train()
-
-    inp = torch.rand(32, 3, 112, 112).cuda()
-    model(inp)
-    diff = model(inp) - model2(inp)
-    print(diff, diff.sum())
-
-    timer.since_last_check('start')
-    for _ in range(99):
-        f = model(torch.rand(32, 3, 112, 112).cuda())
-        f.mean().backward()
-    torch.cuda.synchronize()
-    timer.since_last_check('100 times')
-
-    timer.since_last_check('start')
-    for _ in range(99):
-        f = model2(torch.rand(32, 3, 112, 112).cuda())
-        f.mean().backward()
-    torch.cuda.synchronize()
-    timer.since_last_check('100 times')
-
-    exit()
+    # model2 = torch.jit.trace(model, torch.rand(2, 3, 112, 112).cuda())
+    # model2.eval()
+    # # model.train(), model2.train()
+    #
+    # inp = torch.rand(32, 3, 112, 112).cuda()
+    # model(inp)
+    # diff = model(inp) - model2(inp)
+    # print(diff, diff.sum())
+    #
+    # timer.since_last_check('start')
+    # for _ in range(99):
+    #     f = model(torch.rand(32, 3, 112, 112).cuda())
+    #     f.mean().backward()
+    # torch.cuda.synchronize()
+    # timer.since_last_check('100 times')
+    #
+    # timer.since_last_check('start')
+    # for _ in range(99):
+    #     f = model2(torch.rand(32, 3, 112, 112).cuda())
+    #     f.mean().backward()
+    # torch.cuda.synchronize()
+    # timer.since_last_check('100 times')
+    #
+    # exit()
 
     from thop import profile
     from lz import timer

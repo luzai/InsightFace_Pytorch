@@ -356,7 +356,7 @@ class TorchDataset(object):
         self.fill_cache()
 
     def fill_cache(self):
-        for index in range(min(self.imgidx), max(self.imgidx)+1):
+        for index in range(min(self.imgidx), max(self.imgidx) + 1):
             if index % 9999 == 1:
                 logging.info(f'loading {index} ')
                 self.rec_cache[index] = self.imgrecs[0].read_idx(index)
@@ -402,7 +402,7 @@ class TorchDataset(object):
         return imgs
 
     def _get_single_item(self, index):
-        if isinstance(index , tuple):
+        if isinstance(index, tuple):
             succ = False
             index, pid, ind_ind = index
             while True:
@@ -429,7 +429,7 @@ class TorchDataset(object):
                 res['teacher_embedding'] = self.teacher_embedding_db[str(index)]
             return res
         else:
-            index +=1 # 1 based!
+            index += 1  # 1 based!
             if index in self.rec_cache:
                 s = self.rec_cache[index]
             else:
@@ -450,6 +450,7 @@ class TorchDataset(object):
                    'ind_inds': -1, 'indexes': index,
                    }
             return res
+
 
 class Dataset_val(torch.utils.data.Dataset):
     def __init__(self, path, name, transform=None):
@@ -828,6 +829,9 @@ class face_learner(object):
         if conf.net_mode == 'mobilefacenet':
             self.model = MobileFaceNet(conf.embedding_size)
             logging.info('MobileFaceNet model generated')
+        elif conf.net_mode == 'mbv3':
+            self.model = models.mobilenetv3(mode='face.small', width_mult=1.37)
+            # self.model = models.mobilenetv3(mode='face.large', width_mult=0.868)
         elif conf.net_mode == 'nasnetamobile':
             self.model = models.nasnetamobile(512)
         elif conf.net_mode == 'resnext':
@@ -2655,6 +2659,9 @@ class face_cotching(face_learner):
         if conf.net_mode == 'mobilefacenet':
             self.model = MobileFaceNet(conf.embedding_size)
             logging.info('MobileFaceNet model generated')
+        elif conf.net_mode == 'mbv3':
+            self.model = models.mobilenetv3(mode='face.small', width_mult=1.37)
+            # self.model = models.mobilenetv3(mode='face.large', width_mult=0.868)
         elif conf.net_mode == 'nasnetamobile':
             self.model = models.nasnetamobile(512)
         elif conf.net_mode == 'resnext':
