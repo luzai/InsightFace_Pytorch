@@ -61,14 +61,16 @@ if __name__ == '__main__':
         # 'casia.r50.mg.5.arcface2',
         # 'retina.r50',
         # 'casia.mb.stnconv.7'
+        # 'mbv3.small'
+        # 'mbv3.lrg.5.casia.sft'
     ]:
         learner.load_state(
             # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
-            resume_path=Path(f'work_space/{p}/save/'),
-            load_optimizer=False,
-            load_head=False,  # todo note!
+            resume_path=Path(f'work_space/{p}/models/'),
+            load_optimizer=True,
+            load_head=True,  # todo note!
             load_imp=False,
-            latest=False,
+            latest=True,
         )
         # res = learner.validate_ori(conf)
         # ress[p] = res
@@ -86,7 +88,7 @@ if __name__ == '__main__':
     log_conf(conf)
     # learner.warmup(conf, conf.warmup)
     # learner.train(conf, conf.epochs)
-    # learner.train_dist(conf, conf.epochs)
+    # learner.train_dist(conf, conf.epochstoo
     learner.train_simple(conf, conf.epochs)
     # learner.train_cotching(conf, conf.epochs)
     # learner.train_cotching_accbs(conf, conf.epochs)

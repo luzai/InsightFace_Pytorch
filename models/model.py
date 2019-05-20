@@ -16,8 +16,8 @@ if gl_conf.use_chkpnt:
 
 
 class Flatten(Module):
-# class Flatten(jit.ScriptModule):
-#     @jit.script_method
+    # class Flatten(jit.ScriptModule):
+    #     @jit.script_method
     def forward(self, input):
         return input.view(input.size(0), -1)
 
@@ -116,15 +116,16 @@ class bottleneck_IR(Module):
         res = self.res_layer(x)
         return res + shortcut
 
+
 class Identity(Module):
-# class Identity(jit.ScriptModule):
-#     @jit.script_method
+    # class Identity(jit.ScriptModule):
+    #     @jit.script_method
     def forward(self, x):
         return x
 
 
 class bottleneck_IR_SE(Module):
-# class bottleneck_IR_SE(jit.ScriptModule):
+    # class bottleneck_IR_SE(jit.ScriptModule):
     def __init__(self, in_channel, depth, stride):
         super(bottleneck_IR_SE, self).__init__()
         self.ipabn = int(bool(gl_conf.ipabn))
@@ -174,6 +175,7 @@ class bottleneck_IR_SE(Module):
         forward = forward_ipabn
     else:
         forward = forward_ori
+
 
 class Bottleneck(namedtuple('Block', ['in_channel', 'depth', 'stride'])):
     '''A named tuple describing a ResNet block.'''
@@ -470,7 +472,7 @@ class Conv_block(Module):
         super(Conv_block, self).__init__()
         self.conv = Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding,
                            bias=False)
-        self.bn = BatchNorm2d(out_c)
+        self.bn = bn2d(out_c, gl_conf.ipabn)
         self.prelu = PReLU(out_c)
 
     # @jit.script_method
@@ -486,7 +488,7 @@ class Linear_block(Module):
         super(Linear_block, self).__init__()
         self.conv = Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding,
                            bias=False)
-        self.bn = BatchNorm2d(out_c)
+        self.bn = bn2d(out_c, gl_conf.ipabn)
 
     # @jit.script_method
     def forward(self, x):
@@ -532,17 +534,24 @@ class Residual(Module):
 
 # class MobileFaceNet(jit.ScriptModule):
 class MobileFaceNet(Module):
-    def __init__(self, embedding_size):
+    def __init__(self, embedding_size, mode='large'):
         super(MobileFaceNet, self).__init__()
         global Conv2d
+        if mode == 'small':
+            blocks = [1, 4, 6, 2]
+        else:
+            blocks = [2, 8, 16, 4]
         self.conv1 = Conv_block(3, 64, kernel=(3, 3), stride=(2, 2), padding=(1, 1))
-        self.conv2_dw = Conv_block(64, 64, kernel=(3, 3), stride=(1, 1), padding=(1, 1), groups=64)
+        if blocks[0] == 1:
+            self.conv2_dw = Conv_block(64, 64, kernel=(3, 3), stride=(1, 1), padding=(1, 1), groups=64)
+        else:
+            self.conv2_dw = Residual(64, num_block=blocks[0], groups=64, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
         self.conv_23 = Depth_Wise(64, 64, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=128)
-        self.conv_3 = Residual(64, num_block=4, groups=128, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
+        self.conv_3 = Residual(64, num_block=blocks[1], groups=128, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
         self.conv_34 = Depth_Wise(64, 128, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=256)
-        self.conv_4 = Residual(128, num_block=6, groups=256, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
+        self.conv_4 = Residual(128, num_block=blocks[2], groups=256, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
         self.conv_45 = Depth_Wise(128, 128, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=512)
-        self.conv_5 = Residual(128, num_block=2, groups=256, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
+        self.conv_5 = Residual(128, num_block=blocks[3], groups=256, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
         # Conv2d = STNConv
         self.conv_6_sep = Conv_block(128, 512, kernel=(1, 1), stride=(1, 1), padding=(0, 0))
         self.conv_6_dw = Linear_block(512, 512, groups=512, kernel=(7, 7), stride=(1, 1), padding=(0, 0))
@@ -802,14 +811,26 @@ class AdaCos(nn.Module):
         self.m = m
         self.W = nn.Parameter(torch.FloatTensor(num_classes, num_features))
         nn.init.xavier_uniform_(self.W)
+        self.device_id = list(range(gl_conf.num_devs))
 
-    def forward(self, input, label):
-        # normalize features
-        x = F.normalize(input)
-        # normalize weights
-        W = F.normalize(self.W)
-        # dot product
+    def forward(self, input, label=None):
+        x = F.normalize(input, dim=1)
+        W = F.normalize(self.W, dim=1)
         logits = F.linear(x, W)
+        logits = logits.float()
+        # sub_weights = torch.chunk(self.W, gl_conf.num_devs, dim=0)  # (ncls//4,nfeas)
+        # temp_x = x.cuda(self.device_id[0])  # (bs,nfeas)
+        # weight = sub_weights[0].cuda(self.device_id[0])
+        # cos_theta_l = [F.linear(temp_x, F.normalize(weight, dim=1))]  # (bs, ncls//4)
+        # for i in range(1, len(self.device_id)):
+        #     temp_x = x.cuda(self.device_id[i])
+        #     weight = sub_weights[i].cuda(self.device_id[i])
+        #     cos_theta_l.append(
+        #         F.linear(temp_x, F.normalize(weight, dim=1)).cuda(self.device_id[0])
+        #     )
+        # logits = torch.cat(cos_theta_l, dim=1)  # (bs,ncls)
+        if label is None:
+            return logits
         # add margin
         one_hot = torch.zeros_like(logits)
         one_hot.scatter_(1, label.view(-1, 1).long(), 1)
@@ -845,7 +866,6 @@ class Arcface(Module):
         self.device_id = list(range(gl_conf.num_devs))
         # kernel = tuple(kernel[ind].cuda(self.device_id[ind]) for ind in range(gl_conf.num_devs))
         self.kernel = kernel
-
         if gl_conf.fp16:
             m = np.float16(m)
             pi = np.float16(np.pi)
@@ -883,7 +903,7 @@ class Arcface(Module):
         #             dim=1)
         cos_theta = cos_theta.clamp(-1, 1)
         if label is None:
-            cos_theta *= self.s
+            # cos_theta *= self.s # todo
             return cos_theta
         output = cos_theta.clone()  # todo avoid copy ttl
         cos_theta_need = cos_theta[idx_, label]
@@ -1047,7 +1067,7 @@ class CosFace(Module):
         cos(theta)-m
     """
 
-    def __init__(self, embedding_size, classnum, s=64.0, m=0.35):
+    def __init__(self, embedding_size, classnum, s=gl_conf.scale, m=gl_conf.margin):
         super(CosFace, self).__init__()
         self.in_features = embedding_size
         self.out_features = classnum
@@ -1059,11 +1079,13 @@ class CosFace(Module):
         nn.init.xavier_uniform_(self.weight)
 
     # @jit.script_method
-    def forward(self, input, label):
+    def forward(self, input, label=None):
         # assert not torch.isnan(input).any().item()
         nB = input.shape[0]
         idx_ = torch.arange(0, nB, dtype=torch.long)
         cosine = F.linear((input), F.normalize(self.weight))
+        if label is None:
+            return cosine
         phi = cosine[idx_, label] - self.m
         output = cosine.clone()
         output[idx_, label] = phi
@@ -1073,60 +1095,7 @@ class CosFace(Module):
         # # -------------torch.where(out_i = {x_i if condition_i else y_i) -------------
         # output = (one_hot * phi) + (
         #         (1.0 - one_hot) * cosine)  # you can use torch.where if your torch.__version__ is 0.4
-
         output *= self.s
-
-        return output
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(' \
-               + 'in_features = ' + str(self.in_features) \
-               + ', out_features = ' + str(self.out_features) \
-               + ', s = ' + str(self.s) \
-               + ', m = ' + str(self.m) + ')'
-
-
-class AdaCosFace(nn.Module):
-    r"""Implement of CosFace (https://arxiv.org/pdf/1801.09414.pdf):
-    Args:
-        in_features: size of each input sample
-        out_features: size of each output sample
-        device_id: the ID of GPU where the model will be trained by model parallel.
-                       if device_id=None, it will be trained on CPU without model parallel.
-        s: norm of input feature
-        m: margin
-        cos(theta)-m
-    """
-
-    def __init__(self, embedding_size, classnum, m=0.35):
-        super(AdaCosFace, self).__init__()
-        self.in_features = embedding_size
-        self.out_features = classnum
-        s_init = np.sqrt(2) * np.log(classnum - 1)
-        self.s = s_init
-        self.m = m
-        self.weight = Parameter(torch.FloatTensor(classnum, embedding_size))
-        nn.init.xavier_uniform_(self.weight)
-
-    def forward(self, input, label):
-        # --------------------------- cos(theta) & phi(theta) ---------------------------
-        cosine = F.linear((input), F.normalize(self.weight))
-        phi = cosine - self.m
-        # --------------------------- convert label to one-hot ---------------------------
-        one_hot = torch.zeros(cosine.size())
-        one_hot = one_hot.cuda()
-        # one_hot = one_hot.cuda() if cosine.is_cuda else one_hot
-        one_hot.scatter_(1, label.view(-1, 1).long(), 1)
-        # -------------torch.where(out_i = {x_i if condition_i else y_i) -------------
-        output = (one_hot * phi) + (
-                (1.0 - one_hot) * cosine)  # you can use torch.where if your torch.__version__ is 0.4
-        nB = input.shape[0]
-        idx_ = torch.arange(0, nB, dtype=torch.long)
-        cos_need = cosine[idx_, label]
-        # todo
-        torch.median(cos_need)
-        output *= self.s
-
         return output
 
     def __repr__(self):

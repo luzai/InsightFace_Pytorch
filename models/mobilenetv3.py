@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 __all__ = ['MobileNetV3', 'mobilenetv3']
 
-use_hard = False
+use_hard = True
 
 
 def conv_bn(inp, oup, stride, conv_layer=nn.Conv2d, norm_layer=nn.BatchNorm2d, nlin_layer=nn.ReLU):
@@ -227,6 +227,9 @@ class MobileNetV3(nn.Module):
         # assert input_size % 32 == 0
         # input_channel = make_divisible(input_channel * width_mult)  # first channel is always 16!
         self.last_channel = make_divisible(last_channel * width_mult) if width_mult > 1.0 else last_channel
+        # if 'face' in mode:
+        #     self.features = [conv_bn(3, input_channel, 2, nlin_layer=Hswish)]
+        # else:
         self.features = [conv_bn(3, input_channel, 2, nlin_layer=Hswish)]
 
         # building mobile blocks
@@ -278,13 +281,16 @@ class MobileNetV3(nn.Module):
 
         self._initialize_weights()
 
-    def forward(self, x):
-        bs = x.shape[0]
+    def forward(self, x, *args, **kwargs):
+        bs, nc, nh, nw = x.shape
+        # if nh == 112:
+        #     x = F.upsample_bilinear(x, scale_factor=2)
         x = self.features(x)
         x = self.pool(x)
         x = self.flatten(x)
         x = self.linear(x)
         x = self.bn(x)
+        x = F.normalize(x, dim=1)
         return x
 
     def _initialize_weights(self):
@@ -311,9 +317,9 @@ def mobilenetv3(pretrained=False, **kwargs):
 
 
 if __name__ == '__main__':
-    net = mobilenetv3(mode='face.small',
-                      width_mult=1.37,
-                      )
+    init_dev(2)
+    net = mobilenetv3(mode='face.large',
+                      width_mult=1.285, )
     # state_dict = torch.load('mobilenetv3_small_67.218.pth.tar')
     # net.load_state_dict(state_dict)
     print('mobilenetv3:\n', net)
@@ -321,7 +327,7 @@ if __name__ == '__main__':
     input_size = (16, 3, 112, 112)
     x = torch.randn(input_size)
     out = net(x)
-    exit()
+    # exit()
     from thop import profile
     from lz import timer
 

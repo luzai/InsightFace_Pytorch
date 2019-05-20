@@ -8,13 +8,13 @@ import redis
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--modelp', default='ms1m.mb.arc.cl.2',
+parser.add_argument('--modelp', default='mbv3.small',
                     type=str)
 args = parser.parse_args()
 os.chdir(lz.root_path)
-
-use_mxnet = True
-bs = 32
+lz.init_dev()
+use_mxnet = False
+bs = 512
 
 
 def evaluate_ori(model, path, name, nrof_folds=10, tta=True):
@@ -82,32 +82,40 @@ def evaluate_ori(model, path, name, nrof_folds=10, tta=True):
 
 if use_mxnet:
     from recognition.embedding import Embedding
-    
+
     learner = Embedding(
         prefix='/home/xinglu/prj/insightface/logs/MS1MV2-ResNet100-Arcface/model',
         epoch=0,
         ctx_id=0)
 else:
     from config import conf
-    
+
     conf.need_log = False
     conf.batch_size *= 4 * conf.num_devs
-    bs = min(conf.batch_size, bs)
+    # bs = min(conf.batch_size, bs)
     conf.fp16 = False
     conf.ipabn = False
     conf.cvt_ipabn = False
+    conf.fill_cache = False
     # conf.net_depth = 152
     # conf.net_mode = 'mobilefacenet'
     conf.use_chkpnt = False
-    
-    from Learner import FaceInfer
-    
-    learner = FaceInfer(conf, gpuid=range(conf.num_devs))
+    from Learner import FaceInfer, face_learner
+
+    # learner = FaceInfer(conf, gpuid=range(conf.num_devs))
+    # learner.load_state(
+    #     resume_path=f'work_space/{args.modelp}/models/',
+    #     latest=False,
+    # )
+    # learner.model.eval()
+
+    learner = face_learner()
     learner.load_state(
-        resume_path=f'work_space/{args.modelp}/models/',
-        latest=False,
+        resume_path=f'work_space/{args.modelp}/models/', latest=False,
+        load_optimizer=False, load_imp=False, load_head=False,
     )
     learner.model.eval()
+
 from pathlib import Path
 
 res = {}

@@ -8,7 +8,6 @@ from tools.vat import VATLoss
 from torchvision import transforms as trans
 
 # todo label smooth
-# todo batch read redis
 
 dist = False
 num_devs = 3
@@ -20,11 +19,11 @@ else:
     lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
-conf.num_workers = 12 if not dist else 5
+conf.num_workers = ndevs * 3
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
-conf.loss = 'adacos'  # adacos softmax arcface arcfaceneg arcface2 cosface
+conf.loss = 'cosface'  # adacos softmax arcface arcfaceneg arcface2 cosface
 
 conf.local_rank = None
 conf.num_clss = None
@@ -33,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/casia.r20.bak')
+conf.work_path = Path('work_space/mbfc.lrg.ms1m.cos')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -50,7 +49,7 @@ webface_folder = conf.data_path / 'webface'  # todo
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = dingyi_folder
+conf.use_data_folder = ms1m_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 
 if conf.use_data_folder == ms1m_folder:
@@ -67,7 +66,7 @@ conf.mining = 'rand.id'  # todo balance opt # 'dop' 'imp' rand.img(slow) rand.id
 conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
 conf.rand_ratio = 9 / 27
 
-conf.margin = .25
+conf.margin = .35
 conf.margin2 = .25
 conf.topk = 5
 conf.fgg = ''  # g gg ''
@@ -80,8 +79,10 @@ conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
-conf.net_mode = 'mbv3' # mbv3 csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
+conf.net_mode = 'mobilefacenet'  # mbv3 csmobilefacenet mobilefacenet ir_se resnext densenet widerresnet
 conf.net_depth = 20  # 100 121 169 201 264 50 20
+conf.mb_mode = 'face.large'
+conf.mb_mult = 1.285
 
 conf.test_transform = trans.Compose([
     trans.ToTensor(),
@@ -96,8 +97,8 @@ conf.use_chkpnt = False
 conf.chs_first = True
 conf.prof = False
 conf.fast_load = False
-conf.fp16 = False
-conf.ipabn = None # 'sync
+conf.fp16 = True
+conf.ipabn = False
 conf.cvt_ipabn = False
 
 conf.kd = False
@@ -110,7 +111,7 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 128 * num_devs
+conf.batch_size = 190 * num_devs
 # conf.batch_size = 16
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
@@ -121,7 +122,6 @@ conf.num_recs = 1
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
-conf.start_step = 0
 conf.use_opt = 'sgd'  # adabound
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
@@ -129,14 +129,16 @@ conf.final_lr = 1e-1
 conf.lr = 1e-1
 conf.lr_gamma = 0.1
 conf.start_epoch = 0
-conf.warmup = 0  # conf.epochs/25 # 1 0
+conf.start_step = 0
 # conf.epochs = 37
 # conf.milestones = (np.array([23, 32])).astype(int)
 conf.epochs = 16
 conf.milestones = (np.array([9, 13])).astype(int)
+conf.warmup = 3  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
+conf.fill_cache = True
 
 
 # todo may use kl_div to speed up

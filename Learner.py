@@ -329,7 +329,7 @@ class TorchDataset(object):
         self.ids = [ids_map_tmp[id_] for id_ in self.ids]
         self.ids = np.asarray(self.ids)
         self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
-        lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + f'/info.{conf.cutoff}.pk')
+        # lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + f'/info.{conf.cutoff}.pk')
 
         conf.num_clss = self.num_classes
         conf.explored = np.zeros(self.ids.max() + 1, dtype=int)
@@ -353,13 +353,14 @@ class TorchDataset(object):
             self.teacher_embedding_db = lz.Database('work_space/teacher_embedding.h5', 'r')
 
         self.rec_cache = {}
-        self.fill_cache()
+        if conf.fill_cache:
+            self.fill_cache()
 
     def fill_cache(self):
         for index in range(min(self.imgidx), max(self.imgidx) + 1):
             if index % 9999 == 1:
                 logging.info(f'loading {index} ')
-                self.rec_cache[index] = self.imgrecs[0].read_idx(index)
+            self.rec_cache[index] = self.imgrecs[0].read_idx(index)
 
     def __len__(self):
         if conf.local_rank is not None:
@@ -414,11 +415,15 @@ class TorchDataset(object):
                 s = self.rec_cache[index]
             else:
                 s = self.imgrecs[ind_rec].read_idx(index)  # from [ 1 to 3804846 ]
-            rls_succ = self.locks[ind_rec].release()
+                self.rec_cache[index] = s
+            self.locks[ind_rec].release()
             header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
             imgs = self.imdecode(img)
             assert imgs is not None
             label = int(pid)
+            # assert label in self.ids_map
+            # label = self.ids_map[label]
+            # label = int(label)
             imgs = self.preprocess_img(imgs)
             if conf.use_redis and self.r and lz.get_mem() >= 20:
                 self.r.set(f'{conf.dataset_name}/imgs/{index}', img)
@@ -434,6 +439,7 @@ class TorchDataset(object):
                 s = self.rec_cache[index]
             else:
                 s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
+                self.rec_cache[index] = s
             header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
             imgs = self.imdecode(img)
             assert imgs is not None
@@ -443,9 +449,9 @@ class TorchDataset(object):
                 label = label[0]
             label = int(label)
             imgs = self.preprocess_img(imgs)
-            assert label in self.ids_map
-            label = self.ids_map[label]
-            label = int(label)
+            # assert label in self.ids_map
+            # label = self.ids_map[label]
+            # label = int(label)
             res = {'imgs': imgs, 'labels': label,
                    'ind_inds': -1, 'indexes': index,
                    }
@@ -638,12 +644,14 @@ def update_dop_cls(thetas, labels, dop):
 
 
 class FaceInfer():
-    def __init__(self, conf, gpuid=(0,)):
+    def __init__(self, conf=conf, gpuid=(0,)):
         if conf.net_mode == 'mobilefacenet':
             self.model = MobileFaceNet(conf.embedding_size)
             print('MobileFaceNet model generated')
         elif conf.net_mode == 'ir_se' or conf.net_mode == 'ir':
             self.model = Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)
+        elif conf.net_mode == 'mbv3':
+            self.model = models.mobilenetv3(mode=conf.mb_mode, width_mult=conf.mb_mult)
         else:
             raise ValueError(conf.net_mode)
         self.model = self.model.eval()
@@ -830,8 +838,7 @@ class face_learner(object):
             self.model = MobileFaceNet(conf.embedding_size)
             logging.info('MobileFaceNet model generated')
         elif conf.net_mode == 'mbv3':
-            self.model = models.mobilenetv3(mode='face.small', width_mult=1.37)
-            # self.model = models.mobilenetv3(mode='face.large', width_mult=0.868)
+            self.model = models.mobilenetv3(mode=conf.mb_mode, width_mult=conf.mb_mult)
         elif conf.net_mode == 'nasnetamobile':
             self.model = models.nasnetamobile(512)
         elif conf.net_mode == 'resnext':
@@ -915,7 +922,10 @@ class face_learner(object):
                     {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
                     {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
                     {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
-                # embed()
+                # self.optimizer = optim.SGD([
+                #     {'params': paras_wo_bn[:-1], 'weight_decay': 5e-4, 'lr': conf.lr * 10},
+                #     {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 5e-4, 'lr': conf.lr},# todo ... lr decay
+                #     {'params': paras_only_bn}], momentum=conf.momentum)
             elif conf.use_opt == 'adabound':
                 from tools.adabound import AdaBound
                 self.optimizer = AdaBound([
@@ -926,8 +936,7 @@ class face_learner(object):
                     gamma=1e-3, final_lr=conf.final_lr, )
         elif conf.use_opt == 'sgd':
             self.optimizer = optim.SGD([
-                {'params': paras_wo_bn + [*self.head.parameters()],
-                 'weight_decay': conf.weight_decay},
+                {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': conf.weight_decay},
                 {'params': paras_only_bn},
             ], lr=conf.lr, momentum=conf.momentum)
         elif conf.use_opt == 'adabound':
@@ -1121,7 +1130,7 @@ class face_learner(object):
                     lz.timer.since_last_check(verbose=False)
                 )
                 self.optimizer.zero_grad()
-                embeddings = self.model(imgs, mode='train')
+                embeddings = self.model(imgs, )
                 thetas = self.head(embeddings, labels)
                 loss_xent = conf.ce_loss(thetas, labels)
                 if conf.fp16:
@@ -2111,6 +2120,18 @@ class face_learner(object):
         steps = np.asarray(steps, int)
         return steps
 
+    def list_fixed_strs(self, resume_path):
+        from pathlib import Path
+
+        save_path = Path(resume_path)
+        fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
+        steps = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
+        steps = np.asarray(steps, int)
+        fixed_strs = np.asarray(fixed_strs)
+        fixed_strs = fixed_strs[np.argsort(steps)]
+        fixed_strs = [fx.replace('model_', '') for fx in fixed_strs]
+        return fixed_strs
+
     def load_state(self, fixed_str='',
                    resume_path=None, latest=True,
                    load_optimizer=False, load_imp=False, load_head=False
@@ -2660,8 +2681,7 @@ class face_cotching(face_learner):
             self.model = MobileFaceNet(conf.embedding_size)
             logging.info('MobileFaceNet model generated')
         elif conf.net_mode == 'mbv3':
-            self.model = models.mobilenetv3(mode='face.small', width_mult=1.37)
-            # self.model = models.mobilenetv3(mode='face.large', width_mult=0.868)
+            self.model = models.mobilenetv3(mode=conf.mb_mode, width_mult=conf.mb_mult)
         elif conf.net_mode == 'nasnetamobile':
             self.model = models.nasnetamobile(512)
         elif conf.net_mode == 'resnext':

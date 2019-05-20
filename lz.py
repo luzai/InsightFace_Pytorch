@@ -196,7 +196,7 @@ def init_dev(n=(0,)):
     devs = ''
     for n_ in n:
         devs += str(n_) + ','
-    devs.strip(',')
+    devs = devs.strip(',')
     os.environ["CUDA_VISIBLE_DEVICES"] = devs
     set_env('PATH', home + '/local/cuda/bin')
     set_env('LD_LIBRARY_PATH', home + '/local/cuda/lib64:' +
@@ -978,6 +978,7 @@ def json_dump(obj, file, mode='a'):  # write not append!
 
 
 def msgpack_dump(obj, file, **kwargs):
+    file = str(file)
     import msgpack, msgpack_numpy as m
     kwargs.setdefault('allow_np', True)
     allow_np = kwargs.pop('allow_np')
