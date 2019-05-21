@@ -839,6 +839,8 @@ class face_learner(object):
             logging.info('MobileFaceNet model generated')
         elif conf.net_mode == 'mbv3':
             self.model = models.mobilenetv3(mode=conf.mb_mode, width_mult=conf.mb_mult)
+        elif conf.net_mode =='hrnet':
+            self.model = models.get_cls_net()
         elif conf.net_mode == 'nasnetamobile':
             self.model = models.nasnetamobile(512)
         elif conf.net_mode == 'resnext':

@@ -8,3 +8,5 @@ __pycache__
 *.pkl
 .ipynb_checkpoints
 *.ipynb
+*.pth
+train.configs/

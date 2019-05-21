@@ -285,6 +285,7 @@ class MobileNetV3(nn.Module):
         bs, nc, nh, nw = x.shape
         # if nh == 112:
         #     x = F.upsample_bilinear(x, scale_factor=2)
+        # todo
         x = self.features(x)
         x = self.pool(x)
         x = self.flatten(x)

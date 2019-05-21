@@ -10,7 +10,7 @@ from torchvision import transforms as trans
 # todo label smooth
 
 dist = False
-num_devs = 3
+num_devs = 1
 if dist:
     num_devs = 1
 else:
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/mbfc.lrg.ms1m.cos')
+conf.work_path = Path('work_space/mbfc.lrg.ms1m.cos.bak')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -111,7 +111,7 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 190 * num_devs
+conf.batch_size = 32 * num_devs
 # conf.batch_size = 16
 conf.ftbs_mult = 2
 conf.board_loss_every = 10  # 100
@@ -138,7 +138,7 @@ conf.warmup = 3  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = True
+conf.fill_cache = False
 
 
 # todo may use kl_div to speed up
