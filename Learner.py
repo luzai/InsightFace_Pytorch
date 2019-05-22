@@ -832,6 +832,8 @@ class face_learner(object):
             self.writer = SummaryWriter(str(conf.log_path))
         else:
             self.writer = None
+        conf.writer = self.writer
+        self.writer.add_text('conf', f'{conf}', 0)
         self.step = 0
 
         if conf.net_mode == 'mobilefacenet':
@@ -839,7 +841,7 @@ class face_learner(object):
             logging.info('MobileFaceNet model generated')
         elif conf.net_mode == 'mbv3':
             self.model = models.mobilenetv3(mode=conf.mb_mode, width_mult=conf.mb_mult)
-        elif conf.net_mode =='hrnet':
+        elif conf.net_mode == 'hrnet':
             self.model = models.get_cls_net()
         elif conf.net_mode == 'nasnetamobile':
             self.model = models.nasnetamobile(512)
@@ -937,10 +939,16 @@ class face_learner(object):
                 ], lr=conf.lr, betas=(conf.adam_betas1, conf.adam_betas2),
                     gamma=1e-3, final_lr=conf.final_lr, )
         elif conf.use_opt == 'sgd':
+            # self.optimizer = optim.SGD([
+            #     {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': conf.weight_decay},
+            #     {'params': paras_only_bn},
+            # ], lr=conf.lr, momentum=conf.momentum)
             self.optimizer = optim.SGD([
-                {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': conf.weight_decay},
-                {'params': paras_only_bn},
-            ], lr=conf.lr, momentum=conf.momentum)
+                {'params': paras_wo_bn[:-1], 'weight_decay': conf.weight_decay},
+                {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': conf.weight_decay,
+                 'lr_mult': 10},
+                {'params': paras_only_bn, },
+            ], lr=conf.lr, momentum=conf.momentum, )
         elif conf.use_opt == 'adabound':
             from tools.adabound import AdaBound
             self.optimizer = AdaBound([
@@ -1215,6 +1223,7 @@ class face_learner(object):
             lz.timer.since_last_check('epoch {} started'.format(e))
             self.schedule_lr(e)
             loader_enum = data_prefetcher(enumerate(loader))
+            acc_grad_cnt = 0
             while True:
                 try:
                     ind_data, data = next(loader_enum)
@@ -1239,20 +1248,20 @@ class face_learner(object):
                 data_time.update(
                     lz.timer.since_last_check(verbose=False)
                 )
-                self.optimizer.zero_grad()
+                if acc_grad_cnt == 0:
+                    self.optimizer.zero_grad()
                 embeddings = self.model(imgs, )
                 assert not torch.isnan(embeddings).any().item()
                 thetas = self.head(embeddings, labels)
-                # with torch.no_grad():
-                #     embeddings = self.model(imgs, mode='train')
                 # loss_xent_all = F.cross_entropy(thetas , labels , reduction='none')
                 # loss_xent = loss_xent_all.mean()
                 loss_xent = F.cross_entropy(thetas, labels, )
+                # loss_xent /= conf.acc_grad
                 if conf.fp16:
-                    with amp.scale_loss(loss_xent, self.optimizer) as scaled_loss:
+                    with amp.scale_loss(loss_xent/conf.acc_grad, self.optimizer) as scaled_loss:
                         scaled_loss.backward()
                 else:
-                    loss_xent.backward()
+                    (loss_xent/conf.acc_grad).backward()
                 with torch.no_grad():
                     if conf.mining == 'dop':
                         update_dop_cls(thetas, labels_cpu, conf.dop)
@@ -1262,7 +1271,12 @@ class face_learner(object):
                 with torch.no_grad():
                     acc_t = (thetas.argmax(dim=1) == labels)
                     acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
-                self.optimizer.step()
+                if acc_grad_cnt == conf.acc_grad - 1:
+                    self.optimizer.step()
+                    acc_grad_cnt = 0
+                else:
+                    acc_grad_cnt += 1
+                assert acc_grad_cnt < conf.acc_grad, acc_grad_cnt
                 loss_time.update(
                     lz.timer.since_last_check(verbose=False)
                 )
@@ -2075,7 +2089,10 @@ class face_learner(object):
         logging.info(f'map e to lr is {e2lr}')
         lr = e2lr[e]
         for params in self.optimizer.param_groups:
-            params['lr'] = lr
+            if 'lr_mult' in params:
+                params['lr'] = lr * params['lr_mult']
+            else:
+                params['lr'] = lr
         logging.info(f'lr is {lr}')
 
     init_lr = schedule_lr

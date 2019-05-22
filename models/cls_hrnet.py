@@ -472,6 +472,8 @@ class HighResolutionNet(nn.Module):
         return nn.Sequential(*modules), num_inchannels
 
     def forward(self, x):
+        if x.shape[-1]==112:
+            x = F.upsample_bilinear(x,scale_factor=2)
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -539,7 +541,7 @@ class HighResolutionNet(nn.Module):
             self.load_state_dict(model_dict)
 
 
-def get_cls_net(config='w18', **kwargs):
+def get_cls_net(config='w48', **kwargs):
     fs = open(lz.root_path + f'models/hrnet.{config}.yaml').read()
     cfg = CN()
     cfg = cfg.load_cfg(fs)
@@ -556,8 +558,8 @@ if __name__ == '__main__':
     net = get_cls_net('w18')
     from thop import profile
 
-    flops, params = profile(net, input_size=(2, 3, 224, 224),
-                            device='cpu',
+    flops, params = profile(net, input_size=(2, 3, 112, 112),
+                            device='cuda:3',
                             )
     flops /= 10 ** 9
     params /= 10 ** 6

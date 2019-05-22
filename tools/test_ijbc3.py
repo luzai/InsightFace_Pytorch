@@ -13,7 +13,7 @@ from sklearn.metrics import auc, roc_curve
 import h5py, lmdb, six
 from PIL import Image
 parser = argparse.ArgumentParser()
-parser.add_argument('--modelp', default='mbv3.lrg.5.casia',
+parser.add_argument('--modelp', default='mbfc.lrg.ms1m.cos',
                     type=str)
 args = parser.parse_args()
 os.chdir(lz.root_path)
@@ -138,7 +138,7 @@ if __name__ == '__main__':
             from config import conf
 
             conf.need_log = False
-            bs *= 4 * conf.num_devs
+            bs *= 2 * conf.num_devs
             conf.fp16 = False
             conf.ipabn = False
             conf.cvt_ipabn = False

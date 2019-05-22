@@ -812,6 +812,9 @@ class AdaCos(nn.Module):
         self.W = nn.Parameter(torch.FloatTensor(num_classes, num_features))
         nn.init.xavier_uniform_(self.W)
         self.device_id = list(range(gl_conf.num_devs))
+        self.step = 0
+        self.writer = gl_conf.writer
+        assert self.writer is not None
 
     def forward(self, input, label=None):
         x = F.normalize(input, dim=1)
@@ -846,6 +849,12 @@ class AdaCos(nn.Module):
             B_avg = torch.sum(B_avg) / input.size(0)
             # print(B_avg)
             theta_med = torch.median(theta + self.m)
+            if self.step % 999 == 0:
+                self.writer.add_scalar('info/th_med', theta_med.item(), self.step)
+            if self.step % 9999 == 0:
+                self.writer.add_histogram('info/th', theta, self.step)
+            self.step += 1
+
             s_now = torch.log(B_avg) / torch.cos(torch.min(
                 (math.pi / 4 + self.m) * torch.ones_like(theta_med),
                 theta_med))
