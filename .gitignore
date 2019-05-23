@@ -10,3 +10,4 @@ __pycache__
 *.ipynb
 *.pth
 train.configs/
+*.pyc

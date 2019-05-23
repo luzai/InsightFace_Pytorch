@@ -10,7 +10,7 @@ from torchvision import transforms as trans
 # todo label smooth
 
 dist = False
-num_devs = 2
+num_devs = 3
 if dist:
     num_devs = 1
 else:
@@ -22,7 +22,7 @@ conf = edict()
 conf.num_workers = ndevs * 3
 conf.num_devs = num_devs
 conf.no_eval = False
-conf.start_eval = True
+conf.start_eval = False
 conf.loss = 'adacos'  # adacos softmax arcface arcfaceneg arcface2 cosface
 
 conf.writer = None
@@ -33,7 +33,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/mbfc.lrg.ms1m.ada')
+conf.work_path = Path('work_space/casia.r20.ada.2')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -50,7 +50,7 @@ webface_folder = conf.data_path / 'webface'  # todo
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = ms1m_folder
+conf.use_data_folder = dingyi_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 
 if conf.use_data_folder == ms1m_folder:
@@ -80,7 +80,7 @@ conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
-conf.net_mode = 'mobilefacenet'  # hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
+conf.net_mode = 'ir_se'  # hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
 conf.net_depth = 20  # 100 121 169 201 264 50 20
 conf.mb_mode = 'face.large'
 conf.mb_mult = 1.285
@@ -112,10 +112,10 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 180 * num_devs
+conf.batch_size = 265 * num_devs
 # conf.batch_size = 16
 conf.ftbs_mult = 2
-conf.board_loss_every = 100  # 100
+conf.board_loss_every = 15
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
 conf.acc_grad = 1

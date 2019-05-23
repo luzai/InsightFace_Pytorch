@@ -817,6 +817,7 @@ class AdaCos(nn.Module):
         assert self.writer is not None
 
     def forward(self, input, label=None):
+        bs = input.shape[0]
         x = F.normalize(input, dim=1)
         W = F.normalize(self.W, dim=1)
         logits = F.linear(x, W)
@@ -845,24 +846,54 @@ class AdaCos(nn.Module):
             output = logits
         # feature re-scale
         with torch.no_grad():
-            B_avg = torch.where(one_hot < 1, torch.exp(self.s * logits), torch.zeros_like(logits))
-            B_avg = torch.sum(B_avg) / input.size(0)
+            # B_avg = torch.where(one_hot < 1, torch.exp(self.s * logits), torch.zeros_like(logits))
+            theta_neg = theta[one_hot < 1].view(bs, self.classnum - 1)
+            B_avg = torch.sum(theta_neg) / input.size(0)
+            theta_pos = theta[one_hot==1]
             # print(B_avg)
-            theta_med = torch.median(theta + self.m)
+            theta_med = torch.median(theta_pos + self.m)
             s_now = torch.log(B_avg) / torch.cos(torch.min(
                 (math.pi / 4 + self.m) * torch.ones_like(theta_med),
                 theta_med))
             # self.s = self.s * 0.9 + s_now * 0.1
             self.s = s_now
             if self.step % 10 == 0:
-                self.writer.add_scalar('info/th_med', theta_med.item(), self.step)
-                self.writer.add_scalar('info/scale', self.s, self.step)
+                self.writer.add_scalar('theta/pos_med', theta_med.item(), self.step)
+                self.writer.add_scalar('theta/pos_mean', theta_pos.mean().item(), self.step)
+                self.writer.add_scalar('theta/neg_med', torch.median(theta_neg).item(), self.step)
+                self.writer.add_scalar('theta/neg_mean', theta_neg.mean().item(), self.step)
+                self.writer.add_scalar('theta/bavg', B_avg.item() )
+                self.writer.add_scalar('theta/scale', self.s, self.step)
             if self.step % 999 == 0:
-                self.writer.add_histogram('info/th', theta, self.step)
+                self.writer.add_histogram('theta/pos_th', theta_pos, self.step)
+                self.writer.add_histogram('theta/pos_neg', theta_neg, self.step)
             self.step += 1
 
         output *= self.s
         return output
+
+
+class MySoftmax(Module):
+    def __init__(self, embedding_size=gl_conf.embedding_size, classnum=None):
+        super(MySoftmax, self).__init__()
+        self.classnum = classnum
+        self.kernel = Parameter(torch.Tensor(embedding_size, classnum))
+        self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
+        self.s = gl_conf.scale
+        self.step = 0
+
+    def forward(self, embeddings, label):
+        kernel_norm = l2_norm(self.kernel, axis=0)
+        logits = torch.mm(embeddings, kernel_norm).clamp(-1, 1)
+        with torch.no_grad():
+            bs = embeddings.shape[0]
+            one_hot = torch.zeros_like(logits)
+            one_hot.scatter_(1, label.view(-1, 1).long(), 1)
+            theta = torch.acos(logits)
+            theta_neg = theta[one_hot<1].view(bs, self.classnum-1)
+            theta_pos = theta[one_hot==1].view(self.classnum)
+            # if self.step % 10 == 0:
+        return logits * self.s
 
 
 class Arcface(Module):
@@ -1140,20 +1171,6 @@ class Am_softmax(Module):
         output[index] = phi[index]  # only change the correct predicted output
         output *= self.s  # scale up in order to make softmax work, first introduced in normface
         return output
-
-
-class MySoftmax(Module):
-    def __init__(self, embedding_size=512, classnum=51332):
-        super(MySoftmax, self).__init__()
-        self.classnum = classnum
-        self.kernel = Parameter(torch.Tensor(embedding_size, classnum))
-        self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
-        self.s = gl_conf.scale
-
-    def forward(self, embeddings, label):
-        kernel_norm = l2_norm(self.kernel, axis=0)
-        cos_theta = torch.mm(embeddings, kernel_norm).clamp(-1, 1) * self.s
-        return cos_theta
 
 
 class TripletLoss(Module):

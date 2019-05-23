@@ -2,6 +2,7 @@
 # -*- coding: future_fstrings -*-
 
 import matplotlib
+
 # matplotlib.use('Gtk3Agg')
 # matplotlib.use('TkAgg')
 # matplotlib.use('Agg')
@@ -1778,9 +1779,16 @@ def softmax_ch(arr):
 
 def softmax_th(arr, dim=1, temperature=1):
     arr = np.asarray(arr, dtype=np.float32)
+    dim=2
+    if len(arr.shape) == 1:
+        dim=1
+        arr = arr.reshape(1, -1)
     arr = to_torch(arr)
     arr /= temperature
-    return F.softmax(arr, dim=dim).numpy()
+    res = F.softmax(arr, dim=dim).numpy()
+    if dim==1:
+        res = res.flatten()
+    return res
 
 
 def l2_normalize_th(x):
