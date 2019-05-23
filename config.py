@@ -19,11 +19,11 @@ else:
     lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
-conf.num_workers = ndevs * 3
+conf.num_workers = ndevs * 4
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
-conf.loss = 'adacos'  # adacos softmax arcface arcfaceneg arcface2 cosface
+conf.loss = 'arcface'  # adacos softmax arcface arcfaceneg arcface2 cosface
 
 conf.writer = None
 conf.local_rank = None
@@ -33,7 +33,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/casia.r20.ada.2')
+conf.work_path = Path('work_space/casia.r50.arc')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -67,7 +67,7 @@ conf.mining = 'rand.id'  # todo balance opt # 'dop' 'imp' rand.img(slow) rand.id
 conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
 conf.rand_ratio = 9 / 27
 
-conf.margin = .35
+conf.margin = .5
 conf.margin2 = .25
 conf.topk = 5
 conf.fgg = ''  # g gg ''
@@ -81,7 +81,7 @@ conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
 conf.net_mode = 'ir_se'  # hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
-conf.net_depth = 20  # 100 121 169 201 264 50 20
+conf.net_depth = 50  # 100 121 169 201 264 50 20
 conf.mb_mode = 'face.large'
 conf.mb_mult = 1.285
 
@@ -112,7 +112,7 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 265 * num_devs
+conf.batch_size = 195 * num_devs
 # conf.batch_size = 16
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
@@ -139,7 +139,7 @@ conf.warmup = 3  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = True
+conf.fill_cache = False
 
 
 # todo may use kl_div to speed up
