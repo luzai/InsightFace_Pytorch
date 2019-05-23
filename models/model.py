@@ -849,17 +849,18 @@ class AdaCos(nn.Module):
             B_avg = torch.sum(B_avg) / input.size(0)
             # print(B_avg)
             theta_med = torch.median(theta + self.m)
-            if self.step % 999 == 0:
-                self.writer.add_scalar('info/th_med', theta_med.item(), self.step)
-            if self.step % 9999 == 0:
-                self.writer.add_histogram('info/th', theta, self.step)
-            self.step += 1
-
             s_now = torch.log(B_avg) / torch.cos(torch.min(
                 (math.pi / 4 + self.m) * torch.ones_like(theta_med),
                 theta_med))
             # self.s = self.s * 0.9 + s_now * 0.1
             self.s = s_now
+            if self.step % 10 == 0:
+                self.writer.add_scalar('info/th_med', theta_med.item(), self.step)
+                self.writer.add_scalar('info/scale', self.s, self.step)
+            if self.step % 999 == 0:
+                self.writer.add_histogram('info/th', theta, self.step)
+            self.step += 1
+
         output *= self.s
         return output
 

@@ -928,7 +928,7 @@ class face_learner(object):
                     {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
                 # self.optimizer = optim.SGD([
                 #     {'params': paras_wo_bn[:-1], 'weight_decay': 5e-4, 'lr': conf.lr * 10},
-                #     {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 5e-4, 'lr': conf.lr},# todo ... lr decay
+                #     {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 5e-4, 'lr': conf.lr}, # todo try it
                 #     {'params': paras_only_bn}], momentum=conf.momentum)
             elif conf.use_opt == 'adabound':
                 from tools.adabound import AdaBound
