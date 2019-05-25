@@ -174,7 +174,7 @@ class MobileNetV3(nn.Module):
             mobile_setting = [
                 # k, exp, c,  se,     nl,  s,
                 [3, 16, 16, False, 'RE', 1],
-                [3, 64, 24, False, 'RE', 1],
+                [3, 64, 24, False, 'RE', 2],
                 [3, 72, 24, False, 'RE', 1],
                 [5, 72, 40, True, 'RE', 2],
                 [5, 120, 40, True, 'RE', 1],
@@ -227,10 +227,10 @@ class MobileNetV3(nn.Module):
         # assert input_size % 32 == 0
         # input_channel = make_divisible(input_channel * width_mult)  # first channel is always 16!
         self.last_channel = make_divisible(last_channel * width_mult) if width_mult > 1.0 else last_channel
-        # if 'face' in mode:
-        #     self.features = [conv_bn(3, input_channel, 2, nlin_layer=Hswish)]
-        # else:
-        self.features = [conv_bn(3, input_channel, 2, nlin_layer=Hswish)]
+        if 'face' in mode:
+            self.features = [conv_bn(3, input_channel, 1, nlin_layer=Hswish)]
+        else:
+            self.features = [conv_bn(3, input_channel, 2, nlin_layer=Hswish)]
 
         # building mobile blocks
         for k, exp, c, se, nl, s in mobile_setting:
@@ -282,7 +282,7 @@ class MobileNetV3(nn.Module):
         self._initialize_weights()
 
     def forward(self, x, *args, **kwargs):
-        bs, nc, nh, nw = x.shape
+        # bs, nc, nh, nw = x.shape
         # if nh == 112:
         #     x = F.upsample_bilinear(x, scale_factor=2)
         # todo

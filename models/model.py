@@ -857,7 +857,7 @@ class AdaCos(nn.Module):
                 theta_med))
             # self.s = self.s * 0.9 + s_now * 0.1
             self.s = s_now
-            if self.step % 10 == 0:
+            if self.step % 99 == 0:
                 self.writer.add_scalar('theta/pos_med', theta_med.item(), self.step)
                 self.writer.add_scalar('theta/pos_mean', theta_pos.mean().item(), self.step)
                 self.writer.add_scalar('theta/neg_med', torch.median(theta_neg).item(), self.step)

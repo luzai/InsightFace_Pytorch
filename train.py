@@ -62,7 +62,7 @@ if __name__ == '__main__':
         # 'retina.r50',
         # 'casia.mb.stnconv.7'
         # 'mbv3.small'
-        # 'mbv3.lrg.5.casia.sft'
+        'mbv3.lrg.fx.5.retina.ada.3'
     ]:
         learner.load_state(
             # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',

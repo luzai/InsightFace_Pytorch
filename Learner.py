@@ -270,6 +270,9 @@ class TestDataset(object):
         return res
 
 
+rec_cache = {}
+
+
 class TorchDataset(object):
     def __init__(self,
                  path_ms1m,
@@ -352,15 +355,15 @@ class TorchDataset(object):
         if conf.kd and conf.sftlbl_from_file:  # todo deprecated
             self.teacher_embedding_db = lz.Database('work_space/teacher_embedding.h5', 'r')
 
-        self.rec_cache = {}
         if conf.fill_cache:
             self.fill_cache()
 
     def fill_cache(self):
+        global rec_cache
         for index in range(min(self.imgidx), max(self.imgidx) + 1):
             if index % 9999 == 1:
                 logging.info(f'loading {index} ')
-            self.rec_cache[index] = self.imgrecs[0].read_idx(index)
+            rec_cache[index] = self.imgrecs[0].read_idx(index)
 
     def __len__(self):
         if conf.local_rank is not None:
@@ -370,14 +373,6 @@ class TorchDataset(object):
 
     def __getitem__(self, indices, ):
         res = self._get_single_item(indices)
-        # for k, v in res.items():
-        #     assert (
-        #             isinstance(v, np.ndarray) or
-        #             isinstance(v, str) or
-        #             isinstance(v, int) or
-        #             isinstance(v, np.int64) or
-        #             torch.is_tensor(v)
-        #     ), type(v)
         return res
 
     def imdecode(self, s):
@@ -403,6 +398,7 @@ class TorchDataset(object):
         return imgs
 
     def _get_single_item(self, index):
+        global rec_cache
         if isinstance(index, tuple):
             succ = False
             index, pid, ind_ind = index
@@ -411,11 +407,11 @@ class TorchDataset(object):
                     succ = self.locks[ind_rec].acquire(timeout=0)
                     if succ: break
                 if succ: break
-            if index in self.rec_cache:
-                s = self.rec_cache[index]
+            if index in rec_cache:
+                s = rec_cache[index]
             else:
                 s = self.imgrecs[ind_rec].read_idx(index)  # from [ 1 to 3804846 ]
-                self.rec_cache[index] = s
+                rec_cache[index] = s
             self.locks[ind_rec].release()
             header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
             imgs = self.imdecode(img)
@@ -435,11 +431,11 @@ class TorchDataset(object):
             return res
         else:
             index += 1  # 1 based!
-            if index in self.rec_cache:
-                s = self.rec_cache[index]
+            if index in rec_cache:
+                s = rec_cache[index]
             else:
                 s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
-                self.rec_cache[index] = s
+                rec_cache[index] = s
             header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
             imgs = self.imdecode(img)
             assert imgs is not None
@@ -1258,10 +1254,10 @@ class face_learner(object):
                 loss_xent = F.cross_entropy(thetas, labels, )
                 # loss_xent /= conf.acc_grad
                 if conf.fp16:
-                    with amp.scale_loss(loss_xent/conf.acc_grad, self.optimizer) as scaled_loss:
+                    with amp.scale_loss(loss_xent / conf.acc_grad, self.optimizer) as scaled_loss:
                         scaled_loss.backward()
                 else:
-                    (loss_xent/conf.acc_grad).backward()
+                    (loss_xent / conf.acc_grad).backward()
                 with torch.no_grad():
                     if conf.mining == 'dop':
                         update_dop_cls(thetas, labels_cpu, conf.dop)
