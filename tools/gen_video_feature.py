@@ -3,7 +3,6 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-
 from datetime import datetime
 import os.path
 from easydict import EasyDict as edict
@@ -22,10 +21,11 @@ from sklearn.preprocessing import normalize
 import mxnet as mx
 from mxnet import ndarray as nd
 import lz
+import lmdb, six
+from PIL import Image
 
-lz.get_dev(1)
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-
+lz.init_dev(3)
+# os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 image_shape = (3, 112, 112)
 net = None
 data_size = 203848
@@ -33,6 +33,9 @@ emb_size = 256
 use_flip = True
 ctx_num = 1
 xrange = range
+env = None
+glargs = None
+
 
 def do_flip(data):
     for idx in xrange(data.shape[0]):
@@ -51,7 +54,18 @@ def get_feature(buffer):
     input_blob = np.zeros((network_count, 3, image_shape[1], image_shape[2]), dtype=np.float32)
     idx = 0
     for item in buffer:
-        img = cv2.imread(item)[:, :, ::-1]  # to rgb
+        if env is None:
+            img = cv2.imread(item)[:, :, ::-1]  # to rgb
+        else:
+            item = item.replace(glargs.input, '')
+            with env.begin(write=False) as txn:
+                imgbuf = txn.get(str(item).encode())
+            buf = six.BytesIO()
+            buf.write(imgbuf)
+            buf.seek(0)
+            f = Image.open(buf)
+            img = f.convert('RGB')
+            img = np.asarray(img)
         img = np.transpose(img, (2, 0, 1))
         attempts = [0, 1] if use_flip else [0]
         for flipid in attempts:
@@ -75,7 +89,7 @@ def get_feature(buffer):
         embedding = embedding1 + embedding2
     else:
         embedding = _embedding
-    # embedding = sklearn.preprocessing.normalize(embedding) # todo
+    embedding = sklearn.preprocessing.normalize(embedding)  # todo
     return embedding
 
 
@@ -89,9 +103,13 @@ def write_bin(path, m):
 def main(args):
     global image_shape
     global net
-    global ctx_num
-
+    global ctx_num, env, glargs
     print(args)
+    glargs = args
+    env = lmdb.open(args.input + '/imgs_lmdb', readonly=True,
+                    # max_readers=1,  lock=False,
+                    # readahead=False, meminit=False
+                    )
     ctx = []
     cvd = os.environ['CUDA_VISIBLE_DEVICES'].strip()
     if len(cvd) > 0:
@@ -130,7 +148,7 @@ def main(args):
     row_idx = 0
     for line in open(filelist, 'r'):
         if i % 1000 == 0:
-            print("processing ", i)
+            print("processing ", i, )
         i += 1
         # print('stat', i, len(buffer_images), buffer_embedding.shape, aggr_nums, row_idx)
         videoname = line.strip().split()[0]
@@ -203,8 +221,8 @@ def parse_arguments(argv):
     parser.add_argument('--model', type=str, help='', default='')
     parser.set_defaults(
         input='/data/share/iccv19.lwface/iQIYI-VID-FACE',
-        output=lz.work_path + 'iccv.vdo.bin',
-        model=lz.root_path + 'logs/r50-arcface-retina/model,16'
+        output=lz.work_path + 'iccv.vdo.2nrm.bin',
+        model=lz.root_path + '../insightface/logs/r50-arcface-retina/model,16'
     )
     return parser.parse_args(argv)
 

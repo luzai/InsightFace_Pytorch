@@ -142,8 +142,8 @@ def main(args):
         from Learner import FaceInfer
 
         conf.need_log = False
-        conf.batch_size *= 4 * conf.num_devs
-        args.batch_size = conf.batch_size
+        # conf.batch_size *= 4 * conf.num_devs
+        # args.batch_size = conf.batch_size
         conf.fp16 = False
         conf.ipabn = False
         conf.cvt_ipabn = False
@@ -189,16 +189,16 @@ def main(args):
 def parse_arguments(argv):
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--batch_size', type=int, help='', default=50 * 3)
+    parser.add_argument('--batch_size', type=int, help='', default=128)
     parser.add_argument('--image_size', type=str, help='', default='3,112,112')
     parser.add_argument('--input', type=str, help='', default='')
     parser.add_argument('--output', type=str, help='', default='')
     parser.add_argument('--model', type=str, help='', default='')
     parser.set_defaults(
         input='/data/share/iccv19.lwface/iccv19-challenge-data/',
-        output=lz.work_path + 'mbv3.sml.img.bin',
-        # model=lz.root_path + 'logs/r50-arcface-retina/model,16',
-        model=lz.root_path + 'work_space/mbv3.lrg5.retina/models',
+        output=lz.work_path + 'mbv3.lrg.img.bin',
+        # model=lz.root_path + '../insightface/logs/r50-arcface-retina/model,16',
+        model=lz.root_path + 'work_space/mbv3.lrg.fx.5.retina.ada.5/models',
     )
     return parser.parse_args(argv)
 

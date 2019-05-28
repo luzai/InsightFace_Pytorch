@@ -133,7 +133,7 @@ if torch.__version__.startswith('1'):
 
 
 else:
-    logging.warning(f'pytorch 0.4 only allow inference')
+    logging.warning(f'pytorch 0.4 only allow inference for ipabn')
     
     
     class InPlaceABN(ABN):

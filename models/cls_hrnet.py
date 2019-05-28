@@ -74,8 +74,9 @@ def bn_act(depth, with_act, ipabn=None):
         else:
             res = InPlaceABN(depth, activation='none')
     else:
-         res = nn.BatchNorm2d(depth)
+        res = nn.BatchNorm2d(depth)
     return res
+
 
 def bn2d(depth, ipabn=None):
     if ipabn:
@@ -333,10 +334,10 @@ class HighResolutionNet(nn.Module):
 
         # self.classifier = nn.Linear(2048, 1000)
         self.output_layer = nn.Sequential(
-            nn.BatchNorm2d(2048, ),
+            nn.BatchNorm2d(1024, ),
             nn.Dropout(0.3),
             Flatten(),
-            nn.Linear(2048 * 7 * 7, 512, bias=False),
+            nn.Linear(1024* 7 * 7, 512, bias=False),
             nn.BatchNorm1d(512)
         )
 
@@ -375,17 +376,18 @@ class HighResolutionNet(nn.Module):
             downsamp_modules.append(downsamp_module)
         downsamp_modules = nn.ModuleList(downsamp_modules)
 
-        final_layer = nn.Sequential(
-            nn.Conv2d(
-                in_channels=head_channels[3] * head_block.expansion,
-                out_channels=2048,
-                kernel_size=1,
-                stride=1,
-                padding=0
-            ),
-            nn.BatchNorm2d(2048, momentum=BN_MOMENTUM),
-            nn.ReLU(inplace=True)
-        )
+        # final_layer = nn.Sequential(
+        #     nn.Conv2d(
+        #         in_channels=head_channels[3] * head_block.expansion,
+        #         out_channels=2048,
+        #         kernel_size=1,
+        #         stride=1,
+        #         padding=0
+        #     ),
+        #     nn.BatchNorm2d(2048, momentum=BN_MOMENTUM),
+        #     nn.ReLU(inplace=True)
+        # )
+        final_layer=None
 
         return incre_modules, downsamp_modules, final_layer
 
@@ -472,8 +474,8 @@ class HighResolutionNet(nn.Module):
         return nn.Sequential(*modules), num_inchannels
 
     def forward(self, x):
-        if x.shape[-1]==112:
-            x = F.upsample_bilinear(x,scale_factor=2)
+        if x.shape[-1] == 112:
+            x = F.upsample_bilinear(x, scale_factor=2)
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -512,7 +514,7 @@ class HighResolutionNet(nn.Module):
             y = self.incre_modules[i + 1](y_list[i + 1]) + \
                 self.downsamp_modules[i](y)
 
-        y = self.final_layer(y)
+        # y = self.final_layer(y)
         y = self.output_layer(y)
         y = F.normalize(y, dim=1)
         # y = F.avg_pool2d(y, kernel_size=y.size()[2:]).view(y.size(0), -1)
@@ -549,13 +551,15 @@ def get_cls_net(config='w48', **kwargs):
     model.init_weights()
     model_state_dict = torch.load(lz.root_path + f'train.configs/hrnetv2_{config}_imagenet_pretrained.pth',
                                   map_location=lambda storage, loc: storage)
-    model_state_dict ={k:v for k,v in model_state_dict.items() if 'classifier' not in k}
+    model_state_dict = {k: v for k, v in model_state_dict.items() if 'classifier' not in k}
     model.load_state_dict(model_state_dict, strict=False)
+    # from apex.parallel import convert_syncbn_model
+    # model = convert_syncbn_model(model)
     return model
 
 
 if __name__ == '__main__':
-    net = get_cls_net('w18')
+    net = get_cls_net('w48')
     from thop import profile
 
     flops, params = profile(net, input_size=(2, 3, 112, 112),

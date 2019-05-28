@@ -1244,7 +1244,7 @@ def plt_imshow_tensor(imgs, ncol=10, limit=None):
         nrow=ncol, ).numpy()
     imgs_thumb = to_img(imgs_thumb)
     maxlen = max(imgs_thumb.shape)
-    if limit is not None and maxlen > limit:
+    if limit is not None:
         imgs_thumb = cvb.resize_keep_ar(imgs_thumb, limit, limit, )
     #     print(imgs_thumb.shape)
     plt_imshow(imgs_thumb, keep_ori_size=True)

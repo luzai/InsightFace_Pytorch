@@ -1,5 +1,4 @@
 # -*- coding: future_fstrings -*-
-
 from pathlib import Path
 import lz
 from lz import *
@@ -10,7 +9,7 @@ from torchvision import transforms as trans
 # todo label smooth
 
 dist = False
-num_devs = 3
+num_devs = 1
 if dist:
     num_devs = 1
 else:
@@ -23,7 +22,7 @@ conf.num_workers = 4  # ndevs * 3
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
-conf.loss = 'adacos'  # adacos softmax arcface arcfaceneg arcface2 cosface
+conf.loss = 'arcface'  # adacos softmax arcface arcfaceneg arcface2 cosface
 
 conf.writer = None
 conf.local_rank = None
@@ -33,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/mbv3.lrg.fx.5.retina.ada.4')
+conf.work_path = Path('work_space/hrnet.retina.arc')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -67,23 +66,25 @@ conf.mining = 'rand.id'  # todo balance opt # 'dop' 'imp' rand.img(slow) rand.id
 conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
 conf.rand_ratio = 9 / 27
 
-conf.margin = .0
+conf.margin = .5
 conf.margin2 = .25
 conf.topk = 5
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
 conf.tri_wei = 0
-conf.scale = 32.
+conf.scale = 64.
 conf.instances = 4
 
 conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = 0.4
-conf.net_mode = 'mbv3'  # hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
-conf.net_depth = 50  # 100 121 169 201 264 50 20
+conf.net_mode = 'hrnet'  # hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
+conf.net_depth = 20  # 100 121 169 201 264 50 20
 conf.mb_mode = 'face.large'
 conf.mb_mult = 1.285
+# conf.mb_mode = 'face.small'
+# conf.mb_mult = 2.005 # 1.37
 
 conf.test_transform = trans.Compose([
     trans.ToTensor(),
@@ -112,13 +113,13 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 160 * num_devs
+conf.batch_size = 32 * num_devs
 # conf.batch_size = 16
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 2
+conf.acc_grad = 6
 # --------------------Training Config ------------------------
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -129,8 +130,8 @@ conf.adam_betas2 = .999  # 0.999 0.99
 conf.final_lr = 1e-1
 conf.lr = 1e-1
 conf.lr_gamma = 0.1
-conf.start_epoch = 5
-conf.start_step = 32355
+conf.start_epoch = 0
+conf.start_step = 0
 # conf.epochs = 37
 # conf.milestones = (np.array([23, 32])).astype(int)
 conf.epochs = 16
@@ -178,13 +179,6 @@ conf.ce_loss = CrossEntropyLoss()
 # conf.ce_loss = CrossEntropyLabelSmooth()
 if conf.use_test:
     conf.vat_loss_func = VATLoss(xi=1e-6, eps=8, ip=1)
-
-training = True  # False means test
-if not training:
-    conf.batch_size *= 2
-if not training:
-    conf.need_log = False
-else:
-    conf.need_log = True
-conf.batch_size = conf.batch_size // conf.instances * conf.instances
+conf.need_log = True
+# conf.batch_size = conf.batch_size // conf.instances * conf.instances
 conf.head_init = ''  # work_space/glint.15.fc7.pk

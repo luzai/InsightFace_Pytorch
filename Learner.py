@@ -32,6 +32,9 @@ try:
     from apex.parallel import DistributedDataParallel as DDP
     from apex.fp16_utils import *
     from apex import amp
+    amp.register_half_function(torch.nn, 'PReLU')
+    amp.register_half_function(torch.nn.functional, 'prelu')
+
 except ImportError:
     logging.warning("if want to use fp16, install apex from https://www.github.com/nvidia/apex to run this example.")
     conf.fp16 = False
@@ -1218,18 +1221,35 @@ class face_learner(object):
         for e in range(conf.start_epoch, epochs):
             lz.timer.since_last_check('epoch {} started'.format(e))
             self.schedule_lr(e)
-            loader_enum = data_prefetcher(enumerate(loader))
+            def get_loader_enume():
+                import gc
+
+                succ=False
+                while not succ:
+                    try:
+                        loader_enum = data_prefetcher(enumerate(loader))
+                        succ = True
+                    except Exception as e:
+                        try:
+                            del loader_enum
+                        except:
+                            pass
+                        gc.collect()
+                        logging.info(f'{e}')
+                        time.sleep(10)
+                return loader_enum
+            loader_enum = get_loader_enume()
             acc_grad_cnt = 0
             while True:
                 try:
                     ind_data, data = next(loader_enum)
                 except StopIteration as err:
-                    logging.info(f'one epoch finish {e} {ind_data}')
-                    loader_enum = data_prefetcher(enumerate(loader))
+                    logging.info(f'one epoch finish {e}')
+                    loader_enum = get_loader_enume()
                     ind_data, data = next(loader_enum)
                 if ind_data is None:
                     logging.info(f'one epoch finish {e} {ind_data}')
-                    loader_enum = data_prefetcher(enumerate(loader))
+                    loader_enum = get_loader_enume()
                     ind_data, data = next(loader_enum)
                 if (self.step + 1) % len(loader) == 0:
                     self.step += 1
@@ -2212,7 +2232,7 @@ class face_learner(object):
             from data.data_pipe import get_val_pair
             carray, issame = get_val_pair(path, name)
             self.val_loader_cache[name] = carray, issame
-        carray = carray[:, ::-1, :, :]  # BGR 2 RGB!
+        carray = carray[:, ::-1, :, :].copy()  # BGR 2 RGB!
         embeddings = np.zeros([len(carray), conf.embedding_size])
         with torch.no_grad():
             while idx + conf.batch_size <= len(carray):
@@ -2829,8 +2849,8 @@ class face_cotching(face_learner):
         else:
             from data.data_pipe import get_val_pair
             carray, issame = get_val_pair(path, name)
+            carray = carray[:, ::-1, :, :]  # BGR 2 RGB!
             self.val_loader_cache[name] = carray, issame
-        carray = carray[:, ::-1, :, :]  # BGR 2 RGB!
         embeddings = np.zeros([len(carray), conf.embedding_size])
         with torch.no_grad():
             while idx + conf.batch_size <= len(carray):

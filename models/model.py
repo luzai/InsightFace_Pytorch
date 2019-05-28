@@ -862,7 +862,7 @@ class AdaCos(nn.Module):
                 self.writer.add_scalar('theta/pos_mean', theta_pos.mean().item(), self.step)
                 self.writer.add_scalar('theta/neg_med', torch.median(theta_neg).item(), self.step)
                 self.writer.add_scalar('theta/neg_mean', theta_neg.mean().item(), self.step)
-                self.writer.add_scalar('theta/bavg', B_avg.item(), self.step )
+                self.writer.add_scalar('theta/bavg', B_avg.item(), self.step)
                 self.writer.add_scalar('theta/scale', self.s, self.step)
             if self.step % 999 == 0:
                 self.writer.add_histogram('theta/pos_th', theta_pos, self.step)
@@ -910,22 +910,15 @@ class Arcface(Module):
         self.classnum = classnum
         kernel = Parameter(torch.Tensor(embedding_size, classnum))
         kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
-        # kernel = torch.chunk(kernel, gl_conf.num_devs, dim=1)
-        self.device_id = list(range(gl_conf.num_devs))
-        # kernel = tuple(kernel[ind].cuda(self.device_id[ind]) for ind in range(gl_conf.num_devs))
         self.kernel = kernel
-        if gl_conf.fp16:
-            m = np.float16(m)
-            pi = np.float16(np.pi)
-        else:
-            m = np.float32(m)
-            pi = np.float32(np.pi)
+        m = np.float32(m)
+        pi = np.float32(np.pi)
         self.m = m  # the margin value, default is 0.5
         self.s = s  # scalar value default is 64, see normface https://arxiv.org/abs/1704.06369
-        self.cos_m = np.cos(m)
-        self.sin_m = np.sin(m)
-        self.mm = self.sin_m * m  # issue 1
-        self.threshold = math.cos(pi - m)
+        self.cos_m = torch.FloatTensor([np.cos(m)]).cuda()
+        self.sin_m = torch.FloatTensor([np.sin(m)]).cuda()
+        self.mm = torch.FloatTensor([np.sin(m) * m]).cuda()
+        self.threshold = torch.FloatTensor([math.cos(pi - m)]).cuda()
         self.easy_margin = False
         self.step = 0
         self.writer = gl_conf.writer
@@ -939,7 +932,7 @@ class Arcface(Module):
             # cos_theta *= self.s # todo whether?
             return cos_theta
         with torch.no_grad():
-            if self.step % 10 == 0:
+            if self.step % 999 == 0:
                 one_hot = torch.zeros_like(cos_theta)
                 one_hot.scatter_(1, label.view(-1, 1).long(), 1)
                 theta = torch.acos(cos_theta)
@@ -959,13 +952,12 @@ class Arcface(Module):
 
         if torch.any(cond_mask).item():
             logging.info(f'this concatins a difficult sample, {cond_mask.sum().item()}')
-            # from IPython import embed; embed()
         if self.easy_margin:
             keep_val = cos_theta_need
         else:
             keep_val = (cos_theta_need - self.mm)  # when theta not in [0,pi], use cosface instead
         cos_theta_m[cond_mask] = keep_val[cond_mask].type_as(cos_theta_m)
-        if self.step % 10 == 0:
+        if self.step % 999 == 0:
             self.writer.add_scalar('theta/cos_th_m_mean', torch.median(cos_theta_m).item(), self.step)
             self.writer.add_scalar('theta/cos_th_m_median', cos_theta_m.mean().item(), self.step)
         output[idx_, label] = cos_theta_m.type_as(output)

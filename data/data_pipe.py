@@ -83,6 +83,7 @@ def get_val_pair(path, name):
     path = Path(path)
     carray = bcolz.carray(rootdir=path / name, mode='r')
     issame = np.load(path / '{}_list.npy'.format(name))
+    carray = np.asarray(carray, 'float32')
     return carray, issame
 
 

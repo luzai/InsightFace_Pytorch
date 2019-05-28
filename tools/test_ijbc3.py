@@ -13,14 +13,14 @@ from sklearn.metrics import auc, roc_curve
 import h5py, lmdb, six
 from PIL import Image
 parser = argparse.ArgumentParser()
-parser.add_argument('--modelp', default='mbfc.lrg.ms1m.cos',
+parser.add_argument('--modelp', default='casia.r20.nowei.norpls',
                     type=str)
 args = parser.parse_args()
 os.chdir(lz.root_path)
 lz.init_dev(lz.get_dev())
 
 use_redis = False
-bs = 512
+bs = 128
 use_mxnet = False
 DIM = 512
 
@@ -272,11 +272,12 @@ if __name__ == '__main__':
 
     fpr = np.flipud(fpr)
     tpr = np.flipud(tpr)  # select largest tpr at same fpr
-
+    res = []
     x_labels = [10 ** -6, 10 ** -4, 10 ** -3, ]
     for fpr_iter in np.arange(len(x_labels)):
         _, min_index = min(list(zip(abs(fpr - x_labels[fpr_iter]), range(len(fpr)))))
         print(x_labels[fpr_iter], tpr[min_index])
+        res.append((x_labels[fpr_iter], tpr[min_index]))
     # plt.plot(fpr, tpr, '.-')
     # plt.show()
     # plt.semilogx(fpr, tpr, '.-')
@@ -284,3 +285,4 @@ if __name__ == '__main__':
 
     roc_auc = auc(fpr, tpr)
     print('roc aux', roc_auc)
+    logging.info(f'{args.modelp} is {res}')
