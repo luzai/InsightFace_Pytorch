@@ -46,7 +46,7 @@ class Embedding:
         self.model.forward(db, is_train=False)
         return self.model.get_outputs()[0].asnumpy()
     
-    def get(self, rimg, landmark, normalize=True):
+    def get(self, rimg, landmark, normalize=False):
         assert landmark.shape[0] == 68 or landmark.shape[0] == 5
         assert landmark.shape[1] == 2
         if landmark.shape[0] == 68:

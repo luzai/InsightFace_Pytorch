@@ -147,7 +147,6 @@ if os.environ.get('tensorflow', '0') == '1':
     import tensorflow as tf
 
     # import tensorflow.contrib
-    # import tensorflow.contrib.keras
 
     oldinit = allow_growth()
     print('import tf', time.time() - tic)
@@ -1054,7 +1053,7 @@ def append_file(line, file=None):
         f.writelines(line + '\n')
 
 
-def write_list(file, l, sort=True, delimiter=' ', fmt='%.18e'):
+def write_list(file, l, sort=False, delimiter=' ', fmt='%.18e'):
     l = np.array(l)
     if sort:
         l = np.sort(l, axis=0)
@@ -1131,7 +1130,7 @@ def ln(path, to_path):
         print('error! exist ' + to_path)
     path = osp.abspath(path)
     cmd = "ln -s " + path + " " + to_path
-    print(cmd)
+    # print(cmd)
     proc = subprocess.Popen(cmd, shell=True,
                             stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE)
@@ -1156,11 +1155,13 @@ def tar(path, to_path=None):
         rm(path)
 
 
-def rm(path, block=True):
+def rm(path, block=True, remove=False):
     path = osp.abspath(path)
     if not osp.exists(path):
         logging.info(f'no need rm {path}')
     stdout, _ = shell('which trash', verbose=False)
+    if remove:
+        return shell(f'rm -rf "{path}"', block=block)
     if 'trash' not in stdout:
         dst = glob.glob('{}.bak*'.format(path))
         parsr = re.compile(r'{}.bak(\d+?)'.format(path))

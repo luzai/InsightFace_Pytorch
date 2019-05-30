@@ -1221,7 +1221,7 @@ class face_learner(object):
         for e in range(conf.start_epoch, epochs):
             lz.timer.since_last_check('epoch {} started'.format(e))
             self.schedule_lr(e)
-            def get_loader_enume():
+            def get_loader_enum():
                 import gc
 
                 succ=False
@@ -1238,18 +1238,18 @@ class face_learner(object):
                         logging.info(f'{e}')
                         time.sleep(10)
                 return loader_enum
-            loader_enum = get_loader_enume()
+            loader_enum = get_loader_enum()
             acc_grad_cnt = 0
             while True:
                 try:
                     ind_data, data = next(loader_enum)
                 except StopIteration as err:
                     logging.info(f'one epoch finish {e}')
-                    loader_enum = get_loader_enume()
+                    loader_enum = get_loader_enum()
                     ind_data, data = next(loader_enum)
                 if ind_data is None:
                     logging.info(f'one epoch finish {e} {ind_data}')
-                    loader_enum = get_loader_enume()
+                    loader_enum = get_loader_enum()
                     ind_data, data = next(loader_enum)
                 if (self.step + 1) % len(loader) == 0:
                     self.step += 1

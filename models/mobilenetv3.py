@@ -318,7 +318,7 @@ def mobilenetv3(pretrained=False, **kwargs):
 
 
 if __name__ == '__main__':
-    init_dev(2)
+    init_dev(3)
     net = mobilenetv3(mode='face.large',
                       width_mult=1.285, )
     # state_dict = torch.load('mobilenetv3_small_67.218.pth.tar')
@@ -328,7 +328,7 @@ if __name__ == '__main__':
     input_size = (16, 3, 112, 112)
     x = torch.randn(input_size)
     out = net(x)
-    # exit()
+    exit()
     from thop import profile
     from lz import timer
 

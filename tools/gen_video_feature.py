@@ -141,14 +141,14 @@ def main(args):
 
     i = 0
     filelist = os.path.join(args.input, 'filelist.txt')
-    # print(filelist)
+    lines = open(filelist, 'r').readlines()
     buffer_images = []
-    buffer_embedding = np.zeros((0, 0), dtype=np.float32)
+    buffer_embedding = np.zeros((0, emb_size), dtype=np.float32)
     aggr_nums = []
     row_idx = 0
-    for line in open(filelist, 'r'):
+    for line in lines:
         if i % 1000 == 0:
-            print("processing ", i, )
+            print("processing ", i, len(lines), i / len(lines), )
         i += 1
         # print('stat', i, len(buffer_images), buffer_embedding.shape, aggr_nums, row_idx)
         videoname = line.strip().split()[0]

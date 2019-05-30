@@ -1,4 +1,5 @@
 import sys
+
 sys.path.insert(0, '/data1/xinglu/prj/InsightFace_Pytorch')
 from lz import *
 import lz
@@ -12,14 +13,8 @@ from sklearn.preprocessing import normalize
 from sklearn.metrics import auc, roc_curve
 import h5py, lmdb, six
 from PIL import Image
-parser = argparse.ArgumentParser()
-parser.add_argument('--modelp', default='casia.r20.nowei.norpls',
-                    type=str)
-args = parser.parse_args()
-os.chdir(lz.root_path)
-lz.init_dev(lz.get_dev())
 
-use_redis = False
+os.chdir(lz.root_path)
 bs = 128
 use_mxnet = False
 DIM = 512
@@ -58,10 +53,13 @@ class DatasetIJBC2(torch.utils.data.Dataset):
             trans.ToTensor(),
             trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
         ])
-        self.env = lmdb.open(img_path + '/../imgs_lmdb', readonly=True,
-                             max_readers=1,  lock=False,
-                             # readahead=False, meminit=False
-                             )
+        try:
+            self.env = lmdb.open(img_path + '/../imgs_lmdb', readonly=True,
+                                 max_readers=1, lock=False,
+                                 # readahead=False, meminit=False
+                                 )
+        except:
+            self.env = None
 
     def __len__(self):
         return len(files)
@@ -107,87 +105,31 @@ class DatasetIJBC2(torch.utils.data.Dataset):
         return img, faceness_score, item, name_lmk_score[0]
 
 
-if __name__ == '__main__':
-    # cache_fn = lz.work_path + 'ijbc.feas.256.pk'
-    cache_fn = None
-    if cache_fn and osp.exists(cache_fn):
-        img_feats = msgpack_load(cache_fn).copy()
-        # clst = msgpack_load(lz.work_path + 'ijbc.clst.pk').copy()
-        # gt = msgpack_load(work_path+'ijbc.gt.pk').copy()
-        # clst = gt
-        # lbs = np.unique(clst)
-        # for lb in lbs:
-        #     if lb == -1: continue
-        #     mask = clst == lb
-        #     nowf = img_feats[mask, :]
-        #     dist = cdist(nowf, nowf)
-        #     wei = lz.softmax_th(-dist, dim=1, temperature=1)
-        #     refinef = np.matmul(wei, nowf)
-        #     img_feats[mask, :] = refinef
-        #     if lb % 999 == 1:
-        #         print('now refine ', lb, len(lbs), np.linalg.norm(nowf, axis=1), np.linalg.norm(refinef, axis=1))
-    else:
-        if use_mxnet:
-            from recognition.embedding import Embedding
-
-            learner = Embedding(
-                prefix=lz.home_path + 'prj/insightface/logs/r50-arcface-retina/model',
-                epoch=16,
-                ctx_id=0)
-        else:
-            from config import conf
-
-            conf.need_log = False
-            bs *= 2 * conf.num_devs
-            conf.fp16 = False
-            conf.ipabn = False
-            conf.cvt_ipabn = False
-            # conf.net_depth = 50
-            # conf.net_mode = 'mbv3'
-            conf.use_chkpnt = False
-            conf.fill_cache=False
-            from Learner import FaceInfer, face_learner
-
-            learner = FaceInfer(conf,
-                                list(map(int, os.environ['CUDA_VISIBLE_DEVICES'].split(',')))
-                                )
-            learner.load_state(
-                resume_path=f'work_space/{args.modelp}/models/',
-                latest=False,
-            )
-            learner.model.eval()
-
-            # learner = face_learner()
-            # learner.load_state(
-            #     resume_path=f'work_space/{args.modelp}/models/', latest=False,
-            #     load_optimizer=False, load_imp=False, load_head=False,
-            # )
-            # learner.model.eval()
-
-        ds = DatasetIJBC2(flip=False)
-        loader = torch.utils.data.DataLoader(ds, batch_size=bs,
-                                             num_workers=conf.num_workers,
-                                             shuffle=False,
-                                             pin_memory=False, )
-        for ind, data in enumerate(loader):
-            (img, faceness_score, items, names) = data
-            if ind % 9 == 0:
-                logging.info(f'ok {ind} {len(loader)}')
-            if not use_mxnet:
-                with torch.no_grad():
-                    img_feat = learner.model(img)
-                    img_featf = learner.model(img.flip((3,)))
-                    fea = (img_feat + img_featf) / 2.
-                    fea = fea.cpu().numpy()
-            else:
-                img = img.numpy()
-                img_feat = learner.gets(img)
-                img_featf = learner.gets(img[:, :, :, ::-1].copy())
+def test_ijbc3(learner):
+    if not use_mxnet:
+        learner.model.eval()
+    ds = DatasetIJBC2(flip=False)
+    loader = torch.utils.data.DataLoader(ds, batch_size=bs,
+                                         num_workers=conf.num_workers,
+                                         shuffle=False,
+                                         pin_memory=False, )
+    for ind, data in enumerate(loader):
+        (img, faceness_score, items, names) = data
+        if ind % 9 == 0:
+            logging.info(f'ok {ind} {len(loader)}')
+        if not use_mxnet:
+            with torch.no_grad():
+                img_feat = learner.model(img)
+                img_featf = learner.model(img.flip((3,)))
                 fea = (img_feat + img_featf) / 2.
-            fea = fea * faceness_score.numpy().reshape(-1, 1)
-            img_feats[ind * bs: (ind + 1) * bs, :] = fea
-        if cache_fn:
-            lz.msgpack_dump(img_feats, cache_fn)
+                fea = fea.cpu().numpy()
+        else:
+            img = img.numpy()
+            img_feat = learner.gets(img)
+            img_featf = learner.gets(img[:, :, :, ::-1].copy())
+            fea = (img_feat + img_featf) / 2.
+        fea = fea * faceness_score.numpy().reshape(-1, 1)
+        img_feats[ind * bs: (ind + 1) * bs, :] = fea
 
     templates, medias = df_tm.values[:, 1], df_tm.values[:, 2]
     p1, p2, label = df_pair.values[:, 0], df_pair.values[:, 1], df_pair.values[:, 2]
@@ -261,15 +203,9 @@ if __name__ == '__main__':
     print('score range', score.max(), score.min())
     # _ = plt.hist(score)
     fpr, tpr, _ = roc_curve(label, score)
-
-    # plt.figure()
-    # plt.plot(fpr, tpr, '.-')
-    # plt.show()
-    #
     # plt.figure()
     # plt.semilogx(fpr, tpr, '.-')
     # plt.show()
-
     fpr = np.flipud(fpr)
     tpr = np.flipud(tpr)  # select largest tpr at same fpr
     res = []
@@ -278,11 +214,45 @@ if __name__ == '__main__':
         _, min_index = min(list(zip(abs(fpr - x_labels[fpr_iter]), range(len(fpr)))))
         print(x_labels[fpr_iter], tpr[min_index])
         res.append((x_labels[fpr_iter], tpr[min_index]))
-    # plt.plot(fpr, tpr, '.-')
-    # plt.show()
-    # plt.semilogx(fpr, tpr, '.-')
-    # plt.show()
-
     roc_auc = auc(fpr, tpr)
     print('roc aux', roc_auc)
     logging.info(f'{args.modelp} is {res}')
+    return res
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--modelp', default='casia.r20.arc.scrth.long',
+                        type=str)
+    args = parser.parse_args()
+    lz.init_dev(lz.get_dev())
+    if use_mxnet:
+        from recognition.embedding import Embedding
+
+        learner = Embedding(
+            prefix=lz.home_path + 'prj/insightface/logs/r50-arcface-retina/model',
+            epoch=16,
+            ctx_id=0)
+    else:
+        from config import conf
+
+        conf.need_log = False
+        bs *= 2 * conf.num_devs
+        conf.fp16 = False
+        conf.ipabn = False
+        conf.cvt_ipabn = False
+        # conf.net_depth = 50
+        # conf.net_mode = 'mbv3'
+        conf.use_chkpnt = False
+        conf.fill_cache = False
+        from Learner import FaceInfer, face_learner
+
+        learner = FaceInfer(conf,
+                            list(map(int, os.environ['CUDA_VISIBLE_DEVICES'].split(',')))
+                            )
+        learner.load_state(
+            resume_path=f'work_space/{args.modelp}/models/',
+            latest=False,
+        )
+        learner.model.eval()
+    test_ijbc3(learner)

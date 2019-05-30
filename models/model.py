@@ -250,7 +250,13 @@ class Backbone(Module):
         self.body = Sequential(*modules)
         self._initialize_weights()
 
-    def forward(self, x, normalize=True, return_norm=False, mode='train'):
+    def forward(self, x, ):
+        x = self.input_layer(x)
+        x = self.body(x)
+        x = self.output_layer(x)
+        return x
+
+    def forward_old(self, x, normalize=True, return_norm=False, mode='train'):
         if mode == 'finetune':
             with torch.no_grad():
                 x = self.input_layer(x)
@@ -582,7 +588,6 @@ class MobileFaceNet(Module):
 
     # @jit.script_method
     def forward(self, x, *args, **kwargs):
-        # from IPython import embed; embed()
         out = self.conv1(x)
         out = self.conv2_dw(out)
         out = self.conv_23(out)
@@ -596,7 +601,8 @@ class MobileFaceNet(Module):
         out = self.conv_6_flatten(out)
         out = self.linear(out)
         out = self.bn(out)
-        return F.normalize(out, dim=1)
+        # return F.normalize(out, dim=1)
+        return out
 
 
 ##########################################################
@@ -776,12 +782,12 @@ class Arcface2(Module):
         self.threshold = math.cos(pi - m)
         self.easy_margin = False
 
-    def forward_eff(self, embbedings, label=None):
-        assert not torch.isnan(embbedings).any().item()
-        nB = embbedings.shape[0]
+    def forward_eff(self, embeddings, label=None):
+        assert not torch.isnan(embeddings).any().item()
+        nB = embeddings.shape[0]
         idx_ = torch.arange(0, nB, dtype=torch.long)
         kernel_norm = l2_norm(self.kernel, axis=0)
-        cos_theta = torch.mm(embbedings, kernel_norm)
+        cos_theta = torch.mm(embeddings, kernel_norm)
         cos_theta = cos_theta.clamp(-1, 1)
         if label is None:
             cos_theta *= self.s
@@ -857,14 +863,14 @@ class AdaCos(nn.Module):
                 theta_med))
             # self.s = self.s * 0.9 + s_now * 0.1
             self.s = s_now
-            if self.step % 99 == 0:
+            if self.step % 999 == 0:
                 self.writer.add_scalar('theta/pos_med', theta_med.item(), self.step)
                 self.writer.add_scalar('theta/pos_mean', theta_pos.mean().item(), self.step)
                 self.writer.add_scalar('theta/neg_med', torch.median(theta_neg).item(), self.step)
                 self.writer.add_scalar('theta/neg_mean', theta_neg.mean().item(), self.step)
                 self.writer.add_scalar('theta/bavg', B_avg.item(), self.step)
                 self.writer.add_scalar('theta/scale', self.s, self.step)
-            if self.step % 999 == 0:
+            if self.step % 9999 == 0:
                 self.writer.add_histogram('theta/pos_th', theta_pos, self.step)
                 self.writer.add_histogram('theta/pos_neg', theta_neg, self.step)
             self.step += 1
@@ -884,6 +890,7 @@ class MySoftmax(Module):
         self.writer = gl_conf.writer
 
     def forward(self, embeddings, label):
+        embeddings = F.normalize(embeddings, dim=1)
         kernel_norm = l2_norm(self.kernel, axis=0)
         logits = torch.mm(embeddings, kernel_norm).clamp(-1, 1)
         with torch.no_grad():
@@ -923,11 +930,12 @@ class Arcface(Module):
         self.step = 0
         self.writer = gl_conf.writer
 
-    def forward_eff(self, embbedings, label=None):
-        bs = embbedings.shape[0]
+    def forward_eff(self, embeddings, label=None):
+        bs = embeddings.shape[0]
         idx_ = torch.arange(0, bs, dtype=torch.long)
+        embeddings = F.normalize(embeddings, dim=1)
         kernel_norm = l2_norm(self.kernel, axis=0)  # 0 dim is emd dim
-        cos_theta = torch.mm(embbedings, kernel_norm).clamp(-1, 1)
+        cos_theta = torch.mm(embeddings, kernel_norm).clamp(-1, 1)
         if label is None:
             # cos_theta *= self.s # todo whether?
             return cos_theta
@@ -966,12 +974,12 @@ class Arcface(Module):
 
         return output
 
-    def forward_neff(self, embbedings, label):
-        nB = embbedings.shape[0]
+    def forward_neff(self, embeddings, label):
+        nB = embeddings.shape[0]
         idx_ = torch.arange(0, nB, dtype=torch.long)
         ## weights norm
         kernel_norm = l2_norm(self.kernel, axis=0)
-        cos_theta = torch.mm(embbedings, kernel_norm)
+        cos_theta = torch.mm(embeddings, kernel_norm)
 
         # cos_theta.clamp_(-1, 1)  # for numerical stability
         # cos_theta_m = (cos_theta * self.cos_m - torch.sqrt((1 - torch.pow(cos_theta, 2))) * self.sin_m)
@@ -1029,16 +1037,17 @@ class ArcfaceNeg(Module):
         self.threshold2 = math.cos(m)
         self.m2 = gl_conf.margin2
 
-    def forward_eff(self, embbedings, label=None):
-        nB = embbedings.shape[0]
+    def forward_eff(self, embeddings, label=None):
+        nB = embeddings.shape[0]
+        embeddings = F.normalize(embeddings, dim=1)
         idx_ = torch.arange(0, nB, dtype=torch.long)
         if gl_conf.num_devs == 0:
             kernel_norm = l2_norm(self.kernel, axis=0)
-            cos_theta = torch.mm(embbedings, kernel_norm)
+            cos_theta = torch.mm(embeddings, kernel_norm)
         else:
-            x = embbedings
+            x = embeddings
             sub_weights = torch.chunk(self.kernel, gl_conf.num_devs, dim=1)
-            temp_x = embbedings.cuda(self.device_id[0])
+            temp_x = embeddings.cuda(self.device_id[0])
             weight = sub_weights[0].cuda(self.device_id[0])
             cos_theta = torch.mm(temp_x, F.normalize(weight, dim=0))
             for i in range(1, len(self.device_id)):
@@ -1120,11 +1129,11 @@ class CosFace(Module):
         nn.init.xavier_uniform_(self.weight)
 
     # @jit.script_method
-    def forward(self, input, label=None):
-        # assert not torch.isnan(input).any().item()
-        nB = input.shape[0]
+    def forward(self, embeddings, label=None):
+        embeddings = F.normalize(embeddings, dim=1)
+        nB = embeddings.shape[0]
         idx_ = torch.arange(0, nB, dtype=torch.long)
-        cosine = F.linear((input), F.normalize(self.weight))
+        cosine = F.linear(embeddings, F.normalize(self.weight))
         if label is None:
             return cosine
         phi = cosine[idx_, label] - self.m
@@ -1158,9 +1167,10 @@ class Am_softmax(Module):
         self.m = 0.35  # additive margin recommended by the paper
         self.s = 30.  # see normface https://arxiv.org/abs/1704.06369
 
-    def forward(self, embbedings, label):
+    def forward(self, embeddings, label):
+        embeddings = F.normalize(embeddings, dim=1)
         kernel_norm = l2_norm(self.kernel, axis=0)
-        cos_theta = torch.mm(embbedings, kernel_norm)
+        cos_theta = torch.mm(embeddings, kernel_norm)
         cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability
         phi = cos_theta - self.m
         label = label.view(-1, 1)  # size=(B,1)
@@ -1189,13 +1199,13 @@ class TripletLoss(Module):
         self.margin = margin
         self.ranking_loss = nn.MarginRankingLoss(margin=margin)
 
-    def forward(self, inputs, targets, return_info=False):
-        n = inputs.size(0)  # todo is this version  correct?
-
+    def forward(self, embeddings, targets, return_info=False):
+        embeddings = F.normalize(embeddings, dim=1)
+        n = embeddings.size(0)  # todo is this version  correct?
         # Compute pairwise distance, replace by the official when merged
-        dist = torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(n, n)
+        dist = torch.pow(embeddings, 2).sum(dim=1, keepdim=True).expand(n, n)
         dist = dist + dist.t()
-        dist = dist.addmm(1, -2, inputs, inputs.t()).clamp(min=1e-6).sqrt() * gl_conf.scale
+        dist = dist.addmm(1, -2, embeddings, embeddings.t()).clamp(min=1e-6).sqrt() * gl_conf.scale
         # todo how to use triplet only, can use temprature decay/progessive learinig curriculum learning
         # For each anchor, find the hardest positive and negative
         mask = targets.expand(n, n).eq(targets.expand(n, n).t())
@@ -1264,9 +1274,13 @@ class TripletLoss(Module):
 if __name__ == '__main__':
     from lz import *
 
+    init_dev(3)
     # model = Backbone(50, 0, 'ir_se').cuda()
     model = MobileFaceNet(512).cuda()
     model.eval()
+    print('mobilenetv3:\n', model)
+    print('Total params: %.2fM' % (sum(p.numel() for p in model.parameters()) / 1000000.0))
+
     # model2 = torch.jit.trace(model, torch.rand(2, 3, 112, 112).cuda())
     # model2.eval()
     # # model.train(), model2.train()
@@ -1290,7 +1304,7 @@ if __name__ == '__main__':
     # torch.cuda.synchronize()
     # timer.since_last_check('100 times')
     #
-    # exit()
+    exit()
 
     from thop import profile
     from lz import timer
