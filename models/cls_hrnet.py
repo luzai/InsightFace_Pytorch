@@ -549,10 +549,13 @@ def get_cls_net(config='w48', **kwargs):
     cfg = cfg.load_cfg(fs)
     model = HighResolutionNet(cfg, **kwargs)
     model.init_weights()
-    model_state_dict = torch.load(lz.root_path + f'train.configs/hrnetv2_{config}_imagenet_pretrained.pth',
-                                  map_location=lambda storage, loc: storage)
-    model_state_dict = {k: v for k, v in model_state_dict.items() if 'classifier' not in k}
-    model.load_state_dict(model_state_dict, strict=False)
+    try:
+        model_state_dict = torch.load(lz.root_path + f'train.configs/hrnetv2_{config}_imagenet_pretrained.pth',
+                                      map_location=lambda storage, loc: storage)
+        model_state_dict = {k: v for k, v in model_state_dict.items() if 'classifier' not in k}
+        model.load_state_dict(model_state_dict, strict=False)
+    except:
+        pass
     # from apex.parallel import convert_syncbn_model
     # model = convert_syncbn_model(model)
     return model

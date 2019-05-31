@@ -10,4 +10,5 @@ __pycache__
 *.ipynb
 *.pth
 train.configs/
+!train.configs/hrnetv2_w48*
 *.pyc
