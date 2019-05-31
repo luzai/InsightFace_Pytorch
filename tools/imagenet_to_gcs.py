@@ -284,29 +284,33 @@ def _process_image(filename, coder):
       width: integer, image width in pixels.
     """
     # Read the image file.
-    with tf.gfile.FastGFile(filename, 'r') as f:
-        image_data = f.read()
+    try:
+        with tf.gfile.FastGFile(filename, 'r') as f:
+            image_data = f.read()
 
-    # Clean the dirty data.
-    if _is_png(filename):
-        # 1 image is a PNG.
-        tf.logging.info('Converting PNG to JPEG for %s' % filename)
-        image_data = coder.png_to_jpeg(image_data)
-    elif _is_cmyk(filename):
-        # 22 JPEG images are in CMYK colorspace.
-        tf.logging.info('Converting CMYK to RGB for %s' % filename)
-        image_data = coder.cmyk_to_rgb(image_data)
+        # Clean the dirty data.
+        if _is_png(filename):
+            # 1 image is a PNG.
+            tf.logging.info('Converting PNG to JPEG for %s' % filename)
+            image_data = coder.png_to_jpeg(image_data)
+        elif _is_cmyk(filename):
+            # 22 JPEG images are in CMYK colorspace.
+            tf.logging.info('Converting CMYK to RGB for %s' % filename)
+            image_data = coder.cmyk_to_rgb(image_data)
 
-    # Decode the RGB JPEG.
-    image = coder.decode_jpeg(image_data)
+        # Decode the RGB JPEG.
+        image = coder.decode_jpeg(image_data)
 
-    # Check that image converted to RGB
-    assert len(image.shape) == 3
-    height = image.shape[0]
-    width = image.shape[1]
-    assert image.shape[2] == 3
+        # Check that image converted to RGB
+        assert len(image.shape) == 3
+        height = image.shape[0]
+        width = image.shape[1]
+        assert image.shape[2] == 3
 
-    return image_data, height, width
+        return image_data, height, width
+    except Exception as e:
+        print('err! '+str(e)+' '+ str(filename))
+        return None,None,None
 
 
 def _process_image_files_batch(coder, output_file, filenames, synsets, labels):
@@ -323,6 +327,7 @@ def _process_image_files_batch(coder, output_file, filenames, synsets, labels):
 
     for filename, synset in zip(filenames, synsets):
         image_buffer, height, width = _process_image(filename, coder)
+        if image_buffer is None: continue
         label = labels[synset]
         example = _convert_to_example(filename, image_buffer, label,
                                       synset, height, width)
@@ -353,6 +358,7 @@ def _process_dataset(filenames, synsets, labels, output_directory, prefix,
     files = []
 
     for shard in range(num_shards):
+        # if shard<977: continue
         chunk_files = filenames[shard * chunksize: (shard + 1) * chunksize]
         chunk_synsets = synsets[shard * chunksize: (shard + 1) * chunksize]
         output_file = os.path.join(
@@ -399,7 +405,7 @@ def convert_to_tf_records(raw_data_dir):
     #     os.path.join(raw_data_dir, LABELS_FILE), 'r').read().splitlines()
     validation_synsets = [
         os.path.basename(os.path.dirname(f)) for f in validation_files]
-
+    assert len(validation_files) !=0
     # Create unique ids for all synsets
     labels = {v: k + 1 for k, v in enumerate(
         sorted(set(validation_synsets + training_synsets)))}

@@ -105,7 +105,7 @@ class DatasetIJBC2(torch.utils.data.Dataset):
         return img, faceness_score, item, name_lmk_score[0]
 
 
-def test_ijbc3(learner):
+def test_ijbc3(conf, learner):
     if not use_mxnet:
         learner.model.eval()
     ds = DatasetIJBC2(flip=False)
@@ -216,7 +216,7 @@ def test_ijbc3(learner):
         res.append((x_labels[fpr_iter], tpr[min_index]))
     roc_auc = auc(fpr, tpr)
     print('roc aux', roc_auc)
-    logging.info(f'{args.modelp} is {res}')
+    logging.info(f'perf {res}')
     return res
 
 
@@ -252,7 +252,7 @@ if __name__ == '__main__':
                             )
         learner.load_state(
             resume_path=f'work_space/{args.modelp}/models/',
-            latest=False,
+            latest=True, # todo not sure ...
         )
         learner.model.eval()
-    test_ijbc3(learner)
+    test_ijbc3(conf, learner)

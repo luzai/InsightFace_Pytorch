@@ -60,9 +60,9 @@ if __name__ == '__main__':
         # 'casia.r20',
         # 'casia.r50.mg.5.arcface2',
         # 'retina.r50',
-        # 'casia.mb.stnconv.7'
-        # 'mbv3.small'
-        # 'mbv3.lrg.fx.5.retina.ada.4'
+        # 'casia.mb.stnconv.7',
+        # 'casia.r20.arc.scrth.long',
+        # 'hrnet.retina.arc',
     ]:
         learner.load_state(
             # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
@@ -95,7 +95,10 @@ if __name__ == '__main__':
     # learner.train_ghm(conf, conf.epochs)
     # learner.train_with_wei(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)
-    res = learner.validate_ori(conf)
+    # res = learner.validate_ori(conf)
+    from tools.test_ijbc3 import test_ijbc3
+
+    res = test_ijbc3(conf, learner)
 
     #     steps = learner.list_steps(conf.model_path)
     #     for step in steps[::-1]:

@@ -62,13 +62,13 @@ flags.DEFINE_string(
     'gcs_output_path', None, 'GCS path for uploading the dataset.')
 flags.DEFINE_string(
     'local_scratch_dir',
-    # '/data/share/ms1m-retinaface-t1/tf_records'
-    '/data/share/fakeimgnet/tf_records'
+    '/data/share/ms1m-retinaface-t1/tf_records'
+    # '/data/share/fakeimgnet/tf_records'
     , 'Scratch directory path for temporary files.')
 flags.DEFINE_string(
     'raw_data_dir',
-    # '/data/share/ms1m-retinaface-t1/imgs'
-    '/data/share/fakeimgnet/'
+    '/data/share/ms1m-retinaface-t1/imgs'
+    # '/data/share/fakeimgnet/'
     , 'Directory path for raw Imagenet dataset. '
       'Should have train and validation subdirectories inside it.')
 flags.DEFINE_string(
@@ -80,9 +80,9 @@ flags.DEFINE_boolean(
 
 FLAGS = flags.FLAGS
 
-extension = 'JPEG'
-TRAINING_DIRECTORY = 'train'
-VALIDATION_DIRECTORY = 'validation'
+extension = 'png'
+TRAINING_DIRECTORY = ''
+VALIDATION_DIRECTORY = ''
 
 BASE_URL = 'http://www.image-net.org/challenges/LSVRC/2012/nnoupb/'
 LABELS_URL = 'https://raw.githubusercontent.com/tensorflow/models/master/research/inception/inception/data/imagenet_2012_validation_synset_labels.txt'  # pylint: disable=line-too-long
@@ -291,7 +291,7 @@ def _process_image(filename, coder):
     # Clean the dirty data.
     if (filename).endswith('.png') or _is_png(filename):
         # 1 image is a PNG.
-        tf.logging.info('Converting PNG to JPEG for %s' % filename)
+        # tf.logging.info('Converting PNG to JPEG for %s' % filename)
         image_data = coder.png_to_jpeg(image_data)
     elif _is_cmyk(filename):
         # 22 JPEG images are in CMYK colorspace.
@@ -354,6 +354,8 @@ def _process_dataset(filenames, synsets, labels, output_directory, prefix,
     files = []
 
     for shard in range(num_shards):
+        # if shard<967 and prefix=='train':continue
+        # from IPython import embed;embed()
         chunk_files = filenames[shard * chunksize: (shard + 1) * chunksize]
         chunk_synsets = synsets[shard * chunksize: (shard + 1) * chunksize]
         output_file = os.path.join(
@@ -410,15 +412,15 @@ def convert_to_tf_records(raw_data_dir):
     tf.logging.info('Processing the training data.')
     training_records = _process_dataset(
         training_files, training_synsets, labels,
-        os.path.join(FLAGS.local_scratch_dir, TRAINING_DIRECTORY),
-        TRAINING_DIRECTORY, TRAINING_SHARDS)
+        os.path.join(FLAGS.local_scratch_dir, 'train'),
+        'train', TRAINING_SHARDS)
 
     # Create validation data
     tf.logging.info('Processing the validation data.')
     validation_records = _process_dataset(
         validation_files, validation_synsets, labels,
-        os.path.join(FLAGS.local_scratch_dir, VALIDATION_DIRECTORY),
-        VALIDATION_DIRECTORY, VALIDATION_SHARDS)
+        os.path.join(FLAGS.local_scratch_dir, 'validation'),
+        'validation', VALIDATION_SHARDS)
 
     return training_records, validation_records
 
