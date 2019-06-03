@@ -1275,8 +1275,8 @@ if __name__ == '__main__':
     from lz import *
 
     init_dev(3)
-    # model = Backbone(50, 0, 'ir_se').cuda()
-    model = MobileFaceNet(512).cuda()
+    model = Backbone(50, 0, 'ir_se').cuda()
+    # model = MobileFaceNet(512).cuda()
     model.eval()
     print('mobilenetv3:\n', model)
     print('Total params: %.2fM' % (sum(p.numel() for p in model.parameters()) / 1000000.0))
@@ -1303,8 +1303,7 @@ if __name__ == '__main__':
     #     f.mean().backward()
     # torch.cuda.synchronize()
     # timer.since_last_check('100 times')
-    #
-    exit()
+    # exit()
 
     from thop import profile
     from lz import timer

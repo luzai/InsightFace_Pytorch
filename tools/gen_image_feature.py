@@ -24,8 +24,7 @@ from mxnet import ndarray as nd
 import lmdb, six
 from PIL import Image
 
-lz.init_dev((1, 2))
-# os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2'
+lz.init_dev((3))
 image_shape = (3, 112, 112)
 net = None
 data_size = 1862120
@@ -196,9 +195,9 @@ def parse_arguments(argv):
     parser.add_argument('--model', type=str, help='', default='')
     parser.set_defaults(
         input='/data/share/iccv19.lwface/iccv19-challenge-data/',
-        output=lz.work_path + 'mbv3.lrg.img.bin',
+        output=lz.work_path + 'hrnet.retina.ada.bin',
         # model=lz.root_path + '../insightface/logs/r50-arcface-retina/model,16',
-        model=lz.root_path + 'work_space/mbv3.lrg.fx.5.retina.ada.5/models',
+        model=lz.root_path + 'work_space/hrnet.retina.ada.2/models',
     )
     return parser.parse_args(argv)
 

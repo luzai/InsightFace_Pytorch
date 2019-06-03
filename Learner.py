@@ -433,28 +433,33 @@ class TorchDataset(object):
                 res['teacher_embedding'] = self.teacher_embedding_db[str(index)]
             return res
         else:
-            index += 1  # 1 based!
-            if index in rec_cache:
-                s = rec_cache[index]
-            else:
-                s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
-                rec_cache[index] = s
-            header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
-            imgs = self.imdecode(img)
-            assert imgs is not None
-            label = header.label
-            if not isinstance(label, numbers.Number):
-                assert label[-1] == 0. or label[-1] == 1., f'{label} {index} {imgs.shape}'
-                label = label[0]
-            label = int(label)
-            imgs = self.preprocess_img(imgs)
-            # assert label in self.ids_map
-            # label = self.ids_map[label]
-            # label = int(label)
-            res = {'imgs': imgs, 'labels': label,
-                   'ind_inds': -1, 'indexes': index,
-                   }
-            return res
+            try:
+                index += 1  # 1 based!
+                if index in rec_cache:
+                    s = rec_cache[index]
+                else:
+                    s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
+                    rec_cache[index] = s
+                header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
+                imgs = self.imdecode(img)
+                assert imgs is not None
+                label = header.label
+                if not isinstance(label, numbers.Number):
+                    assert label[-1] == 0. or label[-1] == 1., f'{label} {index} {imgs.shape}'
+                    label = label[0]
+                label = int(label)
+                imgs = self.preprocess_img(imgs)
+                # assert label in self.ids_map
+                # label = self.ids_map[label]
+                # label = int(label)
+                res = {'imgs': imgs, 'labels': label,
+                       'ind_inds': -1, 'indexes': index,
+                       }
+                return res
+            except Exception as err:
+                logging.info(f'err is {err}')
+                index = int(np.random.choice(list(range(len(self)))))
+                return self._get_single_item(index)
 
 
 class Dataset_val(torch.utils.data.Dataset):
@@ -651,6 +656,8 @@ class FaceInfer():
             self.model = Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)
         elif conf.net_mode == 'mbv3':
             self.model = models.mobilenetv3(mode=conf.mb_mode, width_mult=conf.mb_mult)
+        elif conf.net_mode == 'hrnet':
+            self.model = models.get_cls_net()
         else:
             raise ValueError(conf.net_mode)
         self.model = self.model.eval()
@@ -1235,7 +1242,7 @@ class face_learner(object):
                         except:
                             pass
                         gc.collect()
-                        logging.info(f'{e}')
+                        logging.info(f'err is {e}')
                         time.sleep(10)
                 return loader_enum
             loader_enum = get_loader_enum()
@@ -1244,7 +1251,7 @@ class face_learner(object):
                 try:
                     ind_data, data = next(loader_enum)
                 except StopIteration as err:
-                    logging.info(f'one epoch finish {e}')
+                    logging.info(f'one epoch finish {e} err is {err}')
                     loader_enum = get_loader_enum()
                     ind_data, data = next(loader_enum)
                 if ind_data is None:
@@ -1267,7 +1274,8 @@ class face_learner(object):
                 if acc_grad_cnt == 0:
                     self.optimizer.zero_grad()
                 embeddings = self.model(imgs, )
-                assert not torch.isnan(embeddings).any().item()
+                if torch.isnan(embeddings).any().item():
+                    embed()
                 thetas = self.head(embeddings, labels)
                 # loss_xent_all = F.cross_entropy(thetas , labels , reduction='none')
                 # loss_xent = loss_xent_all.mean()

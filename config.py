@@ -9,7 +9,7 @@ from torchvision import transforms as trans
 # todo label smooth
 
 dist = False
-num_devs = 3
+num_devs = 4
 if dist:
     num_devs = 1
 else:
@@ -18,7 +18,7 @@ else:
     lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
-conf.num_workers = 4  # ndevs * 3
+conf.num_workers = ndevs * 2
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
@@ -66,7 +66,7 @@ conf.mining = 'rand.id'  # todo balance opt # 'dop' 'imp' rand.img(slow) rand.id
 conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
 conf.rand_ratio = 9 / 27
 
-conf.margin = .5 # todo do not forget if use adacos!
+conf.margin = .5  # todo do not forget if use adacos!
 conf.margin2 = .25
 conf.topk = 5
 conf.fgg = ''  # g gg ''
@@ -113,7 +113,7 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 128 * num_devs
+conf.batch_size = 184 * num_devs
 # conf.batch_size = 16
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
@@ -142,7 +142,7 @@ conf.warmup = 3  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = True
+conf.fill_cache = False
 
 
 # todo may use kl_div to speed up

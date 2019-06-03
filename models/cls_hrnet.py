@@ -516,7 +516,7 @@ class HighResolutionNet(nn.Module):
 
         # y = self.final_layer(y)
         y = self.output_layer(y)
-        y = F.normalize(y, dim=1)
+        # y = F.normalize(y, dim=1)
         # y = F.avg_pool2d(y, kernel_size=y.size()[2:]).view(y.size(0), -1)
         # y = self.classifier(y)
         return y
@@ -554,8 +554,8 @@ def get_cls_net(config='w48', **kwargs):
                                       map_location=lambda storage, loc: storage)
         model_state_dict = {k: v for k, v in model_state_dict.items() if 'classifier' not in k}
         model.load_state_dict(model_state_dict, strict=False)
-    except:
-        pass
+    except Exception as e:
+        logging.info(f'no pretrain model? {e}')
     # from apex.parallel import convert_syncbn_model
     # model = convert_syncbn_model(model)
     return model
