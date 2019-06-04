@@ -32,6 +32,7 @@ try:
     from apex.parallel import DistributedDataParallel as DDP
     from apex.fp16_utils import *
     from apex import amp
+
     amp.register_half_function(torch.nn, 'PReLU')
     amp.register_half_function(torch.nn.functional, 'prelu')
 
@@ -300,23 +301,22 @@ class TorchDataset(object):
 
         lz.timer.since_last_check('start timer for imgrec')
         for num_rec in range(conf.num_recs):
-            if num_rec == 1:
-                path_imgrec = path_imgrec.replace('/data2/share/', '/share/data/')
             self.imgrecs.append(
                 recordio.MXIndexedRecordIO(
                     path_imgidx, path_imgrec,
                     'r')
             )
             self.locks.append(mp.Lock())
-        lz.timer.since_last_check(f'{conf.num_recs} imgrec readers init')  # 27 s / 5 reader
+        lz.timer.since_last_check(f'{conf.num_recs} imgrec readers init')
         lz.timer.since_last_check('start cal dataset info')
-
-        s = self.imgrecs[0].read_idx(0)
+        with self.locks[0]:
+            s = self.imgrecs[0].read_idx(0)
         header, _ = unpack_auto(s, self.path_imgidx)
         assert header.flag > 0, 'ms1m or glint ...'
         logging.info(f'header0 label {header.label}')
         self.header0 = (int(header.label[0]), int(header.label[1]))
         self.id2range = {}
+        self.idx2id = {}
         self.imgidx = []
         self.ids = []
         ids_shif = int(header.label[0])
@@ -330,13 +330,14 @@ class TorchDataset(object):
                 self.imgidx += list(range(a, b))
         self.ids = np.asarray(self.ids)
         self.num_classes = len(self.ids)
-        self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
+        self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))} # if cutoff=0, this may be identity?
         ids_map_tmp = {identity: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
-        self.ids = [ids_map_tmp[id_] for id_ in self.ids]
-        self.ids = np.asarray(self.ids)
+        self.ids = np.asarray([ids_map_tmp[id_] for id_ in self.ids])
         self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
+        for id_, range_ in self.id2range.items():
+            for idx_ in range(range_[0], range_[1]):
+                self.idx2id[idx_] = id_
         # lz.msgpack_dump([self.imgidx, self.ids, self.id2range], str(path_ms1m) + f'/info.{conf.cutoff}.pk')
-
         conf.num_clss = self.num_classes
         conf.explored = np.zeros(self.ids.max() + 1, dtype=int)
         if conf.dop is None:
@@ -403,19 +404,13 @@ class TorchDataset(object):
     def _get_single_item(self, index):
         global rec_cache
         if isinstance(index, tuple):
-            succ = False
             index, pid, ind_ind = index
-            while True:
-                for ind_rec in range(len(self.locks)):
-                    succ = self.locks[ind_rec].acquire(timeout=0)
-                    if succ: break
-                if succ: break
             if index in rec_cache:
                 s = rec_cache[index]
             else:
-                s = self.imgrecs[ind_rec].read_idx(index)  # from [ 1 to 3804846 ]
-                rec_cache[index] = s
-            self.locks[ind_rec].release()
+                with self.locks[0]:
+                    s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
+                # rec_cache[index] = s
             header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
             imgs = self.imdecode(img)
             assert imgs is not None
@@ -433,33 +428,35 @@ class TorchDataset(object):
                 res['teacher_embedding'] = self.teacher_embedding_db[str(index)]
             return res
         else:
-            try:
-                index += 1  # 1 based!
-                if index in rec_cache:
-                    s = rec_cache[index]
-                else:
+            # try:
+            index += 1  # 1 based!
+            if index in rec_cache:
+                s = rec_cache[index]
+            else:
+                with self.locks[0]:
                     s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
-                    rec_cache[index] = s
-                header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
-                imgs = self.imdecode(img)
-                assert imgs is not None
-                label = header.label
-                if not isinstance(label, numbers.Number):
-                    assert label[-1] == 0. or label[-1] == 1., f'{label} {index} {imgs.shape}'
-                    label = label[0]
-                label = int(label)
-                imgs = self.preprocess_img(imgs)
-                # assert label in self.ids_map
-                # label = self.ids_map[label]
-                # label = int(label)
-                res = {'imgs': imgs, 'labels': label,
-                       'ind_inds': -1, 'indexes': index,
-                       }
-                return res
-            except Exception as err:
-                logging.info(f'err is {err}')
-                index = int(np.random.choice(list(range(len(self)))))
-                return self._get_single_item(index)
+                # rec_cache[index] = s
+            header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
+            imgs = self.imdecode(img)
+            assert imgs is not None
+            label = header.label
+            if not isinstance(label, numbers.Number):
+                assert label[-1] == 0. or label[-1] == 1., f'{label} {index} {imgs.shape}'
+                label = label[0]
+            label = int(label)
+            imgs = self.preprocess_img(imgs)
+            assert label == int(self.idx2id[index])
+            # assert label in self.ids_map
+            # label = self.ids_map[label]
+            # label = int(label)
+            res = {'imgs': imgs, 'labels': label,
+                   'ind_inds': -1, 'indexes': index,
+                   }
+            return res
+            # except Exception as err:
+            #     logging.info(f'err is {err}')
+            #     index = int(np.random.choice(list(range(len(self)))))
+            #     return self._get_single_item(index)
 
 
 class Dataset_val(torch.utils.data.Dataset):
@@ -926,35 +923,26 @@ class face_learner(object):
                                         amsgrad=True,
                                         lr=conf.lr,
                                         )
-        elif conf.net_mode == 'mobilefacenet' or conf.net_mode == 'csmobilefacenet':
-            if conf.use_opt == 'sgd':
-                self.optimizer = optim.SGD([
-                    {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
-                    {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
-                    {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
-                # self.optimizer = optim.SGD([
-                #     {'params': paras_wo_bn[:-1], 'weight_decay': 5e-4, 'lr': conf.lr * 10},
-                #     {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 5e-4, 'lr': conf.lr}, # todo try it
-                #     {'params': paras_only_bn}], momentum=conf.momentum)
-            elif conf.use_opt == 'adabound':
-                from tools.adabound import AdaBound
-                self.optimizer = AdaBound([
-                    {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
-                    {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
-                    {'params': paras_only_bn}
-                ], lr=conf.lr, betas=(conf.adam_betas1, conf.adam_betas2),
-                    gamma=1e-3, final_lr=conf.final_lr, )
         elif conf.use_opt == 'sgd':
+            ## wdecay
+            self.optimizer = optim.SGD([
+                {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},  # this is mobilenet wdecay
+                {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
+                {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
+
+            ## normal
             # self.optimizer = optim.SGD([
             #     {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': conf.weight_decay},
             #     {'params': paras_only_bn},
             # ], lr=conf.lr, momentum=conf.momentum)
-            self.optimizer = optim.SGD([
-                {'params': paras_wo_bn[:-1], 'weight_decay': conf.weight_decay},
-                {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': conf.weight_decay,
-                 'lr_mult': 10},
-                {'params': paras_only_bn, },
-            ], lr=conf.lr, momentum=conf.momentum, )
+
+            ## fastfc
+            # self.optimizer = optim.SGD([
+            #     {'params': paras_wo_bn[:-1], 'weight_decay': conf.weight_decay},
+            #     {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': conf.weight_decay,
+            #      'lr_mult': 10},
+            #     {'params': paras_only_bn, },
+            # ], lr=conf.lr, momentum=conf.momentum, )
         elif conf.use_opt == 'adabound':
             from tools.adabound import AdaBound
             self.optimizer = AdaBound([
@@ -1109,6 +1097,7 @@ class face_learner(object):
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
     def warmup(self, conf, epochs):
+        if epochs == 0: return
         self.model.train()
         loader = self.loader
         self.evaluate_every = conf.other_every or len(loader) // 3
@@ -1228,10 +1217,11 @@ class face_learner(object):
         for e in range(conf.start_epoch, epochs):
             lz.timer.since_last_check('epoch {} started'.format(e))
             self.schedule_lr(e)
+
             def get_loader_enum():
                 import gc
 
-                succ=False
+                succ = False
                 while not succ:
                     try:
                         loader_enum = data_prefetcher(enumerate(loader))
@@ -1245,6 +1235,7 @@ class face_learner(object):
                         logging.info(f'err is {e}')
                         time.sleep(10)
                 return loader_enum
+
             loader_enum = get_loader_enum()
             acc_grad_cnt = 0
             while True:
@@ -1274,8 +1265,7 @@ class face_learner(object):
                 if acc_grad_cnt == 0:
                     self.optimizer.zero_grad()
                 embeddings = self.model(imgs, )
-                if torch.isnan(embeddings).any().item():
-                    embed()
+                assert not torch.isnan(embeddings).any().item()
                 thetas = self.head(embeddings, labels)
                 # loss_xent_all = F.cross_entropy(thetas , labels , reduction='none')
                 # loss_xent = loss_xent_all.mean()

@@ -31,9 +31,11 @@ class Hswish(nn.Module):
 
     def forward(self, x):
         if use_hard:
-            return x * F.relu6(x + 3., inplace=self.inplace) / 6.
+            res = x * (F.relu6(x + 3., inplace=self.inplace) / 6.)
         else:
-            return x * torch.sigmoid(x)
+            res = x * torch.sigmoid(x)
+        assert not torch.isnan(res).any().item()
+        return res
 
 
 class Hsigmoid(nn.Module):
@@ -43,9 +45,11 @@ class Hsigmoid(nn.Module):
 
     def forward(self, x):
         if use_hard:
-            return F.relu6(x + 3., inplace=self.inplace) / 6.
+            res = F.relu6(x + 3., inplace=self.inplace) / 6.
         else:
-            return torch.sigmoid(x)
+            res = torch.sigmoid(x)
+        assert not torch.isnan(res).any().item()
+        return res
 
 
 class SEModule(nn.Module):
@@ -57,7 +61,6 @@ class SEModule(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(channel // reduction, channel, bias=False),
             Hsigmoid()
-            # nn.Sigmoid()
         )
 
     def forward(self, x):
@@ -222,7 +225,6 @@ class MobileNetV3(nn.Module):
             ]
         else:
             raise NotImplementedError
-
         # building first layer
         # assert input_size % 32 == 0
         # input_channel = make_divisible(input_channel * width_mult)  # first channel is always 16!
@@ -259,8 +261,8 @@ class MobileNetV3(nn.Module):
         elif mode == 'face.large':
             last_conv = make_divisible(960 * width_mult)
             self.features.append(conv_1x1_bn(input_channel, last_conv, nlin_layer=Hswish))
-            self.pool = Linear_block(last_conv, last_conv, groups=last_conv,
-                                     kernel=(7, 7), stride=(1, 1), padding=(0, 0))
+            self.pool = Linear_block(last_conv, last_conv, groups=last_conv,  kernel=(7, 7), stride=(1, 1), padding=(0, 0))
+            # self.pool = nn.AdaptiveAvgPool2d(1)
             self.flatten = Flatten()
             self.linear = nn.Linear(last_conv, last_channel, bias=False)
             self.bn = nn.BatchNorm1d(last_channel)
@@ -278,7 +280,6 @@ class MobileNetV3(nn.Module):
 
         # make it nn.Sequential
         self.features = nn.Sequential(*self.features)
-
         self._initialize_weights()
 
     def forward(self, x, *args, **kwargs):
@@ -289,7 +290,9 @@ class MobileNetV3(nn.Module):
         x = self.features(x)
         x = self.pool(x)
         x = self.flatten(x)
+        assert not torch.isnan(x).any().item()
         x = self.linear(x)
+        assert not torch.isnan(x).any().item()
         x = self.bn(x)
         x = F.normalize(x, dim=1)
         return x
@@ -299,6 +302,7 @@ class MobileNetV3(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out')
+                # nn.init.xavier_uniform_(m.weight.data)
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
             elif isinstance(m, nn.BatchNorm2d):
@@ -306,6 +310,7 @@ class MobileNetV3(nn.Module):
                 nn.init.zeros_(m.bias)
             elif isinstance(m, nn.Linear):
                 nn.init.normal_(m.weight, 0, 0.01)
+                # nn.init.xavier_uniform_(m.weight.data)
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 

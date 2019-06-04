@@ -63,6 +63,7 @@ if __name__ == '__main__':
         # 'casia.mb.stnconv.7',
         # 'casia.r20.arc.scrth.long',
         # 'hrnet.retina.arc.2',
+        # 'mbv3.retina.arc'
     ]:
         learner.load_state(
             # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
@@ -86,7 +87,8 @@ if __name__ == '__main__':
 
     learner.init_lr()
     log_conf(conf)
-    # learner.warmup(conf, conf.warmup)
+    if conf.warmup:
+        learner.warmup(conf, conf.warmup)
     # learner.train(conf, conf.epochs)
     # learner.train_dist(conf, conf.epochstoo
     learner.train_simple(conf, conf.epochs)

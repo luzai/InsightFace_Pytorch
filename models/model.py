@@ -929,6 +929,7 @@ class Arcface(Module):
         self.easy_margin = False
         self.step = 0
         self.writer = gl_conf.writer
+        self.interval = 999
 
     def forward_eff(self, embeddings, label=None):
         bs = embeddings.shape[0]
@@ -940,16 +941,16 @@ class Arcface(Module):
             # cos_theta *= self.s # todo whether?
             return cos_theta
         with torch.no_grad():
-            if self.step % 999 == 0:
+            if self.step % self.interval == 0:
                 one_hot = torch.zeros_like(cos_theta)
                 one_hot.scatter_(1, label.view(-1, 1).long(), 1)
                 theta = torch.acos(cos_theta)
                 theta_neg = theta[one_hot < 1].view(bs, self.classnum - 1)
                 theta_pos = theta[one_hot == 1].view(bs)
                 self.writer.add_scalar('theta/pos_med', torch.median(theta_pos).item(), self.step)
-                self.writer.add_scalar('theta/pos_mean', theta_pos.mean().item(), self.step)
+                # self.writer.add_scalar('theta/pos_mean', theta_pos.mean().item(), self.step)
                 self.writer.add_scalar('theta/neg_med', torch.median(theta_neg).item(), self.step)
-                self.writer.add_scalar('theta/neg_mean', theta_neg.mean().item(), self.step)
+                # self.writer.add_scalar('theta/neg_mean', theta_neg.mean().item(), self.step)
         output = cos_theta.clone()  # todo avoid copy ttl
         cos_theta_need = cos_theta[idx_, label]
         cos_theta_2 = torch.pow(cos_theta_need, 2)
@@ -965,8 +966,8 @@ class Arcface(Module):
         else:
             keep_val = (cos_theta_need - self.mm)  # when theta not in [0,pi], use cosface instead
         cos_theta_m[cond_mask] = keep_val[cond_mask].type_as(cos_theta_m)
-        if self.step % 999 == 0:
-            self.writer.add_scalar('theta/cos_th_m_mean', torch.median(cos_theta_m).item(), self.step)
+        if self.step % self.interval == 0:
+            # self.writer.add_scalar('theta/cos_th_m_mean', torch.median(cos_theta_m).item(), self.step)
             self.writer.add_scalar('theta/cos_th_m_median', cos_theta_m.mean().item(), self.step)
         output[idx_, label] = cos_theta_m.type_as(output)
         output *= self.s
