@@ -601,7 +601,7 @@ class MobileFaceNet(Module):
         out = self.conv_6_flatten(out)
         out = self.linear(out)
         out = self.bn(out)
-        # return F.normalize(out, dim=1)
+        # out = F.normalize(out, dim=1)
         return out
 
 
@@ -922,21 +922,26 @@ class Arcface(Module):
         pi = np.float32(np.pi)
         self.m = m  # the margin value, default is 0.5
         self.s = s  # scalar value default is 64, see normface https://arxiv.org/abs/1704.06369
-        self.cos_m = torch.FloatTensor([np.cos(m)]).cuda()
-        self.sin_m = torch.FloatTensor([np.sin(m)]).cuda()
-        self.mm = torch.FloatTensor([np.sin(m) * m]).cuda()
-        self.threshold = torch.FloatTensor([math.cos(pi - m)]).cuda()
+        # self.cos_m = torch.FloatTensor([np.cos(m)]).cuda()
+        # self.sin_m = torch.FloatTensor([np.sin(m)]).cuda()
+        # self.mm = torch.FloatTensor([np.sin(m) * m]).cuda()
+        # self.threshold = torch.FloatTensor([math.cos(pi - m)]).cuda()
+        self.cos_m = np.cos(m)
+        self.sin_m = np.sin(m)
+        self.mm = self.sin_m* m
+        self.threshold = math.cos(pi-m)
         self.easy_margin = False
         self.step = 0
         self.writer = gl_conf.writer
-        self.interval = 999
+        self.interval = 99
 
-    def forward_eff(self, embeddings, label=None):
+    def forward(self, embeddings, label=None):
         bs = embeddings.shape[0]
         idx_ = torch.arange(0, bs, dtype=torch.long)
         embeddings = F.normalize(embeddings, dim=1)
         kernel_norm = l2_norm(self.kernel, axis=0)  # 0 dim is emd dim
-        cos_theta = torch.mm(embeddings, kernel_norm).clamp(-1, 1)
+        cos_theta = torch.mm(embeddings, kernel_norm)
+        cos_theta = cos_theta.clamp(-1, 1)
         if label is None:
             # cos_theta *= self.s # todo whether?
             return cos_theta
@@ -978,7 +983,7 @@ class Arcface(Module):
     def forward_neff(self, embeddings, label):
         nB = embeddings.shape[0]
         idx_ = torch.arange(0, nB, dtype=torch.long)
-        ## weights norm
+        embeddings = F.normalize(embeddings, dim=1)
         kernel_norm = l2_norm(self.kernel, axis=0)
         cos_theta = torch.mm(embeddings, kernel_norm)
 
@@ -1007,7 +1012,7 @@ class Arcface(Module):
         output *= self.s  # scale up in order to make softmax work, first introduced in normface
         return output
 
-    forward = forward_eff
+    # forward = forward_eff
     # forward = forward_neff
 
 

@@ -29,13 +29,11 @@ except ImportError:
     logging.warning('if want to train, install mxnet for read rec data')
     conf.training = False
 try:
-    from apex.parallel import DistributedDataParallel as DDP
-    from apex.fp16_utils import *
+    # from apex.parallel import DistributedDataParallel as DDP
+    # from apex.fp16_utils import *
     from apex import amp
-
-    amp.register_half_function(torch.nn, 'PReLU')
-    amp.register_half_function(torch.nn.functional, 'prelu')
-
+    # amp.register_half_function(torch.nn, 'PReLU')
+    # amp.register_half_function(torch.nn.functional, 'prelu')
 except ImportError:
     logging.warning("if want to use fp16, install apex from https://www.github.com/nvidia/apex to run this example.")
     conf.fp16 = False
@@ -403,60 +401,61 @@ class TorchDataset(object):
 
     def _get_single_item(self, index):
         global rec_cache
-        if isinstance(index, tuple):
-            index, pid, ind_ind = index
-            if index in rec_cache:
-                s = rec_cache[index]
-            else:
-                with self.locks[0]:
-                    s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
-                # rec_cache[index] = s
-            header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
-            imgs = self.imdecode(img)
-            assert imgs is not None
-            label = int(pid)
-            # assert label in self.ids_map
-            # label = self.ids_map[label]
-            # label = int(label)
-            imgs = self.preprocess_img(imgs)
-            if conf.use_redis and self.r and lz.get_mem() >= 20:
-                self.r.set(f'{conf.dataset_name}/imgs/{index}', img)
-            res = {'imgs': imgs, 'labels': label,
-                   'ind_inds': ind_ind, 'indexes': index,
-                   'is_trains': True}
-            if hasattr(self, 'teacher_embedding_db'):
-                res['teacher_embedding'] = self.teacher_embedding_db[str(index)]
-            return res
+        # if isinstance(index, tuple):
+        assert not isinstance(index, tuple)
+        # index, pid, ind_ind = index
+        # if index in rec_cache:
+        #     s = rec_cache[index]
+        # else:
+        #     with self.locks[0]:
+        #         s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
+        #     # rec_cache[index] = s
+        # header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
+        # imgs = self.imdecode(img)
+        # assert imgs is not None
+        # label = int(pid)
+        # # assert label in self.ids_map
+        # # label = self.ids_map[label]
+        # # label = int(label)
+        # imgs = self.preprocess_img(imgs)
+        # if conf.use_redis and self.r and lz.get_mem() >= 20:
+        #     self.r.set(f'{conf.dataset_name}/imgs/{index}', img)
+        # res = {'imgs': imgs, 'labels': label,
+        #        'ind_inds': ind_ind, 'indexes': index,
+        #        'is_trains': True}
+        # if hasattr(self, 'teacher_embedding_db'):
+        #     res['teacher_embedding'] = self.teacher_embedding_db[str(index)]
+        # return res
+        # else:
+        # try:
+        index += 1  # 1 based!
+        if index in rec_cache:
+            s = rec_cache[index]
         else:
-            # try:
-            index += 1  # 1 based!
-            if index in rec_cache:
-                s = rec_cache[index]
-            else:
-                with self.locks[0]:
-                    s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
-                # rec_cache[index] = s
-            header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
-            imgs = self.imdecode(img)
-            assert imgs is not None
-            label = header.label
-            if not isinstance(label, numbers.Number):
-                assert label[-1] == 0. or label[-1] == 1., f'{label} {index} {imgs.shape}'
-                label = label[0]
-            label = int(label)
-            imgs = self.preprocess_img(imgs)
-            assert label == int(self.idx2id[index])
-            # assert label in self.ids_map
-            # label = self.ids_map[label]
-            # label = int(label)
-            res = {'imgs': imgs, 'labels': label,
-                   'ind_inds': -1, 'indexes': index,
-                   }
-            return res
-            # except Exception as err:
-            #     logging.info(f'err is {err}')
-            #     index = int(np.random.choice(list(range(len(self)))))
-            #     return self._get_single_item(index)
+            with self.locks[0]:
+                s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
+            # rec_cache[index] = s
+        header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
+        imgs = self.imdecode(img)
+        assert imgs is not None
+        label = header.label
+        if not isinstance(label, numbers.Number):
+            assert label[-1] == 0. or label[-1] == 1., f'{label} {index} {imgs.shape}'
+            label = label[0]
+        label = int(label)
+        imgs = self.preprocess_img(imgs)
+        assert label == int(self.idx2id[index])
+        # assert label in self.ids_map
+        # label = self.ids_map[label]
+        # label = int(label)
+        res = {'imgs': imgs, 'labels': label,
+               'indexes': index,
+               }
+        return res
+        # except Exception as err:
+        #     logging.info(f'err is {err}')
+        #     index = int(np.random.choice(list(range(len(self)))))
+        #     return self._get_single_item(index)
 
 
 class Dataset_val(torch.utils.data.Dataset):
@@ -925,10 +924,10 @@ class face_learner(object):
                                         )
         elif conf.use_opt == 'sgd':
             ## wdecay
-            self.optimizer = optim.SGD([
-                {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},  # this is mobilenet wdecay
-                {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
-                {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
+            # self.optimizer = optim.SGD([
+            #     {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},  # this is mobilenet wdecay
+            #     {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
+            #     {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
 
             ## normal
             # self.optimizer = optim.SGD([
@@ -937,12 +936,12 @@ class face_learner(object):
             # ], lr=conf.lr, momentum=conf.momentum)
 
             ## fastfc
-            # self.optimizer = optim.SGD([
-            #     {'params': paras_wo_bn[:-1], 'weight_decay': conf.weight_decay},
-            #     {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': conf.weight_decay,
-            #      'lr_mult': 10},
-            #     {'params': paras_only_bn, },
-            # ], lr=conf.lr, momentum=conf.momentum, )
+            self.optimizer = optim.SGD([
+                {'params': paras_wo_bn[:-1], 'weight_decay': conf.weight_decay},
+                {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': conf.weight_decay,
+                 'lr_mult': 10},
+                {'params': paras_only_bn, },
+            ], lr=conf.lr, momentum=conf.momentum, )
         elif conf.use_opt == 'adabound':
             from tools.adabound import AdaBound
             self.optimizer = AdaBound([
@@ -2847,7 +2846,7 @@ class face_cotching(face_learner):
         else:
             from data.data_pipe import get_val_pair
             carray, issame = get_val_pair(path, name)
-            carray = carray[:, ::-1, :, :]  # BGR 2 RGB!
+            carray = carray[:, ::-1, :, :].copy()  # BGR 2 RGB!
             self.val_loader_cache[name] = carray, issame
         embeddings = np.zeros([len(carray), conf.embedding_size])
         with torch.no_grad():
