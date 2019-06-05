@@ -250,13 +250,13 @@ class Backbone(Module):
         self.body = Sequential(*modules)
         self._initialize_weights()
 
-    def forward(self, x, ):
-        x = self.input_layer(x)
-        x = self.body(x)
-        x = self.output_layer(x)
-        return x
+    # def forward(self, x, ):
+    #     x = self.input_layer(x)
+    #     x = self.body(x)
+    #     x = self.output_layer(x)
+    #     return x
 
-    def forward_old(self, x, normalize=True, return_norm=False, mode='train'):
+    def forward(self, x, normalize=True, return_norm=False, mode='train'):
         if mode == 'finetune':
             with torch.no_grad():
                 x = self.input_layer(x)

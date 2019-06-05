@@ -28,15 +28,17 @@ try:
 except ImportError:
     logging.warning('if want to train, install mxnet for read rec data')
     conf.training = False
-try:
-    # from apex.parallel import DistributedDataParallel as DDP
-    # from apex.fp16_utils import *
-    from apex import amp
-    # amp.register_half_function(torch.nn, 'PReLU')
-    # amp.register_half_function(torch.nn.functional, 'prelu')
-except ImportError:
-    logging.warning("if want to use fp16, install apex from https://www.github.com/nvidia/apex to run this example.")
-    conf.fp16 = False
+
+if conf.fp16:
+    try:
+        # from apex.parallel import DistributedDataParallel as DDP
+        # from apex.fp16_utils import *
+        from apex import amp
+        # amp.register_half_function(torch.nn, 'PReLU')
+        # amp.register_half_function(torch.nn.functional, 'prelu')
+    except ImportError:
+        logging.warning("if want to use fp16, install apex from https://www.github.com/nvidia/apex to run this example.")
+        conf.fp16 = False
 
 
 def unpack_f64(s):
@@ -272,7 +274,7 @@ class TestDataset(object):
         return res
 
 
-rec_cache = {}
+# rec_cache = {}
 
 
 class TorchDataset(object):
@@ -357,15 +359,15 @@ class TorchDataset(object):
         if conf.kd and conf.sftlbl_from_file:  # todo deprecated
             self.teacher_embedding_db = lz.Database('work_space/teacher_embedding.h5', 'r')
 
+        self.rec_cache = {}
         if conf.fill_cache:
             self.fill_cache()
 
     def fill_cache(self):
-        global rec_cache
         for index in range(min(self.imgidx), max(self.imgidx) + 1):
             if index % 9999 == 1:
                 logging.info(f'loading {index} ')
-            rec_cache[index] = self.imgrecs[0].read_idx(index)
+            self.rec_cache[index] = self.imgrecs[0].read_idx(index)
 
     def __len__(self):
         if conf.local_rank is not None:
@@ -400,7 +402,7 @@ class TorchDataset(object):
         return imgs
 
     def _get_single_item(self, index):
-        global rec_cache
+        # global rec_cache
         # if isinstance(index, tuple):
         assert not isinstance(index, tuple)
         # index, pid, ind_ind = index
@@ -429,8 +431,8 @@ class TorchDataset(object):
         # else:
         # try:
         index += 1  # 1 based!
-        if index in rec_cache:
-            s = rec_cache[index]
+        if index in self.rec_cache:
+            s = self.rec_cache[index]
         else:
             with self.locks[0]:
                 s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]

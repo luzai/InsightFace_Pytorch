@@ -18,7 +18,7 @@ else:
     lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
-conf.num_workers = 6
+conf.num_workers = ndevs * 4
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/r50.casia.arc.6')
+conf.work_path = Path('work_space/r50.casia.arc.7')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -71,7 +71,7 @@ conf.topk = 5
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
 conf.tri_wei = 0
-conf.scale = 64.
+conf.scale = 64
 conf.instances = 4
 
 conf.input_size = [112, 112]
@@ -112,13 +112,13 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 96 * num_devs
+conf.batch_size = 100 * num_devs
 # conf.batch_size = 16
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 2
+conf.acc_grad = 1
 # --------------------Training Config ------------------------
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -137,7 +137,7 @@ conf.epochs = 16
 conf.milestones = (np.array([9, 13])).astype(int)
 # conf.epochs = 12
 # conf.milestones = (np.array([5, 9])).astype(int)
-conf.warmup = 1  # conf.epochs/25 # 1 0
+conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
