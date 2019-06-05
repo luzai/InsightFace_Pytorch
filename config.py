@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/r50.casia.arc.4')
+conf.work_path = Path('work_space/r50.casia.arc.6')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -137,7 +137,7 @@ conf.epochs = 16
 conf.milestones = (np.array([9, 13])).astype(int)
 # conf.epochs = 12
 # conf.milestones = (np.array([5, 9])).astype(int)
-conf.warmup = 0  # conf.epochs/25 # 1 0
+conf.warmup = 1  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True

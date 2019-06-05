@@ -930,18 +930,18 @@ class face_learner(object):
             #     {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
 
             ## normal
-            # self.optimizer = optim.SGD([
-            #     {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': conf.weight_decay},
-            #     {'params': paras_only_bn},
-            # ], lr=conf.lr, momentum=conf.momentum)
+            self.optimizer = optim.SGD([
+                {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': conf.weight_decay},
+                {'params': paras_only_bn},
+            ], lr=conf.lr, momentum=conf.momentum)
 
             ## fastfc
-            self.optimizer = optim.SGD([
-                {'params': paras_wo_bn[:-1], 'weight_decay': conf.weight_decay},
-                {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': conf.weight_decay,
-                 'lr_mult': 10},
-                {'params': paras_only_bn, },
-            ], lr=conf.lr, momentum=conf.momentum, )
+            # self.optimizer = optim.SGD([
+            #     {'params': paras_wo_bn[:-1], 'weight_decay': conf.weight_decay},
+            #     {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': conf.weight_decay,
+            #      'lr_mult': 10},
+            #     {'params': paras_only_bn, },
+            # ], lr=conf.lr, momentum=conf.momentum, )
         elif conf.use_opt == 'adabound':
             from tools.adabound import AdaBound
             self.optimizer = AdaBound([
