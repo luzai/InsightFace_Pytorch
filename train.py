@@ -64,7 +64,7 @@ if __name__ == '__main__':
         # 'casia.r20.arc.scrth.long',
         # 'hrnet.retina.arc.2',
         # 'mbv3.retina.arc',
-        'mbfc.lrg.retina.arc.s48'
+        # 'mbfc.lrg.retina.arc.s48'
     ]:
         learner.load_state(
             # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
