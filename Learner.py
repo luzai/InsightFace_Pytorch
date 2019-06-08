@@ -1282,7 +1282,7 @@ class face_learner(object):
                     runtime_reg = sum(conf.conv2dmask_runtime_reg).sum()
                     if self.step % self.board_loss_every == 0:
                         writer.add_scalar('sglpth/ttlrtreg', runtime_reg.item(), self.step)
-                    lambda_runtime_reg = 0.0  # todo
+                    lambda_runtime_reg = 0.02  # todo
                     loss_xent += runtime_reg * lambda_runtime_reg
                     conf.conv2dmask_runtime_reg = []
                     # loss_xent /= conf.acc_grad
@@ -1291,6 +1291,7 @@ class face_learner(object):
                         scaled_loss.backward()
                 else:
                     (loss_xent / conf.acc_grad).backward()
+                torch.nn.utils.clip_grad_value_(self.model.parameters(), 5)
                 with torch.no_grad():
                     if conf.mining == 'dop':
                         update_dop_cls(thetas, labels_cpu, conf.dop)

@@ -149,7 +149,7 @@ class MobileBottleneck(nn.Module):
 
 
 def judgenan(x):
-    return not not torch.isnan(x).any().item()
+    return not not torch.isnan(x).any().item() or not not torch.isinf(x).any().item()
 
 
 class Conv2dMask(nn.Module):
@@ -202,8 +202,11 @@ class Conv2dMask(nn.Module):
         x100c = norm100c - self.t100c
         d100c = F.dropout(Indicator(x100c), dropout_rate)
         if not self.runtimes:
-            flops = x.shape[1] ** 2 * 5 ** 2 * self.exp / 10 ** 6
-            self.runtimes = [0, x.shape[1] ** 2 * 3 ** 2 * self.exp / 10 ** 6, flops / 2, flops, 0.7]
+            # flops = x.shape[1] ** 2 * 5 ** 2 * self.exp / 10 ** 6
+            # flops_336= x.shape[1] ** 2 * 3 ** 2 * self.exp / 10 ** 6
+            flops = 5 ** 2 * self.exp / 200  # 556
+            flops_336 = 3 ** 2 * self.exp / 200  # 336
+            self.runtimes = [0, flops_336, flops / 2, flops, 0.7]  # [0, 336, 553, 556]
             self.R50c = self.runtimes[2]
             self.R5x5 = self.R100c = self.runtimes[3]
             self.R3x3 = self.runtimes[1]
@@ -212,7 +215,7 @@ class Conv2dMask(nn.Module):
             x50c = norm50c - self.t50c
             d50c = F.dropout(Indicator(x50c), dropout_rate)
         else:
-            d50c = 1.
+            d50c = to_torch(np.ones(1, 'float32')).cuda()
         depthwise_kernel_masked = d50c * (kernel_50c + d100c * kernel_100c)
 
         ratio = self.R3x3 / self.R5x5
@@ -225,10 +228,10 @@ class Conv2dMask(nn.Module):
         )
         self.step += 1
         if self.step % self.interval == 0:
-            self.writer.add_scalar(f'sglpth/{self.name}/d5x5', d5x5.item())
-            self.writer.add_scalar(f'sglpth/{self.name}/d50c', d50c.item())
-            self.writer.add_scalar(f'sglpth/{self.name}/d5x5', d100c.item())
-            self.writer.add_scalar(f'sglpth/{self.name}/rtreg', runtime_reg.item())
+            self.writer.add_scalar(f'sglpth/{self.name}/d5x5', d5x5.item(), self.step)
+            self.writer.add_scalar(f'sglpth/{self.name}/d50c', d50c.item(), self.step)
+            self.writer.add_scalar(f'sglpth/{self.name}/d5x5', d100c.item(), self.step)
+            self.writer.add_scalar(f'sglpth/{self.name}/rtreg', runtime_reg.item(), self.step)
         if torch.isnan(output).any().item():
             raise ValueError()
         return output
@@ -273,12 +276,25 @@ class MobileBottleneck5x5(nn.Module):
             conv_layer(exp, oup, 1, 1, 0, bias=False),
             norm_layer(oup),
         )
+        # self.pw_conv = conv_layer(inp, exp, 1, 1, 0, bias=False)
+        # self.pw_norm = norm_layer(exp)
+        # self.pw_nlin = nlin_layer(inplace=True)
+        # self.dw_conv, self.dw_norm, self.dw_se, self.dw_nlin = (
+        #     Conv2dMask(exp, kernel, stride, padding, groups=exp, bias=False),
+        #     norm_layer(exp), SELayer(exp),
+        #     nlin_layer(inplace=True),)
+        # self.pw_conv, self.pw_norm = conv_layer(exp, oup, 1, 1, 0, bias=False), norm_layer(oup),
 
     def forward(self, x):
+        xx = x.clone()
+        for l in self.conv:
+            if judgenan(l(xx.clone())):
+                raise ValueError()
+            xx = l(xx)
         if self.use_res_connect:
-            return x + self.conv(x)
+            return x + xx
         else:
-            return self.conv(x)
+            return xx
 
 
 class Linear_block(nn.Module):
@@ -298,11 +314,27 @@ class Linear_block(nn.Module):
 class MobileNetV3(nn.Module):
     def __init__(self, n_class=None, mode='face.large', width_mult=1.0):
         super(MobileNetV3, self).__init__()
-        input_channel = 16
+        input_channel = 64
         last_channel = 512
         mobile_setting = [
             # k, exp, c,  se,     nl,  s,
-            [3, 16, 16, False, 'RE', 1],
+            # [5, 64, 64, False, 'PRE', 1],
+            # [5, 128, 64, False, 'PRE', 2],
+            # [3, 128, 64, False, 'RE', 1],
+            # [3, 128, 64, False, 'RE', 1],
+            # [3, 128, 64, False, 'RE', 1],
+            # [3, 128, 64, False, 'RE', 1],
+            # [3, 128, 64, False, 'RE', 1],
+            # [5, 256, 128, True, 'RE', 2],
+            # [5, 256, 128, True, 'RE', 1],
+            # [5, 256, 128, True, 'RE', 1],
+            # [5, 256, 128, True, 'RE', 1],
+            # [5, 256, 128, True, 'RE', 1],
+            # [5, 256, 128, True, 'RE', 1],
+            # [5, 512, 128, True, 'RE', 2],
+            # [5, 512, 128, True, 'RE', 1],
+            # [5, 512, 128, True, 'RE', 1],
+            [3, 64, 16, False, 'RE', 1],
             [3, 16, 24, False, 'RE', 2],
             [3, 72, 24, False, 'RE', 1],
             [5, 72, 40, True, 'RE', 2],
@@ -328,6 +360,8 @@ class MobileNetV3(nn.Module):
         # building mobile blocks
         for k, exp, c, se, nl, s in mobile_setting:
             k = 5
+            se = False
+            nl = 'RE'
             if exp / c < 5.9:
                 exp = exp * 2
             output_channel = make_divisible(c * width_mult)
@@ -394,7 +428,7 @@ if __name__ == '__main__':
     init_dev(3)
     net = singlepath(
         # width_mult=1.285,
-        width_mult=1.15,
+        width_mult=1.5,
     )
     # state_dict = torch.load('mobilenetv3_small_67.218.pth.tar')
     # net.load_state_dict(state_dict)
