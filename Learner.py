@@ -37,7 +37,8 @@ if conf.fp16:
         # amp.register_half_function(torch.nn, 'PReLU')
         # amp.register_half_function(torch.nn.functional, 'prelu')
     except ImportError:
-        logging.warning("if want to use fp16, install apex from https://www.github.com/nvidia/apex to run this example.")
+        logging.warning(
+            "if want to use fp16, install apex from https://www.github.com/nvidia/apex to run this example.")
         conf.fp16 = False
 
 
@@ -330,7 +331,8 @@ class TorchDataset(object):
                 self.imgidx += list(range(a, b))
         self.ids = np.asarray(self.ids)
         self.num_classes = len(self.ids)
-        self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))} # if cutoff=0, this may be identity?
+        self.ids_map = {identity - ids_shif: id2 for identity, id2 in
+                        zip(self.ids, range(self.num_classes))}  # if cutoff=0, this may be identity?
         ids_map_tmp = {identity: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
         self.ids = np.asarray([ids_map_tmp[id_] for id_ in self.ids])
         self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
@@ -840,9 +842,11 @@ class face_learner(object):
         self.writer.add_text('conf', f'{conf}', 0)
         self.step = 0
 
-        if conf.net_mode == 'mobilefacenet':
+        if conf.net_mode == 'mobilefacenet' or conf.net_mode == 'mbfc':
             self.model = MobileFaceNet(conf.embedding_size)
             logging.info('MobileFaceNet model generated')
+        elif conf.net_mode == 'sglpth':
+            self.model = models.singlepath(width_mult=1.15, )  # todo
         elif conf.net_mode == 'mbv3':
             self.model = models.mobilenetv3(mode=conf.mb_mode, width_mult=conf.mb_mult)
         elif conf.net_mode == 'hrnet':
@@ -1216,6 +1220,7 @@ class face_learner(object):
                 self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                 logging.info(f'validation accuracy on {ds} is {accuracy} ')
         for e in range(conf.start_epoch, epochs):
+            if e >= 10: conf.conv2dmask_drop_ratio = 0.
             lz.timer.since_last_check('epoch {} started'.format(e))
             self.schedule_lr(e)
 
@@ -1271,7 +1276,16 @@ class face_learner(object):
                 # loss_xent_all = F.cross_entropy(thetas , labels , reduction='none')
                 # loss_xent = loss_xent_all.mean()
                 loss_xent = F.cross_entropy(thetas, labels, )
-                # loss_xent /= conf.acc_grad
+                if self.step % self.board_loss_every == 0:
+                    writer.add_scalar('loss/xent', loss_xent.item(), self.step)
+                if conf.conv2dmask_runtime_reg:
+                    runtime_reg = sum(conf.conv2dmask_runtime_reg).sum()
+                    if self.step % self.board_loss_every == 0:
+                        writer.add_scalar('sglpth/ttlrtreg', runtime_reg.item(), self.step)
+                    lambda_runtime_reg = 0.0  # todo
+                    loss_xent += runtime_reg * lambda_runtime_reg
+                    conf.conv2dmask_runtime_reg = []
+                    # loss_xent /= conf.acc_grad
                 if conf.fp16:
                     with amp.scale_loss(loss_xent / conf.acc_grad, self.optimizer) as scaled_loss:
                         scaled_loss.backward()
@@ -1303,8 +1317,6 @@ class face_learner(object):
                                  f'acc: {acc:.2e} ' +
                                  f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
-                    writer.add_scalar('loss/xent', loss_xent.item(), self.step)
-
                     writer.add_scalar('info/acc', acc, self.step)
                     writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
                     writer.add_scalar('info/datatime', data_time.avg, self.step)
@@ -2711,9 +2723,11 @@ class face_cotching(face_learner):
             self.writer = None
         self.step = 0
 
-        if conf.net_mode == 'mobilefacenet':
+        if conf.net_mode == 'mobilefacenet' or conf.net_mode == 'mbfc':
             self.model = MobileFaceNet(conf.embedding_size)
             logging.info('MobileFaceNet model generated')
+        elif conf.net_mode == 'sglpth':
+            self.model = models.singlepath(width_mult=1.15, )  # todo
         elif conf.net_mode == 'mbv3':
             self.model = models.mobilenetv3(mode=conf.mb_mode, width_mult=conf.mb_mult)
         elif conf.net_mode == 'nasnetamobile':

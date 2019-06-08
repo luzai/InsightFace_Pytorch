@@ -1314,6 +1314,7 @@ if __name__ == '__main__':
     model.eval()
     print('mobilenetv3:\n', model)
     print('Total params: %.2fM' % (sum(p.numel() for p in model.parameters()) / 1000000.0))
+    exit()
 
     # model2 = torch.jit.trace(model, torch.rand(2, 3, 112, 112).cuda())
     # model2.eval()
