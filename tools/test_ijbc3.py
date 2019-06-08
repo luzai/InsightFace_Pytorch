@@ -222,7 +222,7 @@ def test_ijbc3(conf, learner):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--modelp', default='casia.r20.arc.scrth.long',
+    parser.add_argument('--modelp', default='mbfc.lrg.retina.arc.s48',
                         type=str)
     args = parser.parse_args()
     lz.init_dev(lz.get_dev())
@@ -252,7 +252,7 @@ if __name__ == '__main__':
                             )
         learner.load_state(
             resume_path=f'work_space/{args.modelp}/models/',
-            latest=True, # todo not sure ...
+            latest=True,
         )
         learner.model.eval()
     test_ijbc3(conf, learner)
