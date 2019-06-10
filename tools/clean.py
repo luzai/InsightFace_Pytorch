@@ -246,42 +246,42 @@ def anaylze_imp(p='glint.bs.cont'):
 
 
 if __name__ == '__main__':
-    from Learner import TorchDataset, RandomIdSampler
-    import config
-    import torch.utils.data
-
-    conf.use_data_folder = config.dingyi_folder
-    conf.fill_cache = False
-    ds1 = TorchDataset(conf.use_data_folder)
-    loader = torch.utils.data.DataLoader(
-        ds1, batch_size=conf.batch_size, num_workers=conf.num_workers,
-        shuffle=True,
-        # sampler=RandomIdSampler(ds.imgidx,
-        #                         ds.ids, ds.id2range),
-        drop_last=True,
-        pin_memory=False,
-    )
-    conf.fill_cache = True
-    ds2 = TorchDataset(conf.use_data_folder)
-    loader2 = torch.utils.data.DataLoader(
-        ds2, batch_size=conf.batch_size, num_workers=conf.num_workers,
-        shuffle=True,
-        # sampler=RandomIdSampler(ds.imgidx,
-        #                         ds.ids, ds.id2range),
-        drop_last=True,
-        pin_memory=False,
-    )
-    for ind, data in enumerate(loader):
-        # print(data.keys())
-        if ind == 9:
-            break
-    for ind2, data2 in enumerate(loader2):
-        if ind2 == 9:
-            break
-    indexes, labels = data['indexes'], data['labels']
-    for ind, l in zip(indexes, labels):
-        assert (ds1.idx2id[ind.item() ] == l.item())
-    embed()
-    # cleanup()
+    # from Learner import TorchDataset, RandomIdSampler
+    # import config
+    # import torch.utils.data
+    #
+    # conf.use_data_folder = config.dingyi_folder
+    # conf.fill_cache = False
+    # ds1 = TorchDataset(conf.use_data_folder)
+    # loader = torch.utils.data.DataLoader(
+    #     ds1, batch_size=conf.batch_size, num_workers=conf.num_workers,
+    #     shuffle=True,
+    #     # sampler=RandomIdSampler(ds.imgidx,
+    #     #                         ds.ids, ds.id2range),
+    #     drop_last=True,
+    #     pin_memory=False,
+    # )
+    # conf.fill_cache = True
+    # ds2 = TorchDataset(conf.use_data_folder)
+    # loader2 = torch.utils.data.DataLoader(
+    #     ds2, batch_size=conf.batch_size, num_workers=conf.num_workers,
+    #     shuffle=True,
+    #     # sampler=RandomIdSampler(ds.imgidx,
+    #     #                         ds.ids, ds.id2range),
+    #     drop_last=True,
+    #     pin_memory=False,
+    # )
+    # for ind, data in enumerate(loader):
+    #     # print(data.keys())
+    #     if ind == 9:
+    #         break
+    # for ind2, data2 in enumerate(loader2):
+    #     if ind2 == 9:
+    #         break
+    # indexes, labels = data['indexes'], data['labels']
+    # for ind, l in zip(indexes, labels):
+    #     assert (ds1.idx2id[ind.item() ] == l.item())
+    # embed()
+    cleanup()
     # anaylze_imp('emore.r50.dop/')
     pass

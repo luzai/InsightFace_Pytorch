@@ -6,12 +6,12 @@ import torch.nn.functional as F
 import torch
 from collections import namedtuple
 import math
-from config import conf as gl_conf
+from config import conf
 import functools, logging
 from torch import nn, jit
 import numpy as np
 
-if gl_conf.use_chkpnt:
+if conf.use_chkpnt:
     BatchNorm2d = functools.partial(BatchNorm2d, momentum=1 - np.sqrt(0.9))
 
 
@@ -39,7 +39,7 @@ class SEModule(Module):
         self.fc1 = Conv2d(
             channels, channels // reduction, kernel_size=1, padding=0, bias=False)
         nn.init.xavier_uniform_(self.fc1.weight.data)
-        self.relu = PReLU(channels // reduction) if gl_conf.upgrade_irse else ReLU(inplace=True)
+        self.relu = PReLU(channels // reduction) if conf.upgrade_irse else ReLU(inplace=True)
         self.fc2 = Conv2d(
             channels // reduction, channels, kernel_size=1, padding=0, bias=False)
         self.sigmoid = Sigmoid()
@@ -90,14 +90,14 @@ def bn2d(depth, ipabn=None):
 class bottleneck_IR(Module):
     def __init__(self, in_channel, depth, stride):
         super(bottleneck_IR, self).__init__()
-        ipabn = gl_conf.ipabn
+        ipabn = conf.ipabn
         if in_channel == depth:
             self.shortcut_layer = MaxPool2d(1, stride)
         else:
             self.shortcut_layer = Sequential(
                 Conv2d(in_channel, depth, (1, 1), stride, bias=False),
                 BatchNorm2d(depth))
-        if gl_conf.upgrade_irse:
+        if conf.upgrade_irse:
             self.res_layer = Sequential(
                 *bn_act(in_channel, False, ipabn),
                 Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
@@ -128,23 +128,23 @@ class bottleneck_IR_SE(Module):
     # class bottleneck_IR_SE(jit.ScriptModule):
     def __init__(self, in_channel, depth, stride):
         super(bottleneck_IR_SE, self).__init__()
-        self.ipabn = int(bool(gl_conf.ipabn))
-        if gl_conf.upgrade_irse and in_channel == depth and stride == 1:
+        self.ipabn = int(bool(conf.ipabn))
+        if conf.upgrade_irse and in_channel == depth and stride == 1:
             self.shortcut_layer = Identity()
-        elif not gl_conf.upgrade_irse and in_channel == depth:
+        elif not conf.upgrade_irse and in_channel == depth:
             self.shortcut_layer = MaxPool2d(kernel_size=1, stride=stride)
         else:
             self.shortcut_layer = Sequential(
                 Conv2d(in_channel, depth, (1, 1), stride, bias=False),
-                *bn_act(depth, False, gl_conf.ipabn)
+                *bn_act(depth, False, conf.ipabn)
             )
-        if gl_conf.upgrade_irse:
+        if conf.upgrade_irse:
             self.res_layer = Sequential(
-                *bn_act(in_channel, False, gl_conf.ipabn),
+                *bn_act(in_channel, False, conf.ipabn),
                 Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
-                *bn_act(depth, True, gl_conf.ipabn),
+                *bn_act(depth, True, conf.ipabn),
                 Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
-                *bn_act(depth, False, gl_conf.ipabn),
+                *bn_act(depth, False, conf.ipabn),
                 SEModule(depth, 16)
             )
         else:
@@ -171,7 +171,7 @@ class bottleneck_IR_SE(Module):
         res.add_(shortcut)
         return res
 
-    if gl_conf.ipabn:
+    if conf.ipabn:
         forward = forward_ipabn
     else:
         forward = forward_ori
@@ -221,7 +221,7 @@ from torch.utils.checkpoint import checkpoint_sequential
 
 
 class Backbone(Module):
-    def __init__(self, num_layers, drop_ratio, mode='ir', ebsize=gl_conf.embedding_size):
+    def __init__(self, num_layers, drop_ratio, mode='ir', ebsize=conf.embedding_size):
         super(Backbone, self).__init__()
         assert num_layers in [50, 100, 152, 20], 'num_layers should be 50,100, or 152'
         assert mode in ['ir', 'ir_se'], 'mode should be ir or ir_se'
@@ -231,13 +231,13 @@ class Backbone(Module):
         elif mode == 'ir_se':
             unit_module = bottleneck_IR_SE
         self.input_layer = Sequential(Conv2d(3, 64, (3, 3), 1, 1, bias=False),
-                                      bn2d(64, gl_conf.ipabn),
+                                      bn2d(64, conf.ipabn),
                                       PReLU(64))
 
-        self.output_layer = Sequential(bn2d(512, gl_conf.ipabn),
+        self.output_layer = Sequential(bn2d(512, conf.ipabn),
                                        Dropout(drop_ratio),
                                        Flatten(),
-                                       Linear(512 * 7 * 7, ebsize, bias=True if not gl_conf.upgrade_bnneck else False),
+                                       Linear(512 * 7 * 7, ebsize, bias=True if not conf.upgrade_bnneck else False),
                                        BatchNorm1d(ebsize))
 
         modules = []
@@ -263,7 +263,7 @@ class Backbone(Module):
                 x = self.body(x)
         elif mode == 'train':
             x = self.input_layer(x)
-            if not gl_conf.use_chkpnt:
+            if not conf.use_chkpnt:
                 x = self.body(x)
             else:
                 x = checkpoint_sequential(self.body, 2, x)
@@ -478,7 +478,7 @@ class Conv_block(Module):
         super(Conv_block, self).__init__()
         self.conv = Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding,
                            bias=False)
-        self.bn = bn2d(out_c, gl_conf.ipabn)
+        self.bn = bn2d(out_c, conf.ipabn)
         self.prelu = PReLU(out_c)
 
     # @jit.script_method
@@ -494,7 +494,7 @@ class Linear_block(Module):
         super(Linear_block, self).__init__()
         self.conv = Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding,
                            bias=False)
-        self.bn = bn2d(out_c, gl_conf.ipabn)
+        self.bn = bn2d(out_c, conf.ipabn)
 
     # @jit.script_method
     def forward(self, x):
@@ -786,17 +786,17 @@ from torch.nn.utils import weight_norm
 
 class Arcface2(Module):
     # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599
-    def __init__(self, embedding_size=gl_conf.embedding_size, classnum=None, s=gl_conf.scale, m=gl_conf.margin):
+    def __init__(self, embedding_size=conf.embedding_size, classnum=None, s=conf.scale, m=conf.margin):
         super(Arcface2, self).__init__()
         self.classnum = classnum
         kernel = Parameter(torch.Tensor(embedding_size, classnum))
         kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
         # kernel = torch.chunk(kernel, gl_conf.num_devs, dim=1)
-        self.device_id = list(range(gl_conf.num_devs))
+        self.device_id = list(range(conf.num_devs))
         # kernel = tuple(kernel[ind].cuda(self.device_id[ind]) for ind in range(gl_conf.num_devs))
         self.kernel = kernel
 
-        if gl_conf.fp16:
+        if conf.fp16:
             m = np.float16(m)
             pi = np.float16(np.pi)
         else:
@@ -837,7 +837,7 @@ class Arcface2(Module):
 
 
 class AdaCos(nn.Module):
-    def __init__(self, num_classes=None, m=gl_conf.margin, num_features=gl_conf.embedding_size):
+    def __init__(self, num_classes=None, m=conf.margin, num_features=conf.embedding_size):
         super(AdaCos, self).__init__()
         self.num_features = num_features
         self.n_classes = num_classes
@@ -845,9 +845,9 @@ class AdaCos(nn.Module):
         self.m = m
         self.W = nn.Parameter(torch.FloatTensor(num_classes, num_features))
         nn.init.xavier_uniform_(self.W)
-        self.device_id = list(range(gl_conf.num_devs))
+        self.device_id = list(range(conf.num_devs))
         self.step = 0
-        self.writer = gl_conf.writer
+        self.writer = conf.writer
         assert self.writer is not None
 
     def forward(self, input, label=None):
@@ -908,14 +908,14 @@ class AdaCos(nn.Module):
 
 
 class MySoftmax(Module):
-    def __init__(self, embedding_size=gl_conf.embedding_size, classnum=None):
+    def __init__(self, embedding_size=conf.embedding_size, classnum=None):
         super(MySoftmax, self).__init__()
         self.classnum = classnum
         self.kernel = Parameter(torch.Tensor(embedding_size, classnum))
         self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
-        self.s = gl_conf.scale
+        self.s = conf.scale
         self.step = 0
-        self.writer = gl_conf.writer
+        self.writer = conf.writer
 
     def forward(self, embeddings, label):
         embeddings = F.normalize(embeddings, dim=1)
@@ -940,7 +940,7 @@ class MySoftmax(Module):
 
 class Arcface(Module):
     # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599
-    def __init__(self, embedding_size=gl_conf.embedding_size, classnum=None, s=gl_conf.scale, m=gl_conf.margin):
+    def __init__(self, embedding_size=conf.embedding_size, classnum=None, s=conf.scale, m=conf.margin):
         super(Arcface, self).__init__()
         self.classnum = classnum
         kernel = Parameter(torch.Tensor(embedding_size, classnum))
@@ -950,18 +950,18 @@ class Arcface(Module):
         pi = np.float32(np.pi)
         self.m = m  # the margin value, default is 0.5
         self.s = s  # scalar value default is 64, see normface https://arxiv.org/abs/1704.06369
-        # self.cos_m = torch.FloatTensor([np.cos(m)]).cuda()
-        # self.sin_m = torch.FloatTensor([np.sin(m)]).cuda()
-        # self.mm = torch.FloatTensor([np.sin(m) * m]).cuda()
-        # self.threshold = torch.FloatTensor([math.cos(pi - m)]).cuda()
-        self.cos_m = np.cos(m)
-        self.sin_m = np.sin(m)
-        self.mm = self.sin_m * m
-        self.threshold = math.cos(pi - m)
+        self.cos_m = torch.FloatTensor([np.cos(m)]).cuda()
+        self.sin_m = torch.FloatTensor([np.sin(m)]).cuda()
+        self.mm = torch.FloatTensor([np.sin(m) * m]).cuda()
+        self.threshold = torch.FloatTensor([math.cos(pi - m)]).cuda()
+        # self.cos_m = np.cos(m)
+        # self.sin_m = np.sin(m)
+        # self.mm = self.sin_m * m
+        # self.threshold = math.cos(pi - m)
         self.easy_margin = False
         self.step = 0
-        self.writer = gl_conf.writer
-        self.interval = 999
+        self.writer = conf.writer
+        self.interval = conf.log_interval
 
     def forward(self, embeddings, label=None):
         bs = embeddings.shape[0]
@@ -1046,17 +1046,17 @@ class Arcface(Module):
 
 class ArcfaceNeg(Module):
     # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599
-    def __init__(self, embedding_size=gl_conf.embedding_size, classnum=None, s=gl_conf.scale, m=gl_conf.margin):
+    def __init__(self, embedding_size=conf.embedding_size, classnum=None, s=conf.scale, m=conf.margin):
         super(ArcfaceNeg, self).__init__()
         self.classnum = classnum
         kernel = Parameter(torch.Tensor(embedding_size, classnum))
         kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
         # kernel = torch.chunk(kernel, gl_conf.num_devs, dim=1)
-        self.device_id = list(range(gl_conf.num_devs))
+        self.device_id = list(range(conf.num_devs))
         # kernel = tuple(kernel[ind].cuda(self.device_id[ind]) for ind in range(gl_conf.num_devs))
         self.kernel = kernel
 
-        if gl_conf.fp16:
+        if conf.fp16:
             m = np.float16(m)
             pi = np.float16(np.pi)
         else:
@@ -1069,18 +1069,18 @@ class ArcfaceNeg(Module):
         self.mm = self.sin_m * m  # issue 1
         self.threshold = math.cos(pi - m)
         self.threshold2 = math.cos(m)
-        self.m2 = gl_conf.margin2
+        self.m2 = conf.margin2
 
     def forward_eff(self, embeddings, label=None):
         nB = embeddings.shape[0]
         embeddings = F.normalize(embeddings, dim=1)
         idx_ = torch.arange(0, nB, dtype=torch.long)
-        if gl_conf.num_devs == 0:
+        if conf.num_devs == 0:
             kernel_norm = l2_norm(self.kernel, axis=0)
             cos_theta = torch.mm(embeddings, kernel_norm)
         else:
             x = embeddings
-            sub_weights = torch.chunk(self.kernel, gl_conf.num_devs, dim=1)
+            sub_weights = torch.chunk(self.kernel, conf.num_devs, dim=1)
             temp_x = embeddings.cuda(self.device_id[0])
             weight = sub_weights[0].cuda(self.device_id[0])
             cos_theta = torch.mm(temp_x, F.normalize(weight, dim=0))
@@ -1111,7 +1111,7 @@ class ArcfaceNeg(Module):
         if self.m2 != 0:
             cos_theta_neg = cos_theta.clone()
             cos_theta_neg[idx_, label] = -self.s
-            topk = gl_conf.topk
+            topk = conf.topk
             topkind = torch.argsort(cos_theta_neg, dim=1)[:, -topk:]
             idx = torch.stack([idx_] * topk, dim=1)
             cos_theta_neg_need = cos_theta_neg[idx, topkind]
@@ -1151,7 +1151,7 @@ class CosFace(Module):
         cos(theta)-m
     """
 
-    def __init__(self, embedding_size, classnum, s=gl_conf.scale, m=gl_conf.margin):
+    def __init__(self, embedding_size, classnum, s=conf.scale, m=conf.margin):
         super(CosFace, self).__init__()
         self.in_features = embedding_size
         self.out_features = classnum
@@ -1239,7 +1239,7 @@ class TripletLoss(Module):
         # Compute pairwise distance, replace by the official when merged
         dist = torch.pow(embeddings, 2).sum(dim=1, keepdim=True).expand(n, n)
         dist = dist + dist.t()
-        dist = dist.addmm(1, -2, embeddings, embeddings.t()).clamp(min=1e-6).sqrt() * gl_conf.scale
+        dist = dist.addmm(1, -2, embeddings, embeddings.t()).clamp(min=1e-6).sqrt() * conf.scale
         # todo how to use triplet only, can use temprature decay/progessive learinig curriculum learning
         # For each anchor, find the hardest positive and negative
         mask = targets.expand(n, n).eq(targets.expand(n, n).t())

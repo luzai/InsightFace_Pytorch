@@ -366,7 +366,11 @@ class TorchDataset(object):
             self.fill_cache()
 
     def fill_cache(self):
-        for index in range(min(self.imgidx), max(self.imgidx) + 1):
+        start, stop = min(self.imgidx), max(self.imgidx) + 1
+        if isinstance(conf.fill_cache, float):
+            stop = start + (stop - start) * conf.fill_cache
+            stop = int(stop)
+        for index in range(start, stop):
             if index % 9999 == 1:
                 logging.info(f'loading {index} ')
             self.rec_cache[index] = self.imgrecs[0].read_idx(index)
@@ -1276,22 +1280,19 @@ class face_learner(object):
                 # loss_xent_all = F.cross_entropy(thetas , labels , reduction='none')
                 # loss_xent = loss_xent_all.mean()
                 loss_xent = F.cross_entropy(thetas, labels, )
-                if self.step % self.board_loss_every == 0:
-                    writer.add_scalar('loss/xent', loss_xent.item(), self.step)
+                runtime_reg = to_torch(np.zeros(1, 'float32')).cuda()
                 if conf.conv2dmask_runtime_reg:
                     runtime_reg = sum(conf.conv2dmask_runtime_reg).sum()
-                    if self.step % self.board_loss_every == 0:
-                        writer.add_scalar('sglpth/ttlrtreg', runtime_reg.item(), self.step)
-                    lambda_runtime_reg = 0.02  # todo
-                    loss_xent += runtime_reg * lambda_runtime_reg
+                    lambda_runtime_reg = 2e-3
+                    runtime_reg *= lambda_runtime_reg
                     conf.conv2dmask_runtime_reg = []
-                    # loss_xent /= conf.acc_grad
                 if conf.fp16:
-                    with amp.scale_loss(loss_xent / conf.acc_grad, self.optimizer) as scaled_loss:
+                    with amp.scale_loss((loss_xent + runtime_reg) / conf.acc_grad,
+                                        self.optimizer) as scaled_loss:
                         scaled_loss.backward()
                 else:
-                    (loss_xent / conf.acc_grad).backward()
-                torch.nn.utils.clip_grad_value_(self.model.parameters(), 5)
+                    ((loss_xent + runtime_reg) / conf.acc_grad).backward()
+                # torch.nn.utils.clip_grad_value_(self.model.parameters(), 5)
                 with torch.no_grad():
                     if conf.mining == 'dop':
                         update_dop_cls(thetas, labels_cpu, conf.dop)
@@ -1313,10 +1314,14 @@ class face_learner(object):
                 if self.step % self.board_loss_every == 0:
                     logging.info(f'epoch {e}/{epochs} step {self.step}/{len(loader)}: ' +
                                  f'xent: {loss_xent.item():.2e} ' +
+                                 f'rtreg: {runtime_reg.item():.2e} ' +
                                  f'data time: {data_time.avg:.2f} ' +
                                  f'loss time: {loss_time.avg:.2f} ' +
                                  f'acc: {acc:.2e} ' +
                                  f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                    writer.add_scalar('loss/xent', loss_xent.item(), self.step)
+                    writer.add_scalar('loss/ttlrtreg', runtime_reg.item(), self.step)
+
                     writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     writer.add_scalar('info/acc', acc, self.step)
                     writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)

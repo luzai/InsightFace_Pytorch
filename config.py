@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/sglpth.casia.arc.s48.2')
+conf.work_path = Path('work_space/sglpth.casia.arc.s32.3')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -78,9 +78,9 @@ conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = .4
-conf.conv2dmask_drop_ratio = .4
+conf.conv2dmask_drop_ratio = .1
 conf.conv2dmask_runtime_reg = []
-conf.net_mode = 'sglpth'  # hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
+conf.net_mode = 'mobilefacenet'  # sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
 conf.net_depth = 50  # 100 121 169 201 264 50 20
 conf.mb_mode = 'face.large'
 conf.mb_mult = 1.285
@@ -114,13 +114,14 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 96 * num_devs
+conf.batch_size = 64 * num_devs
 # conf.batch_size = 16
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
+conf.log_interval = 45
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 4
+conf.acc_grad = 8
 # --------------------Training Config ------------------------
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -129,7 +130,7 @@ conf.use_opt = 'sgd'  # adabound
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
 conf.final_lr = 1e-1
-conf.lr = 1e-3
+conf.lr = 1e-1
 conf.lr_gamma = 0.1
 conf.start_epoch = 0
 conf.start_step = 0

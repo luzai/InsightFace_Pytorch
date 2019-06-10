@@ -1,12 +1,32 @@
-from lz import *
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from config import conf
+from easydict import EasyDict
+import numpy as np
 
 __all__ = ['singlepath']
 
+conf = EasyDict()
+conf.conv2dmask_drop_ratio = .0
+conf.conv2dmask_runtime_reg = []
+conf.log_interval = 15
+conf.writer = None
 use_hard = True
+
+
+def to_torch(ndarray):
+    import collections
+    if ndarray is None:
+        return None
+    if isinstance(ndarray, collections.Sequence):
+        return [to_torch(ndarray_) for ndarray_ in ndarray if ndarray_ is not None]
+    if type(ndarray).__module__ == 'numpy':
+        return torch.from_numpy(ndarray)
+    elif not torch.is_tensor(ndarray):
+        raise ValueError("Cannot convert {} to torch tensor"
+                         .format(type(ndarray)))
+    return ndarray
+
 
 def conv_bn(inp, oup, stride, conv_layer=nn.Conv2d, norm_layer=nn.BatchNorm2d, nlin_layer=nn.ReLU):
     return nn.Sequential(
@@ -172,7 +192,7 @@ class SuperKernel(nn.Module):
         self.padding = padding
         self.stride = stride
         self.exp = exp
-        self.name = f'{exp}-{randomword(3)}'
+        self.name = f'{exp}'  # -{randomword(3)}'
         self.t5x5 = nn.Parameter(torch.FloatTensor([0.]))
         self.t50c = nn.Parameter(torch.FloatTensor([0.]))
         self.t100c = nn.Parameter(torch.FloatTensor([0.]))
@@ -396,7 +416,7 @@ class MobileNetV3(nn.Module):
         self.flatten = Flatten()
         self.linear = nn.Linear(last_conv, last_channel, bias=False)
         self.bn = nn.BatchNorm1d(last_channel)
-
+        self.bn.bias.requires_grad_(False)
         # make it nn.Sequential
         self.features = nn.Sequential(*self.features)
         self._initialize_weights()
@@ -439,29 +459,31 @@ def singlepath(pretrained=False, **kwargs):
 
 
 if __name__ == '__main__':
-    init_dev(3)
+    import os
+
+    os.environ['CUDA_VISIBLE_DEVICES'] = '3'
     net = singlepath(
         use_superkernel=True,
         # width_mult=1.285,
         width_mult=1,
     )
-    # state_dict = torch.load('mobilenetv3_small_67.218.pth.tar')
-    # net.load_state_dict(state_dict)
     print('mobilenetv3:\n', net)
     print('Total params: %.2fM' % (sum(p.numel() for p in net.parameters()) / 1000000.0))
-    opt = torch.optim.SGD(net.parameters(), lr=1e-3)
+    net = net.cuda()
+    classifier = nn.Linear(512, 10).cuda()
+    opt = torch.optim.SGD(list(net.parameters()) + list(classifier.parameters()), lr=1e-2)
+    net.train()
+
     bs = 96
     input_size = (bs, 3, 112, 112)
     target = to_torch(np.random.randint(low=0, high=10, size=(bs,)), ).cuda()
-    net = net.cuda()
-    net.train()
     x = torch.rand(input_size).cuda()
     grad_min, grad_max = 0, 0
     for i in range(32):
-        print(' forward ----- ', i )
+        print(' forward ----- ', i)
         opt.zero_grad()
         out = net(x)
-        logits = nn.Linear(512, 10).cuda()(out)
+        logits = classifier(out)
         loss = nn.CrossEntropyLoss()(logits, target)
         loss.backward()
         # torch.nn.utils.clip_grad_value_(net.parameters(), 5)
