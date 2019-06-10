@@ -810,7 +810,7 @@ class face_learner(object):
                                      #     replacement=True
                                      # ),
                                      shuffle=True,
-                                     # todo if false, suddenly large loss on new epoch
+                                     # todo if no-replacement, suddenly large loss on new epoch
                                      # todo whether rebalance
                                      drop_last=True, pin_memory=True, )
             self.class_num = conf.num_clss = self.dataset.num_classes
@@ -843,7 +843,7 @@ class face_learner(object):
         else:
             self.writer = None
         conf.writer = self.writer
-        self.writer.add_text('conf', f'{conf}', 0)
+        self.writer.add_text('conf', f'{conf}', 0)  # todo to markdown
         self.step = 0
 
         if conf.net_mode == 'mobilefacenet' or conf.net_mode == 'mbfc':
@@ -1204,6 +1204,24 @@ class face_learner(object):
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
+    def get_loader_enum(self, loader=None):
+        import gc
+        loader = loader or self.loader
+        succ = False
+        while not succ:
+            try:
+                loader_enum = data_prefetcher(enumerate(loader))
+                succ = True
+            except Exception as e:
+                try:
+                    del loader_enum
+                except:
+                    pass
+                gc.collect()
+                logging.info(f'err is {e}')
+                time.sleep(10)
+        return loader_enum
+
     def train_simple(self, conf, epochs):
         self.model.train()
         loader = self.loader
@@ -1226,38 +1244,21 @@ class face_learner(object):
         for e in range(conf.start_epoch, epochs):
             if e >= 10: conf.conv2dmask_drop_ratio = 0.
             lz.timer.since_last_check('epoch {} started'.format(e))
-            self.schedule_lr(e)
+            # self.schedule_lr(e)
 
-            def get_loader_enum():
-                import gc
-
-                succ = False
-                while not succ:
-                    try:
-                        loader_enum = data_prefetcher(enumerate(loader))
-                        succ = True
-                    except Exception as e:
-                        try:
-                            del loader_enum
-                        except:
-                            pass
-                        gc.collect()
-                        logging.info(f'err is {e}')
-                        time.sleep(10)
-                return loader_enum
-
-            loader_enum = get_loader_enum()
+            loader_enum = self.get_loader_enum()
             acc_grad_cnt = 0
             while True:
+                self.schedule_lr(step=self.step)
                 try:
                     ind_data, data = next(loader_enum)
                 except StopIteration as err:
                     logging.info(f'one epoch finish {e} err is {err}')
-                    loader_enum = get_loader_enum()
+                    loader_enum = self.get_loader_enum()
                     ind_data, data = next(loader_enum)
                 if ind_data is None:
                     logging.info(f'one epoch finish {e} {ind_data}')
-                    loader_enum = get_loader_enum()
+                    loader_enum = self.get_loader_enum()
                     ind_data, data = next(loader_enum)
                 if (self.step + 1) % len(loader) == 0:
                     self.step += 1
@@ -2114,21 +2115,44 @@ class face_learner(object):
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
-    def schedule_lr(self, e=0):
-        from bisect import bisect_right
+    def set_lr(self, lr):
+        for params in self.optimizer.param_groups:
+            if 'lr_mult' in params:
+                params['lr'] = lr * params['lr_mult']
+            else:
+                params['lr'] = lr
 
+    def schedule_lr_mstep(self, e=0, step=0):
+        from bisect import bisect_right
+        steps_per_epoch = len(self.loader)
+        if step != 0:
+            e = (step + 1) // steps_per_epoch
         e2lr = {epoch: conf.lr * conf.lr_gamma ** bisect_right(self.milestones, epoch) for epoch in
                 range(conf.epochs)}
-        logging.info(f'map e to lr is {e2lr}')
+        # logging.info(f'map e to lr is {e2lr}')
         lr = e2lr[e]
         for params in self.optimizer.param_groups:
             if 'lr_mult' in params:
                 params['lr'] = lr * params['lr_mult']
             else:
                 params['lr'] = lr
-        logging.info(f'lr is {lr}')
+        # logging.info(f'lr is {lr}')
 
-    init_lr = schedule_lr
+    def schedule_lr_cosanl(self, e=0, step=0):
+        assert e == 0, 'not implement yet'
+        steps_per_epoch = len(self.loader)
+        ttl_steps = conf.epochs * steps_per_epoch
+        base_lr = conf.lr
+        # min_lr = base_lr/10 # defalt use 0
+        lr = 1 / 2 * (base_lr) * (1 + np.cos(step / ttl_steps * np.pi))
+        for params in self.optimizer.param_groups:
+            if 'lr_mult' in params:
+                params['lr'] = lr * params['lr_mult']
+            else:
+                params['lr'] = lr
+
+    # schedule_lr =init_lr = schedule_lr_mstep
+    schedule_lr = init_lr = schedule_lr_cosanl
 
     def save_state(self, conf, accuracy, to_save_folder=False, extra=None, model_only=False):
         # if conf.local_rank is not None and conf.local_rank != 0:
@@ -2588,9 +2612,8 @@ class face_learner(object):
                          }, out)
 
     def find_lr(self,
-                conf,
                 init_value=1e-5,
-                final_value=10.,
+                final_value=100.,
                 beta=0.98,
                 bloding_scale=3.,
                 num=None):
@@ -2598,29 +2621,32 @@ class face_learner(object):
             num = len(self.loader)
         mult = (final_value / init_value) ** (1 / num)
         lr = init_value
-        for params in self.optimizer.param_groups:
-            params['lr'] = lr
+        self.set_lr(lr)
         self.model.train()
         avg_loss = 0.
         best_loss = 0.
         batch_num = 0
         losses = []
         log_lrs = []
-        loader_enum = data_prefetcher(enumerate(self.loader))
-        for i, data in loader_enum:
-            imgs = data['imgs']
-            labels = data['labels']
-            if i % 100 == 0:
-                logging.info(f'ok {i}')
-            imgs = imgs.cuda()
-            labels = labels.cuda()
-            batch_num += 1
-
-            self.optimizer.zero_grad()
-
+        loader_enum = self.get_loader_enum()
+        acc_grad_cnt = 0
+        while True:
+            try:
+                ind_data, data = next(loader_enum)
+            except StopIteration as err:
+                logging.info(f'one epoch finish err is {err}')
+                loader_enum = self.get_loader_enum()
+                ind_data, data = next(loader_enum)
+            imgs = data['imgs'].cuda()
+            labels = data['labels'].cuda()
+            if batch_num % 100 == 0:
+                logging.info(f'ok {batch_num}/{num} lr {lr} {acc_grad_cnt}')
+            if acc_grad_cnt == 0:
+                self.optimizer.zero_grad()
             embeddings = self.model(imgs)
+            if torch.isnan(embeddings).any().item():
+                break
             thetas = self.head(embeddings, labels)
-
             if not conf.kd:
                 loss = conf.ce_loss(thetas, labels)
             else:
@@ -2636,42 +2662,51 @@ class face_learner(object):
             if conf.tri_wei != 0:
                 loss_triplet = self.head_triplet(embeddings, labels)
                 loss = (1 - conf.tri_wei) * loss + conf.tri_wei * loss_triplet  # todo
-            # Compute the smoothed loss
-            avg_loss = beta * avg_loss + (1 - beta) * loss.item()
-            self.writer.add_scalar('avg_loss', avg_loss, batch_num)
-            smoothed_loss = avg_loss / (1 - beta ** batch_num)
-            self.writer.add_scalar('smoothed_loss', smoothed_loss, batch_num)
-            # Stop if the loss is exploding
-            if batch_num > 1 and smoothed_loss > bloding_scale * best_loss:
-                logging.info('exited with best_loss at {}'.format(best_loss))
-                plt.plot(log_lrs[10:-5], losses[10:-5])
-                return log_lrs, losses
-            # Record the best loss
-            if smoothed_loss < best_loss or batch_num == 1:
-                best_loss = smoothed_loss
-            # Store the values
-            losses.append(smoothed_loss)
-            log_lrs.append(math.log10(lr))
-            self.writer.add_scalar('log_lr', math.log10(lr), batch_num)
             # Do the SGD step
             # Update the lr for the next step
+            if torch.isnan(loss).any():
+                break
             if conf.fp16:
                 with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                     scaled_loss.backward()
             else:
                 loss.backward()
-            self.optimizer.step()
-
-            lr *= mult
-            for params in self.optimizer.param_groups:
-                params['lr'] = lr
+            if acc_grad_cnt == conf.acc_grad - 1:
+                self.optimizer.step()
+                acc_grad_cnt = 0
+                batch_num += 1
+                # Compute the smoothed loss
+                self.writer.add_scalar('lr/loss', loss.item(), batch_num)
+                avg_loss = beta * avg_loss + (1 - beta) * loss.item()
+                self.writer.add_scalar('lr/avg_loss', avg_loss, batch_num)
+                smoothed_loss = avg_loss / (1 - beta ** batch_num)
+                self.writer.add_scalar('lr/smoothed_loss', smoothed_loss, batch_num)
+                # Stop if the loss is exploding
+                # if batch_num > 1 and smoothed_loss > bloding_scale * best_loss:
+                #     logging.info('exited with best_loss at {}'.format(best_loss))
+                #     plt.plot(log_lrs[10:-5], losses[10:-5])
+                #     plt.show()
+                #     return log_lrs, losses
+                # Record the best loss
+                if smoothed_loss < best_loss or batch_num == 1:
+                    best_loss = smoothed_loss
+                # Store the values
+                losses.append(smoothed_loss)
+                log_lrs.append(math.log10(lr))
+                self.writer.add_scalar('lr/log_lr', math.log10(lr), batch_num)
+                self.writer.add_scalar('lr/lr', lr, batch_num)
+                lr *= mult
+                self.set_lr(lr)
+            else:
+                acc_grad_cnt += 1
+            assert acc_grad_cnt < conf.acc_grad, acc_grad_cnt
             if batch_num > num:
-                print('finish', batch_num, num)
-                plt.plot(log_lrs[10:-5], losses[10:-5])
-                plt.show()
-                plt.savefig('/tmp/tmp.png')
-                # from IPython import embed ;   embed()
-                return log_lrs, losses
+                break
+        print('finish', batch_num, num)
+        plt.plot(log_lrs[10:-5], losses[10:-5])
+        plt.show()
+        plt.savefig('/tmp/tmp.png')
+        return log_lrs, losses
 
 
 class face_cotching(face_learner):
