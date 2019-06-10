@@ -147,9 +147,14 @@ class Linear_block(nn.Module):
         x = self.bn(x)
         return x
 
+from config import conf
+# import  lz
+# lz.logging.info(f'ok {conf.mb_mult}')
 
 class MobileNetV3(nn.Module):
-    def __init__(self, n_class=None, mode='small', width_mult=1.0):
+    def __init__(self,
+                 mode=conf.mb_mode, width_mult=conf.mb_mult,
+                 ):
         super(MobileNetV3, self).__init__()
         input_channel = 16
         last_channel = 512
@@ -261,7 +266,8 @@ class MobileNetV3(nn.Module):
         elif mode == 'face.large':
             last_conv = make_divisible(960 * width_mult)
             self.features.append(conv_1x1_bn(input_channel, last_conv, nlin_layer=Hswish))
-            self.pool = Linear_block(last_conv, last_conv, groups=last_conv,  kernel=(7, 7), stride=(1, 1), padding=(0, 0))
+            self.pool = Linear_block(last_conv, last_conv, groups=last_conv, kernel=(7, 7), stride=(1, 1),
+                                     padding=(0, 0))
             # self.pool = nn.AdaptiveAvgPool2d(1)
             self.flatten = Flatten()
             self.linear = nn.Linear(last_conv, last_channel, bias=False)

@@ -9,7 +9,7 @@ from torchvision import transforms as trans
 # todo label smooth
 
 dist = False
-num_devs = 1
+num_devs = 4
 if dist:
     num_devs = 1
 else:
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/sglpth.casia.arc.s32.3')
+conf.work_path = Path('work_space/sglpth.bak.8')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -48,7 +48,7 @@ casia_folder = conf.data_path / 'casia'  # the cleaned one todo may need the oth
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = dingyi_folder
+conf.use_data_folder = retina_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 
 if conf.use_data_folder == ms1m_folder:
@@ -71,7 +71,7 @@ conf.topk = 5
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
 conf.tri_wei = 0
-conf.scale = 32
+conf.scale = 48
 conf.instances = 4
 
 conf.input_size = [112, 112]
@@ -86,6 +86,8 @@ conf.mb_mode = 'face.large'
 conf.mb_mult = 1.285
 # conf.mb_mode = 'face.small'
 # conf.mb_mult = 2.005 # 1.37
+conf.mbfc_wm = 1. # 1.56
+conf.mbfc_dm = 1. # 2
 
 conf.test_transform = trans.Compose([
     trans.ToTensor(),
@@ -100,7 +102,7 @@ conf.use_chkpnt = False
 conf.chs_first = True
 conf.prof = False
 conf.fast_load = False
-conf.fp16 = False
+conf.fp16 = True
 conf.ipabn = False
 conf.cvt_ipabn = False
 
@@ -114,14 +116,14 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 64 * num_devs
+conf.batch_size = 128 * num_devs
 # conf.batch_size = 16
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
 conf.log_interval = 45
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 8
+conf.acc_grad = 4
 # --------------------Training Config ------------------------
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -144,7 +146,7 @@ conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = False
+conf.fill_cache = True
 
 
 # todo may use kl_div to speed up

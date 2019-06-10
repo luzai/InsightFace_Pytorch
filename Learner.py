@@ -2768,9 +2768,9 @@ class face_cotching(face_learner):
             self.model = MobileFaceNet(conf.embedding_size)
             logging.info('MobileFaceNet model generated')
         elif conf.net_mode == 'sglpth':
-            self.model = models.singlepath(width_mult=1.15, )  # todo
+            self.model = models.singlepath()
         elif conf.net_mode == 'mbv3':
-            self.model = models.mobilenetv3(mode=conf.mb_mode, width_mult=conf.mb_mult)
+            self.model = models.mobilenetv3()
         elif conf.net_mode == 'nasnetamobile':
             self.model = models.nasnetamobile(512)
         elif conf.net_mode == 'resnext':

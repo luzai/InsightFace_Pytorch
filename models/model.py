@@ -544,26 +544,30 @@ class Residual(Module):
 def make_divisible(x, divisible_by=8):
     import numpy as np
     return int(np.ceil(x * 1. / divisible_by) * divisible_by)
-
+# import lz
+# lz.logging.info(f'ok {conf.mbfc_dm} {conf.mbfc_wm}')
 
 class MobileFaceNet(Module):
-    def __init__(self, embedding_size, mode='large', width_mult=1.56):
+    def __init__(self, embedding_size=conf.embedding_size,
+                 width_mult=conf.mbfc_wm, depth_mult=conf.mbfc_dm):
         super(MobileFaceNet, self).__init__()
         # global Conv2d
-        if mode == 'small':
-            blocks = [1, 4, 6, 2]
-        else:
-            blocks = [2, 8, 16, 4]
+        # if mode == 'small':
+        #     blocks = [1, 4, 6, 2]
+        # else:
+        #     blocks = [2, 8, 16, 4]
+        blocks = [1, 4, 8, 2]
+        blocks = [make_divisible(b * depth_mult, 1) for b in blocks]
         self.conv1 = Conv_block(3, make_divisible(64 * width_mult), kernel=(3, 3), stride=(2, 2), padding=(1, 1), )
-        if blocks[0] == 1:
-            self.conv2_dw = Conv_block(make_divisible(64 * width_mult), make_divisible(64 * width_mult), kernel=(3, 3),
-                                       stride=(1, 1), padding=(1, 1), groups=make_divisible(64 * width_mult),
-                                       )
-        else:
-            self.conv2_dw = Residual(make_divisible(64 * width_mult), num_block=blocks[0],
-                                     groups=make_divisible(64 * width_mult), kernel=(3, 3), stride=(1, 1),
-                                     padding=(1, 1),
-                                     )
+        # if blocks[0] == 1:
+        #     self.conv2_dw = Conv_block(make_divisible(64 * width_mult), make_divisible(64 * width_mult), kernel=(3, 3),
+        #                                stride=(1, 1), padding=(1, 1), groups=make_divisible(64 * width_mult),
+        #                                )
+        # else:
+        self.conv2_dw = Residual(make_divisible(64 * width_mult), num_block=blocks[0],
+                                 groups=make_divisible(64 * width_mult), kernel=(3, 3), stride=(1, 1),
+                                 padding=(1, 1),
+                                 )
         self.conv_23 = Depth_Wise(make_divisible(64 * width_mult), make_divisible(64 * width_mult), kernel=(3, 3),
                                   stride=(2, 2), padding=(1, 1), groups=make_divisible(128 * width_mult),
                                   )
@@ -1132,8 +1136,8 @@ class ArcfaceNeg(Module):
 
 
 ##################################  Cosface head #################
-import torch.jit
-from torch import jit
+# import torch.jit
+# from torch import jit
 
 
 class CosFace(Module):
@@ -1310,10 +1314,36 @@ if __name__ == '__main__':
 
     init_dev(3)
     # model = Backbone(50, 0, 'ir_se').cuda()
-    model = MobileFaceNet(512, width_mult=1.56).cuda()
-    model.eval()
-    print('mobilenetv3:\n', model)
-    print('Total params: %.2fM' % (sum(p.numel() for p in model.parameters()) / 1000000.0))
+    params = []
+    wms = np.arange(1, 1.4, .01)
+    for wm in wms:
+        model = MobileFaceNet(512,
+                              width_mult=wm,
+                              depth_mult=1.,
+                              ).cuda()
+        model.eval()
+        print('mobilenetv3:\n', model)
+        ttl_params = (sum(p.numel() for p in model.parameters()) / 1000000.0)
+        print('Total params: %.2fM' % ttl_params)
+        params.append(ttl_params)
+    plt.plot(wms, params)
+    plt.show()
+
+    dms = np.arange(1, 2, .01)
+    params2 = []
+    for dm in dms:
+        model = MobileFaceNet(512,
+                              width_mult=1.,
+                              depth_mult=dm,
+                              ).cuda()
+        model.eval()
+        print('mobilenetv3:\n', model)
+        ttl_params = (sum(p.numel() for p in model.parameters()) / 1000000.0)
+        params2.append(ttl_params)
+        print('Total params: %.2fM' % ttl_params)
+    plt.plot(dms, params2)
+    plt.show()
+    embed()
     exit()
 
     # model2 = torch.jit.trace(model, torch.rand(2, 3, 112, 112).cuda())

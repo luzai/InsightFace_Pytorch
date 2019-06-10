@@ -3,10 +3,6 @@
 import torch
 from lz import *
 from config import conf
-
-# conf.need_log = False
-# conf.net_mode = 'ir'
-# conf.upgrade_irse = False
 import argparse
 from pathlib import Path
 
@@ -19,10 +15,16 @@ def log_conf(conf):
 
 
 parser = argparse.ArgumentParser(description='PyTorch Training')
-parser.add_argument('--local_rank', default=None, type=int)
+parser.add_argument('--local_rank', default=None, type=int,)
+parser.add_argument('--mbfc_wm', default=1.56, type=float,)
+parser.add_argument('--mbfc_dm', default=2, type=float,)
+parser.add_argument('--work_path', default=None, type=str,)
 
 if __name__ == '__main__':
     args = parser.parse_args()
+    if args.work_path:
+        args.work_path = Path(args.work_path)
+    conf.update(args.__dict__)
     conf.local_rank = args.local_rank
     if conf.local_rank is not None:
         torch.cuda.set_device(conf.local_rank)
@@ -30,8 +32,9 @@ if __name__ == '__main__':
                                              init_method="env://")
         if torch.distributed.get_rank() != 0:
             set_stream_logger(logging.WARNING)
-    from Learner import *
 
+    from Learner import *
+    exit()
     learner = face_learner(conf, )
     # learner = face_cotching(conf, )
     ress = {}
@@ -79,7 +82,16 @@ if __name__ == '__main__':
         # logging.warning(f'{p} res: {res}')
     print(ress)
     # learner.calc_img_feas(out='work_space/retina.r50.h5')
-    # exit(0)
+
+    log_lrs, losses = learner.find_lr(
+                                      num=999,
+                                      bloding_scale=1000)
+    losses[np.isnan(losses)] = 999
+    best_lr = 10 ** (log_lrs[np.argmin(losses)])
+    print('best lr is ', best_lr)
+    conf.lr = best_lr
+    # embed()
+    exit(0)
 
     # learner.init_lr()
     # conf.tri_wei = 0
@@ -113,12 +125,3 @@ if __name__ == '__main__':
     #             load_head=True,
     #         )
     #         learner.calc_importance(f'{conf.work_path}/{step}.pk')
-
-    # log_lrs, losses = learner.find_lr(conf,
-    #                                   # final_value=100,
-    #                                   num=200,
-    #                                   bloding_scale=1000)
-    # best_lr = 10 ** (log_lrs[np.argmin(losses)])
-    # print(best_lr)
-    # conf.lr = best_lr
-    # learner.push2redis()
