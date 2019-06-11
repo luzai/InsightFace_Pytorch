@@ -34,7 +34,7 @@ if __name__ == '__main__':
             set_stream_logger(logging.WARNING)
 
     from Learner import *
-    exit()
+    # exit()
     learner = face_learner(conf, )
     # learner = face_cotching(conf, )
     ress = {}
@@ -83,15 +83,14 @@ if __name__ == '__main__':
     print(ress)
     # learner.calc_img_feas(out='work_space/retina.r50.h5')
 
-    log_lrs, losses = learner.find_lr(
-                                      num=999,
-                                      bloding_scale=1000)
-    losses[np.isnan(losses)] = 999
-    best_lr = 10 ** (log_lrs[np.argmin(losses)])
-    print('best lr is ', best_lr)
-    conf.lr = best_lr
-    # embed()
-    exit(0)
+    # log_lrs, losses = learner.find_lr(
+    #                                   num=999,
+    #                                   bloding_scale=1000)
+    # losses[np.isnan(losses)] = 999
+    # best_lr = 10 ** (log_lrs[np.argmin(losses)])
+    # print('best lr is ', best_lr)
+    # conf.lr = best_lr
+    # exit(0)
 
     # learner.init_lr()
     # conf.tri_wei = 0

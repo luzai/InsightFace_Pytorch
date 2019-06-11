@@ -123,7 +123,7 @@ conf.board_loss_every = 15
 conf.log_interval = 45
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 4
+conf.acc_grad = 1
 # --------------------Training Config ------------------------
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
