@@ -24,6 +24,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.work_path:
         args.work_path = Path(args.work_path)
+        conf.work_path = args.work_path
+        conf.model_path = conf.work_path / 'models'
+        conf.log_path = conf.work_path / 'log'
+        conf.save_path = conf.work_path / 'save'
     conf.update(args.__dict__)
     conf.local_rank = args.local_rank
     if conf.local_rank is not None:
