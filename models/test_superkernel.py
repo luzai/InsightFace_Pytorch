@@ -3,15 +3,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 from easydict import EasyDict
 import numpy as np
+import lz
+from tensorboardX import SummaryWriter
 
 __all__ = ['singlepath']
 
 conf = EasyDict()
-conf.conv2dmask_drop_ratio = .0
+conf.conv2dmask_drop_ratio = .1
 conf.conv2dmask_runtime_reg = []
-conf.log_interval = 15
-conf.writer = None
+conf.log_interval = 1
+conf.writer = SummaryWriter('tmp')
 use_hard = True
+import random
+
+random.seed(16)
 
 
 def to_torch(ndarray):
@@ -167,15 +172,12 @@ def judgenan(x):
 
 
 def Indicator(x):
-    sigx = F.sigmoid(x)
-    return ((x >= 0).float() - sigx).detach() + sigx
+    sigx = torch.sigmoid(x)
+    return (((x >= 0).float() - sigx).detach() + sigx)  # .detach()
 
-
-# def Indicator(x):
-#     return x
 
 def my_dropout(x, drop_ratio):
-    x = F.dropout(Indicator(x), drop_ratio) * drop_ratio
+    x = F.dropout(Indicator(x), drop_ratio) * (1 - drop_ratio)
 
     # x = F.dropout(Indicator(x), drop_ratio) # note: dropout scale the value
 
@@ -187,12 +189,13 @@ def my_dropout(x, drop_ratio):
 
 
 class SuperKernel(nn.Module):
-    def __init__(self, exp, kernel, stride, padding, groups=None, bias=False):
+    def __init__(self, exp, kernel, stride, padding, groups=None, bias=False, use_res_connect=True):
         super(SuperKernel, self).__init__()
         self.padding = padding
         self.stride = stride
         self.exp = exp
-        self.name = f'{exp}'  # -{randomword(3)}'
+        self.use_res_connect = use_res_connect
+        self.name = f'{exp}-{lz.randomword(3)}'
         self.t5x5 = nn.Parameter(torch.FloatTensor([0.]))
         self.t50c = nn.Parameter(torch.FloatTensor([0.]))
         self.t100c = nn.Parameter(torch.FloatTensor([0.]))
@@ -214,6 +217,7 @@ class SuperKernel(nn.Module):
         mask_100c[c50:c100, ...] = 1.0  # from 50% to 100% channels !!
         self.mask50c = to_torch(mask_50c).cuda()
         self.mask100c = to_torch(mask_100c).cuda()
+        self.const_one = to_torch(np.ones(1, 'float32')).cuda()
 
         self.runtimes = None
         self.step = 0
@@ -221,15 +225,18 @@ class SuperKernel(nn.Module):
         self.writer = conf.writer
 
     def build_kernel(self):
+        dropout_rate = conf.conv2dmask_drop_ratio
+
         kernel_3x3 = self.depthwise_kernel * self.mask3x3
         kernel_5x5 = self.depthwise_kernel * self.mask5x5
         norm5x5 = torch.norm(kernel_5x5)
-
         x5x5 = norm5x5 - self.t5x5
-        dropout_rate = conf.conv2dmask_drop_ratio
         d5x5 = my_dropout(Indicator(x5x5), dropout_rate)
         depthwise_kernel_masked_outside = kernel_3x3 + kernel_5x5 * d5x5
+        # return depthwise_kernel_masked_outside
+        # d5x5 = self.const_one
 
+        depthwise_kernel_masked_outside = self.depthwise_kernel
         kernel_50c = depthwise_kernel_masked_outside * self.mask50c
         kernel_100c = depthwise_kernel_masked_outside * self.mask100c
         norm50c = torch.norm(kernel_50c)
@@ -237,6 +244,15 @@ class SuperKernel(nn.Module):
 
         x100c = norm100c - self.t100c
         d100c = my_dropout(Indicator(x100c), dropout_rate)
+
+        if self.stride == 1 and self.use_res_connect:
+            x50c = norm50c - self.t50c
+            d50c = my_dropout(Indicator(x50c), dropout_rate)
+        else:
+            d50c = self.const_one
+        depthwise_kernel_masked = d50c * (kernel_50c + d100c * kernel_100c)
+        # depthwise_kernel_masked = (kernel_50c + d100c * kernel_100c)
+
         if not self.runtimes:
             flops = x.shape[1] ** 2 * 5 ** 2 * self.exp / 10 ** 6
             flops_336 = x.shape[1] ** 2 * 3 ** 2 * self.exp / 10 ** 6
@@ -246,23 +262,18 @@ class SuperKernel(nn.Module):
             self.R50c = self.runtimes[2]
             self.R5x5 = self.R100c = self.runtimes[3]
             self.R3x3 = self.runtimes[1]
-        if self.stride == 1 and len(self.runtimes) == 5:
-            x50c = norm50c - self.t50c
-            d50c = my_dropout(Indicator(x50c), dropout_rate)
-        else:
-            d50c = to_torch(np.ones(1, 'float32')).cuda()
-        depthwise_kernel_masked = d50c * (kernel_50c + d100c * kernel_100c)
-
         ratio = self.R3x3 / self.R5x5
         runtime_channels = d50c * (self.R50c + d100c * (self.R100c - self.R50c))
         runtime_reg = runtime_channels * ratio + runtime_channels * (1 - ratio) * d5x5
         conf.conv2dmask_runtime_reg.append(runtime_reg)
 
         if self.writer and self.step % self.interval == 0:
-            self.writer.add_scalar(f'sglpth/{self.name}/d5x5', d5x5.item(), self.step)
-            self.writer.add_scalar(f'sglpth/{self.name}/d50c', d50c.item(), self.step)
-            self.writer.add_scalar(f'sglpth/{self.name}/d100c', d100c.item(), self.step)
-            self.writer.add_scalar(f'sglpth/{self.name}/rtreg', runtime_reg.item(), self.step)
+            self.writer.add_scalar(f'd5x5/{self.name}', d5x5.item(), self.step)
+            self.writer.add_scalar(f'd50c/{self.name}', d50c.item(), self.step)
+            self.writer.add_scalar(f'd100c/{self.name}', d100c.item(), self.step)
+            self.writer.add_scalar(f't100c/{self.name}', self.t100c.item(), self.step)
+            self.writer.add_scalar(f't50c/{self.name}', self.t50c.item(), self.step)
+            self.writer.add_scalar(f'rtreg/{self.name}', runtime_reg.item(), self.step)
 
         return depthwise_kernel_masked
 
@@ -309,7 +320,7 @@ class MobileBottleneck5x5(nn.Module):
             nlin_layer(inplace=True),
             # dw
             # conv_layer(exp, exp, kernel, stride, padding, groups=exp, bias=False),
-            SuperKernel(exp, kernel, stride, padding, groups=exp, bias=False),
+            SuperKernel(exp, kernel, stride, padding, groups=exp, bias=False, use_res_connect=self.use_res_connect),
             norm_layer(exp),
             SELayer(exp),
             nlin_layer(inplace=True),
@@ -461,7 +472,7 @@ def singlepath(pretrained=False, **kwargs):
 if __name__ == '__main__':
     import os
 
-    os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     net = singlepath(
         use_superkernel=True,
         # width_mult=1.285,
@@ -471,7 +482,7 @@ if __name__ == '__main__':
     print('Total params: %.2fM' % (sum(p.numel() for p in net.parameters()) / 1000000.0))
     net = net.cuda()
     classifier = nn.Linear(512, 10).cuda()
-    opt = torch.optim.SGD(list(net.parameters()) + list(classifier.parameters()), lr=1e-2)
+    opt = torch.optim.SGD(list(net.parameters()) + list(classifier.parameters()), lr=1e-1)
     net.train()
 
     bs = 96
@@ -479,7 +490,7 @@ if __name__ == '__main__':
     target = to_torch(np.random.randint(low=0, high=10, size=(bs,)), ).cuda()
     x = torch.rand(input_size).cuda()
     grad_min, grad_max = 0, 0
-    for i in range(32):
+    for i in range(99):
         print(' forward ----- ', i)
         opt.zero_grad()
         out = net(x)
