@@ -544,6 +544,8 @@ class Residual(Module):
 def make_divisible(x, divisible_by=8):
     import numpy as np
     return int(np.ceil(x * 1. / divisible_by) * divisible_by)
+
+
 # import lz
 # lz.logging.info(f'ok {conf.mbfc_dm} {conf.mbfc_wm}')
 
@@ -594,7 +596,6 @@ class MobileFaceNet(Module):
                                       padding=(0, 0),
                                       )
         # Conv2d = nn.Conv2d
-
         self.conv_6_flatten = Flatten()
         self.linear = Linear(make_divisible(512 * width_mult), embedding_size, bias=False, )
         self.bn = BatchNorm1d(embedding_size)
@@ -845,7 +846,7 @@ class AdaCos(nn.Module):
         super(AdaCos, self).__init__()
         self.num_features = num_features
         self.n_classes = num_classes
-        self.s = math.sqrt(2) * math.log(num_classes - 1) # todo
+        self.s = math.sqrt(2) * math.log(num_classes - 1)  # todo maybe scale
         self.m = m
         self.W = nn.Parameter(torch.FloatTensor(num_classes, num_features))
         nn.init.xavier_uniform_(self.W)
@@ -874,19 +875,17 @@ class AdaCos(nn.Module):
             output = logits
         # feature re-scale
         with torch.no_grad():
-            B_avg = torch.where(one_hot < 1, torch.exp(self.s * logits), torch.zeros_like(logits))/input.size(0)
-            B_avg = torch.sum(B_avg)
-
+            B_avg = torch.logsumexp((self.s * logits)[one_hot < 1], dim=0) - np.log(input.shape[0])
             theta_neg = theta[one_hot < 1].view(bs, self.n_classes - 1)
-            # B_avg = torch.sum(theta_neg) / input.size(0) # wrong !!
             theta_pos = theta[one_hot == 1]
             theta_med = torch.median(theta_pos + self.m)
-            s_now = torch.log(B_avg) / torch.cos(torch.min(
+            s_now = B_avg / torch.cos(torch.min(
                 (math.pi / 4 + self.m) * torch.ones_like(theta_med),
                 theta_med))
             # self.s = self.s * 0.9 + s_now * 0.1
             self.s = s_now
             if self.step % self.interval == 0:
+                # print(B_avg, self.s)
                 self.writer.add_scalar('theta/pos_med', theta_med.item(), self.step)
                 self.writer.add_scalar('theta/pos_mean', theta_pos.mean().item(), self.step)
                 self.writer.add_scalar('theta/neg_med', torch.median(theta_neg).item(), self.step)
