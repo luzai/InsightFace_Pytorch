@@ -250,13 +250,13 @@ class Backbone(Module):
         self.body = Sequential(*modules)
         self._initialize_weights()
 
-    # def forward(self, x, ):
-    #     x = self.input_layer(x)
-    #     x = self.body(x)
-    #     x = self.output_layer(x)
-    #     return x
+    def forward(self, x, ):
+        x = self.input_layer(x)
+        x = self.body(x)
+        x = self.output_layer(x)
+        return x
 
-    def forward(self, x, normalize=True, return_norm=False, mode='train'):
+    def forward_old(self, x, normalize=True, return_norm=False, mode='train'):
         if mode == 'finetune':
             with torch.no_grad():
                 x = self.input_layer(x)
@@ -845,13 +845,14 @@ class AdaCos(nn.Module):
         super(AdaCos, self).__init__()
         self.num_features = num_features
         self.n_classes = num_classes
-        self.s = math.sqrt(2) * math.log(num_classes - 1)
+        self.s = math.sqrt(2) * math.log(num_classes - 1) # todo
         self.m = m
         self.W = nn.Parameter(torch.FloatTensor(num_classes, num_features))
         nn.init.xavier_uniform_(self.W)
         self.device_id = list(range(conf.num_devs))
         self.step = 0
         self.writer = conf.writer
+        self.interval = conf.log_interval
         assert self.writer is not None
 
     def forward(self, input, label=None):
@@ -860,17 +861,6 @@ class AdaCos(nn.Module):
         W = F.normalize(self.W, dim=1)
         logits = F.linear(x, W)
         logits = logits.float()
-        # sub_weights = torch.chunk(self.W, gl_conf.num_devs, dim=0)  # (ncls//4,nfeas)
-        # temp_x = x.cuda(self.device_id[0])  # (bs,nfeas)
-        # weight = sub_weights[0].cuda(self.device_id[0])
-        # cos_theta_l = [F.linear(temp_x, F.normalize(weight, dim=1))]  # (bs, ncls//4)
-        # for i in range(1, len(self.device_id)):
-        #     temp_x = x.cuda(self.device_id[i])
-        #     weight = sub_weights[i].cuda(self.device_id[i])
-        #     cos_theta_l.append(
-        #         F.linear(temp_x, F.normalize(weight, dim=1)).cuda(self.device_id[0])
-        #     )
-        # logits = torch.cat(cos_theta_l, dim=1)  # (bs,ncls)
         if label is None:
             return logits
         # add margin
@@ -884,18 +874,19 @@ class AdaCos(nn.Module):
             output = logits
         # feature re-scale
         with torch.no_grad():
-            # B_avg = torch.where(one_hot < 1, torch.exp(self.s * logits), torch.zeros_like(logits))
+            B_avg = torch.where(one_hot < 1, torch.exp(self.s * logits), torch.zeros_like(logits))/input.size(0)
+            B_avg = torch.sum(B_avg)
+
             theta_neg = theta[one_hot < 1].view(bs, self.n_classes - 1)
-            B_avg = torch.sum(theta_neg) / input.size(0)
+            # B_avg = torch.sum(theta_neg) / input.size(0) # wrong !!
             theta_pos = theta[one_hot == 1]
-            # print(B_avg)
             theta_med = torch.median(theta_pos + self.m)
             s_now = torch.log(B_avg) / torch.cos(torch.min(
                 (math.pi / 4 + self.m) * torch.ones_like(theta_med),
                 theta_med))
             # self.s = self.s * 0.9 + s_now * 0.1
             self.s = s_now
-            if self.step % 999 == 0:
+            if self.step % self.interval == 0:
                 self.writer.add_scalar('theta/pos_med', theta_med.item(), self.step)
                 self.writer.add_scalar('theta/pos_mean', theta_pos.mean().item(), self.step)
                 self.writer.add_scalar('theta/neg_med', torch.median(theta_neg).item(), self.step)
