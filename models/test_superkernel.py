@@ -12,7 +12,7 @@ conf = EasyDict()
 conf.conv2dmask_drop_ratio = .1
 conf.conv2dmask_runtime_reg = []
 conf.log_interval = 1
-conf.writer = SummaryWriter('tmp')
+conf.writer = SummaryWriter('/tmp/tmp')
 use_hard = True
 import random
 
@@ -235,8 +235,7 @@ class SuperKernel(nn.Module):
         depthwise_kernel_masked_outside = kernel_3x3 + kernel_5x5 * d5x5
         # return depthwise_kernel_masked_outside
         # d5x5 = self.const_one
-
-        depthwise_kernel_masked_outside = self.depthwise_kernel
+        # depthwise_kernel_masked_outside = self.depthwise_kernel
         kernel_50c = depthwise_kernel_masked_outside * self.mask50c
         kernel_100c = depthwise_kernel_masked_outside * self.mask100c
         norm50c = torch.norm(kernel_50c)
@@ -405,10 +404,10 @@ class MobileNetV3(nn.Module):
         # building mobile blocks
         for k, exp, c, se, nl, s in mobile_setting:
             k = 5
-            se = False
-            # nl = 'PRE'
-            # if exp / c < 5.9:
-            #     exp = exp * 2
+            se = True
+            nl = 'PRE'
+            if exp / c < 5.9:
+                exp = exp * 2
             output_channel = make_divisible(c * width_mult)
             exp_channel = make_divisible(exp * width_mult)
             if use_superkernel and k == 5:
@@ -485,7 +484,7 @@ if __name__ == '__main__':
     opt = torch.optim.SGD(list(net.parameters()) + list(classifier.parameters()), lr=1e-1)
     net.train()
 
-    bs = 96
+    bs = 32
     input_size = (bs, 3, 112, 112)
     target = to_torch(np.random.randint(low=0, high=10, size=(bs,)), ).cuda()
     x = torch.rand(input_size).cuda()

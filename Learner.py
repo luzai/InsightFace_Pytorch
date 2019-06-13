@@ -945,13 +945,16 @@ class face_learner(object):
             #     {'params': paras_only_bn},
             # ], lr=conf.lr, momentum=conf.momentum)
 
-            ## fastfc
+            ## not fastfc exactly
             self.optimizer = optim.SGD([
                 {'params': paras_wo_bn[:-1], 'weight_decay': conf.weight_decay},
                 {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': conf.weight_decay,
                  'lr_mult': 10},
                 {'params': paras_only_bn, },
             ], lr=conf.lr, momentum=conf.momentum, )
+
+            ## fastfc: only head mult 10
+
         elif conf.use_opt == 'adabound':
             from tools.adabound import AdaBound
             self.optimizer = AdaBound([
@@ -1225,8 +1228,8 @@ class face_learner(object):
     def train_simple(self, conf, epochs):
         self.model.train()
         loader = self.loader
-        self.evaluate_every = conf.other_every or len(loader) // 3
-        self.save_every = conf.other_every or len(loader) // 3
+        self.evaluate_every = conf.other_every or len(loader) // 1
+        self.save_every = conf.other_every or len(loader) // 1
         self.step = conf.start_step
         writer = self.writer
         lz.timer.since_last_check('start train')
@@ -1283,9 +1286,14 @@ class face_learner(object):
                 loss_xent = F.cross_entropy(thetas, labels, )
                 runtime_reg = to_torch(np.zeros(1, 'float32')).cuda()
                 if conf.conv2dmask_runtime_reg:
-                    runtime_reg = sum(conf.conv2dmask_runtime_reg).sum()
-                    lambda_runtime_reg = 2e-3
-                    runtime_reg *= lambda_runtime_reg
+                    # runtime_reg = sum(conf.conv2dmask_runtime_reg).sum()
+                    # runtime_reg = {}
+                    # for rtreg_ in conf.conv2dmask_runtime_reg:
+                    #     name = list(rtreg_.keys())[0]
+                    #     rtreg = list(rtreg_.values())[0]
+                    #     break
+                    # lambda_runtime_reg = 2e-3
+                    # runtime_reg *= lambda_runtime_reg
                     conf.conv2dmask_runtime_reg = []
                 if conf.fp16:
                     with amp.scale_loss((loss_xent + runtime_reg) / conf.acc_grad,
@@ -2455,18 +2463,16 @@ class face_learner(object):
 
     def calc_img_feas(self, out='t.h5'):
         self.model.eval()
-        if not (conf.dataset_name == 'webface' or conf.dataset_name == 'casia'):
-            loader = DataLoader(
-                self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
-                shuffle=False, sampler=SeqSampler(), drop_last=False,
-                pin_memory=True,
-                collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
-            )
-        else:
-            loader = DataLoader(self.dataset, batch_size=conf.batch_size,
+        # loader = DataLoader(
+        #         self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
+        #         shuffle=False, sampler=SeqSampler(), drop_last=False,
+        #         pin_memory=True,
+        #         collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
+        #     )
+        loader = DataLoader(self.dataset, batch_size=conf.batch_size,
                                 num_workers=conf.num_workers, shuffle=False,
-                                drop_last=True, pin_memory=True, )
-            self.class_num = conf.num_clss = self.dataset.num_classes
+                                drop_last=False, pin_memory=True, )
+        self.class_num = conf.num_clss = self.dataset.num_classes
         import h5py
         from sklearn.preprocessing import normalize
 
@@ -2492,11 +2498,11 @@ class face_learner(object):
                 dst_xent.resize((dst.shape[0] + chunksize,), )
                 dst_xent[dst.shape[0]:dst.shape[0] + chunksize] = -1
                 dst_gxent_norm.resize((dst.shape[0] + chunksize,), )
-                dst_img.resize((dst.shape[0] + chunksize, 3, 112, 112))
+                # dst_img.resize((dst.shape[0] + chunksize, 3, 112, 112))
             assert (data['indexes'].numpy() == np.arange(ind_dst + 1, ind_dst + bs + 1)).all()
 
             with torch.no_grad():
-                embeddings = self.model(imgs, normalize=True)
+                embeddings = self.model(imgs, )
             embeddings.requires_grad_(True)
             thetas = self.head(embeddings, labels)
             loss_xent = nn.CrossEntropyLoss(reduction='sum')(thetas, labels)  # for grad of each sample
@@ -2507,7 +2513,7 @@ class face_learner(object):
                                             allow_unused=True)[0].detach()
 
             with torch.no_grad():
-                dst[ind_dst:ind_dst + bs, :] = normalize(embeddings.cpu().numpy(), axis=1).astype(np.float16)
+                dst[ind_dst:ind_dst + bs, :] = (embeddings.cpu().numpy()).astype(np.float16)
                 # dst_img[ind_dst:ind_dst + bs, :, :, :] = imgs.cpu().numpy()
                 dst_gxent[ind_dst:ind_dst + bs, :] = grad_xent.cpu().numpy().astype(np.float16)
                 dst_gxent_norm[ind_dst:ind_dst + bs] = grad_xent.norm(dim=1).cpu().numpy()

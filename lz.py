@@ -588,10 +588,10 @@ def stat(arr):
                 tensor).item()]
         ))
 
-    if type(arr).__module__ == 'numpy':
-        return stat_np(arr)
-    else:
+    if type(arr).__module__ == 'torch':
         return stat_th(arr)
+    else:
+        return stat_np(arr)
 
 
 def sel_np(A):

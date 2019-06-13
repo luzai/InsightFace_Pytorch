@@ -8,6 +8,7 @@ __all__ = ['singlepath']
 
 use_hard = True
 
+
 def conv_bn(inp, oup, stride, conv_layer=nn.Conv2d, norm_layer=nn.BatchNorm2d, nlin_layer=nn.ReLU):
     return nn.Sequential(
         conv_layer(inp, oup, 3, stride, 1, bias=False),
@@ -147,17 +148,14 @@ def judgenan(x):
 
 
 def Indicator(x):
-    sigx = F.sigmoid(x)
+    sigx = torch.sigmoid(x)
     return ((x >= 0).float() - sigx).detach() + sigx
 
 
-# def Indicator(x):
-#     return x
-
 def my_dropout(x, drop_ratio):
-    x = F.dropout(Indicator(x), drop_ratio) * drop_ratio
+    # x = F.dropout(Indicator(x), drop_ratio) * (1 - drop_ratio)
 
-    # x = F.dropout(Indicator(x), drop_ratio) # note: dropout scale the value
+    x = F.dropout(Indicator(x), drop_ratio)  # note: dropout scale the value
 
     # if np.random.rand() < drop_ratio: # drop
     #     x = torch.FloatTensor([0]).cuda()
@@ -167,11 +165,13 @@ def my_dropout(x, drop_ratio):
 
 
 class SuperKernel(nn.Module):
-    def __init__(self, exp, kernel, stride, padding, groups=None, bias=False):
+    def __init__(self, exp, kernel, stride, padding,
+                 use_res_connect=True):
         super(SuperKernel, self).__init__()
         self.padding = padding
         self.stride = stride
         self.exp = exp
+        self.use_res_connect = use_res_connect
         self.name = f'{exp}-{randomword(3)}'
         self.t5x5 = nn.Parameter(torch.FloatTensor([0.]))
         self.t50c = nn.Parameter(torch.FloatTensor([0.]))
@@ -194,55 +194,76 @@ class SuperKernel(nn.Module):
         mask_100c[c50:c100, ...] = 1.0  # from 50% to 100% channels !!
         self.mask50c = to_torch(mask_50c).cuda()
         self.mask100c = to_torch(mask_100c).cuda()
-
+        self.const_one = to_torch(np.ones(1, 'float32')).cuda()
         self.runtimes = None
-        self.step = 0
-        self.interval = conf.log_interval
-        self.writer = conf.writer
+
+    def get_decision(self):
+        with torch.no_grad():
+            kernel_3x3 = self.depthwise_kernel * self.mask3x3
+            kernel_5x5 = self.depthwise_kernel * self.mask5x5
+            norm5x5 = torch.norm(kernel_5x5)
+            x5x5 = norm5x5 - self.t5x5
+            d5x5 = Indicator(x5x5)
+            depthwise_kernel_masked_outside = kernel_3x3 + kernel_5x5 * d5x5
+            kernel_50c = depthwise_kernel_masked_outside * self.mask50c
+            kernel_100c = depthwise_kernel_masked_outside * self.mask100c
+            norm50c = torch.norm(kernel_50c)
+            norm100c = torch.norm(kernel_100c)
+            x100c = norm100c - self.t100c
+            d100c = Indicator(x100c)
+            if self.stride == 1 and self.use_res_connect:
+                x50c = norm50c - self.t50c
+                d50c = Indicator(x50c)
+            else:
+                d50c = self.const_one
+        return (d5x5, d100c, d50c)
 
     def build_kernel(self):
-        kernel_3x3 = self.depthwise_kernel * self.mask3x3
-        kernel_5x5 = self.depthwise_kernel * self.mask5x5
-        norm5x5 = torch.norm(kernel_5x5)
-
-        x5x5 = norm5x5 - self.t5x5
         dropout_rate = conf.conv2dmask_drop_ratio
+        device = self.depthwise_kernel.device
+        kernel_3x3 = self.depthwise_kernel * self.mask3x3.to(device)
+        kernel_5x5 = self.depthwise_kernel * self.mask5x5.to(device)
+        norm5x5 = torch.norm(kernel_5x5)
+        x5x5 = norm5x5 - self.t5x5
         d5x5 = my_dropout(Indicator(x5x5), dropout_rate)
         depthwise_kernel_masked_outside = kernel_3x3 + kernel_5x5 * d5x5
 
-        kernel_50c = depthwise_kernel_masked_outside * self.mask50c
-        kernel_100c = depthwise_kernel_masked_outside * self.mask100c
+        kernel_50c = depthwise_kernel_masked_outside * self.mask50c.to(device)
+        kernel_100c = depthwise_kernel_masked_outside * self.mask100c.to(device)
         norm50c = torch.norm(kernel_50c)
         norm100c = torch.norm(kernel_100c)
 
         x100c = norm100c - self.t100c
         d100c = my_dropout(Indicator(x100c), dropout_rate)
+
+        if self.stride == 1 and self.use_res_connect:
+            x50c = norm50c - self.t50c
+            d50c = my_dropout(Indicator(x50c), dropout_rate)
+        else:
+            d50c = self.const_one.to(device)
+        depthwise_kernel_masked = d50c * (kernel_50c + d100c * kernel_100c)
+
         if not self.runtimes:
-            flops = x.shape[1] ** 2 * 5 ** 2 * self.exp / 10 ** 6
-            flops_336 = x.shape[1] ** 2 * 3 ** 2 * self.exp / 10 ** 6
-            # flops = 5 ** 2 * self.exp / 200  # 556
-            # flops_336 = 3 ** 2 * self.exp / 200  # 336
+            # flops = x.shape[1] ** 2 * 5 ** 2 * self.exp / 10 ** 6 # x is the input feature matp size
+            # flops_336 = x.shape[1] ** 2 * 3 ** 2 * self.exp / 10 ** 6
+            flops = 5 ** 2 * self.exp / 200  # 556
+            flops_336 = 3 ** 2 * self.exp / 200  # 336
             self.runtimes = [0, flops_336, flops / 2, flops, 0.7]  # [0, 336, 553, 556]
             self.R50c = self.runtimes[2]
             self.R5x5 = self.R100c = self.runtimes[3]
             self.R3x3 = self.runtimes[1]
-        if self.stride == 1 and len(self.runtimes) == 5:
-            x50c = norm50c - self.t50c
-            d50c = my_dropout(Indicator(x50c), dropout_rate)
-        else:
-            d50c = to_torch(np.ones(1, 'float32')).cuda()
-        depthwise_kernel_masked = d50c * (kernel_50c + d100c * kernel_100c)
-
         ratio = self.R3x3 / self.R5x5
         runtime_channels = d50c * (self.R50c + d100c * (self.R100c - self.R50c))
         runtime_reg = runtime_channels * ratio + runtime_channels * (1 - ratio) * d5x5
-        conf.conv2dmask_runtime_reg.append(runtime_reg)
+        conf.conv2dmask_runtime_reg.append( runtime_reg)
 
-        if self.writer and self.step % self.interval == 0:
-            self.writer.add_scalar(f'sglpth/{self.name}/d5x5', d5x5.item(), self.step)
-            self.writer.add_scalar(f'sglpth/{self.name}/d50c', d50c.item(), self.step)
-            self.writer.add_scalar(f'sglpth/{self.name}/d100c', d100c.item(), self.step)
-            self.writer.add_scalar(f'sglpth/{self.name}/rtreg', runtime_reg.item(), self.step)
+        # if self.writer and self.step_internal % self.interval == 0 and self.depthwise_kernel.device.index == 0:
+        #     self.writer.add_scalar(f'd5x5/{self.name}', d5x5.item(), global_step=self.step_internal)
+        #     self.writer.add_scalar(f'd50c/{self.name}', d50c.item(), global_step=self.step_internal)
+        #     self.writer.add_scalar(f'd100c/{self.name}', d100c.item(), global_step=self.step_internal)
+        #     self.writer.add_scalar(f't100c/{self.name}', self.t100c.item(), global_step=self.step_internal)
+        #     self.writer.add_scalar(f't50c/{self.name}', self.t50c.item(), global_step=self.step_internal)
+        #     self.writer.add_scalar(f'rtreg/{self.name}', runtime_reg.item(), global_step=self.step_internal)
 
         return depthwise_kernel_masked
 
@@ -252,7 +273,6 @@ class SuperKernel(nn.Module):
             input=x, weight=depthwise_kernel_masked, stride=self.stride,
             padding=self.padding, groups=self.exp,
         )
-        self.step += 1
         if torch.isnan(output).any().item():
             raise ValueError()
         return output
@@ -288,8 +308,7 @@ class MobileBottleneck5x5(nn.Module):
             norm_layer(exp),
             nlin_layer(inplace=True),
             # dw
-            # conv_layer(exp, exp, kernel, stride, padding, groups=exp, bias=False),
-            SuperKernel(exp, kernel, stride, padding, groups=exp, bias=False),
+            SuperKernel(exp, kernel, stride, padding, use_res_connect=self.use_res_connect),
             norm_layer(exp),
             SELayer(exp),
             nlin_layer(inplace=True),
@@ -299,11 +318,6 @@ class MobileBottleneck5x5(nn.Module):
         )
 
     def forward(self, x):
-        # xx = x.clone()
-        # for l in self.conv:
-        #     if judgenan(l(xx.clone())):
-        #         raise ValueError()
-        #     xx = l(xx)
         xx = self.conv(x)
         if self.use_res_connect:
             return x + xx
@@ -325,59 +339,52 @@ class Linear_block(nn.Module):
         return x
 
 
-class MobileNetV3(nn.Module):
+class SinglePath(nn.Module):
     def __init__(self, width_mult=1.0, use_superkernel=True):
-        super(MobileNetV3, self).__init__()
+        super(SinglePath, self).__init__()
         input_channel = 64
         last_channel = 512
+        blocks = [1, 4, 8, 2]
         mobile_setting = [
             # k, exp, c,  se,     nl,  s,
-            # [5, 64, 64, False, 'PRE', 1],
-            # [5, 128, 64, False, 'PRE', 2],
-            # [3, 128, 64, False, 'RE', 1],
-            # [3, 128, 64, False, 'RE', 1],
-            # [3, 128, 64, False, 'RE', 1],
-            # [3, 128, 64, False, 'RE', 1],
-            # [3, 128, 64, False, 'RE', 1],
-            # [5, 256, 128, True, 'RE', 2],
-            # [5, 256, 128, True, 'RE', 1],
-            # [5, 256, 128, True, 'RE', 1],
-            # [5, 256, 128, True, 'RE', 1],
-            # [5, 256, 128, True, 'RE', 1],
-            # [5, 256, 128, True, 'RE', 1],
-            # [5, 512, 128, True, 'RE', 2],
-            # [5, 512, 128, True, 'RE', 1],
-            # [5, 512, 128, True, 'RE', 1],
-            [3, 16, 16, False, 'RE', 1],
-            [3, 64, 24, False, 'RE', 2],
-            [3, 72, 24, False, 'RE', 1],
-            [5, 72, 40, True, 'RE', 2],
-            [5, 120, 40, True, 'RE', 1],
-            [5, 120, 40, True, 'RE', 1],
-            [3, 240, 80, False, 'HS', 2],
-            [3, 200, 80, False, 'HS', 1],
-            [3, 184, 80, False, 'HS', 1],
-            [3, 184, 80, False, 'HS', 1],
-            [3, 480, 112, True, 'HS', 1],
-            [3, 672, 112, True, 'HS', 1],
-            [5, 672, 112, True, 'HS', 1],  # c = 112, paper set it to 160 by error
-            [5, 672, 160, True, 'HS', 2],
-            [5, 960, 160, True, 'HS', 1],
+            *([[5, 64, 64, False, 'PRE', 1]] * blocks[0]),
+            [5, 128, 64, False, 'PRE', 2],
+            *([[3, 128, 64, False, 'RE', 1]] * blocks[1]),
+            [5, 256, 128, True, 'RE', 2],
+            *([[5, 128, 128, True, 'RE', 1]] * blocks[2]),
+            [5, 512, 128, True, 'RE', 2],
+            *([[5, 256, 128, True, 'RE', 1]] * blocks[3]),
+
+            # [3, 16, 16, False, 'RE', 1],
+            # [3, 64, 24, False, 'RE', 2],
+            # [3, 72, 24, False, 'RE', 1],
+            # [5, 72, 40, True, 'RE', 2],
+            # [5, 120, 40, True, 'RE', 1],
+            # [5, 120, 40, True, 'RE', 1],
+            # [3, 240, 80, False, 'HS', 2],
+            # [3, 200, 80, False, 'HS', 1],
+            # [3, 184, 80, False, 'HS', 1],
+            # [3, 184, 80, False, 'HS', 1],
+            # [3, 480, 112, True, 'HS', 1],
+            # [3, 672, 112, True, 'HS', 1],
+            # [5, 672, 112, True, 'HS', 1],  # c = 112, paper set it to 160 by error
+            # [5, 672, 160, True, 'HS', 2],
+            # [5, 960, 160, True, 'HS', 1],
         ]
         # building first layer
         # assert input_size % 32 == 0
         # input_channel = make_divisible(input_channel * width_mult)  # first channel is always 16!
         self.last_channel = make_divisible(last_channel * width_mult) if width_mult > 1.0 else last_channel
-        self.features = [conv_bn(3, input_channel, 1, nlin_layer=lambda inplace: nn.PReLU()  # Hswish
+        self.features = [conv_bn(3, input_channel, 2, nlin_layer=lambda inplace: nn.PReLU()  # Hswish
                                  )]
 
         # building mobile blocks
         for k, exp, c, se, nl, s in mobile_setting:
             k = 5
-            se = False
-            # nl = 'PRE'
-            # if exp / c < 5.9:
-            #     exp = exp * 2
+            se = True
+            nl = 'PRE'
+            if exp / c < 5.9:
+                exp = exp * 2
             output_channel = make_divisible(c * width_mult)
             exp_channel = make_divisible(exp * width_mult)
             if use_superkernel and k == 5:
@@ -387,12 +394,11 @@ class MobileNetV3(nn.Module):
             input_channel = output_channel
 
         # building last several layers
-        last_conv = make_divisible(960 * width_mult)
+        last_conv = make_divisible(512 * width_mult)  # todo or just last_channel/512
         self.features.append(conv_1x1_bn(input_channel, last_conv, nlin_layer=lambda inplace: nn.PReLU()  # Hswish
                                          ))
         self.pool = Linear_block(last_conv, last_conv, groups=last_conv, kernel=(7, 7), stride=(1, 1),
                                  padding=(0, 0))
-        # self.pool = nn.AdaptiveAvgPool2d(1)
         self.flatten = Flatten()
         self.linear = nn.Linear(last_conv, last_channel, bias=False)
         self.bn = nn.BatchNorm1d(last_channel)
@@ -410,7 +416,7 @@ class MobileNetV3(nn.Module):
         x = self.linear(x)
         assert not torch.isnan(x).any().item()
         x = self.bn(x)
-        x = F.normalize(x, dim=1)
+        # x = F.normalize(x, dim=1)
         return x
 
     def _initialize_weights(self):
@@ -432,14 +438,14 @@ class MobileNetV3(nn.Module):
 
 
 def singlepath(pretrained=False, **kwargs):
-    model = MobileNetV3(**kwargs)
+    model = SinglePath(**kwargs)
     if pretrained:
         raise NotImplementedError
     return model
 
 
 if __name__ == '__main__':
-    init_dev(3)
+    init_dev(0)
     net = singlepath(
         use_superkernel=True,
         # width_mult=1.285,
@@ -449,19 +455,21 @@ if __name__ == '__main__':
     # net.load_state_dict(state_dict)
     print('mobilenetv3:\n', net)
     print('Total params: %.2fM' % (sum(p.numel() for p in net.parameters()) / 1000000.0))
-    opt = torch.optim.SGD(net.parameters(), lr=1e-3)
-    bs = 96
+    net = net.cuda()
+    classifier = nn.Linear(512, 10).cuda()
+    opt = torch.optim.SGD(list(net.parameters()) + list(classifier.parameters()), lr=1e-1)
+    net.train()
+
+    bs = 16
     input_size = (bs, 3, 112, 112)
     target = to_torch(np.random.randint(low=0, high=10, size=(bs,)), ).cuda()
-    net = net.cuda()
-    net.train()
     x = torch.rand(input_size).cuda()
     grad_min, grad_max = 0, 0
-    for i in range(32):
-        print(' forward ----- ', i )
+    for i in range(99):
+        print(' forward ----- ', i)
         opt.zero_grad()
         out = net(x)
-        logits = nn.Linear(512, 10).cuda()(out)
+        logits = classifier(out)
         loss = nn.CrossEntropyLoss()(logits, target)
         loss.backward()
         # torch.nn.utils.clip_grad_value_(net.parameters(), 5)

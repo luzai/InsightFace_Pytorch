@@ -16,9 +16,10 @@ def log_conf(conf):
 
 parser = argparse.ArgumentParser(description='PyTorch Training')
 parser.add_argument('--local_rank', default=None, type=int,)
-parser.add_argument('--mbfc_wm', default=1.56, type=float,)
-parser.add_argument('--mbfc_dm', default=2, type=float,)
+parser.add_argument('--mbfc_wm', default=conf.mbfc_wm, type=float,)
+parser.add_argument('--mbfc_dm', default=conf.mbfc_dm, type=float,)
 parser.add_argument('--work_path', default=None, type=str,)
+parser.add_argument('--epochs', default=conf.epochs, type=int,)
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -69,7 +70,7 @@ if __name__ == '__main__':
         # 'retina.r50',
         # 'casia.mb.stnconv.7',
         # 'casia.r20.arc.scrth.long',
-        # 'hrnet.retina.arc.2',
+        # 'hrnet.retina.arc.3',
         # 'mbv3.retina.arc',
         # 'mbfc.lrg.retina.arc.s48'
     ]:
@@ -85,7 +86,10 @@ if __name__ == '__main__':
         # ress[p] = res
         # logging.warning(f'{p} res: {res}')
     print(ress)
-    # learner.calc_img_feas(out='work_space/retina.r50.h5')
+    # from tools.test_ijbc3 import test_ijbc3
+    # res = test_ijbc3(conf, learner)
+
+    # learner.calc_img_feas(out='work_space/retina.hrnet.h5')
 
     # log_lrs, losses = learner.find_lr(
     #                                   num=999,
@@ -114,9 +118,9 @@ if __name__ == '__main__':
     # learner.train_with_wei(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)
     # res = learner.validate_ori(conf)
-    from tools.test_ijbc3 import test_ijbc3
 
-    res = test_ijbc3(conf, learner)
+    # from tools.test_ijbc3 import test_ijbc3
+    # res = test_ijbc3(conf, learner)
 
     #     steps = learner.list_steps(conf.model_path)
     #     for step in steps[::-1]:
