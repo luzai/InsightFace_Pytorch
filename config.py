@@ -9,7 +9,7 @@ from torchvision import transforms as trans
 # todo label smooth
 
 dist = False
-num_devs = 2
+num_devs = 4
 if dist:
     num_devs = 1
 else:
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/casia.r20.ada.mg4.bak')
+conf.work_path = Path('work_space/mbfc.retina.arc.cotch')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -48,7 +48,7 @@ casia_folder = conf.data_path / 'casia'  # the cleaned one todo may need the oth
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = dingyi_folder
+conf.use_data_folder = retina_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 
 if conf.use_data_folder == ms1m_folder:
@@ -65,7 +65,7 @@ conf.mining = 'rand.id'  # todo balance opt # 'dop' 'imp' rand.img(slow) rand.id
 conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
 conf.rand_ratio = 9 / 27
 
-conf.margin = .5 # todo do not forget if use adacos!
+conf.margin = .5  # todo do not forget if use adacos!
 conf.margin2 = .25
 conf.topk = 5
 conf.fgg = ''  # g gg ''
@@ -78,16 +78,16 @@ conf.input_size = [112, 112]
 conf.embedding_size = 512
 
 conf.drop_ratio = .4
-conf.conv2dmask_drop_ratio = .4
+conf.conv2dmask_drop_ratio = .1
 conf.conv2dmask_runtime_reg = []
-conf.net_mode = 'sglpth'  # sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
+conf.net_mode = 'mobilefacenet'  # sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
 conf.net_depth = 20  # 100 121 169 201 264 50 20
 conf.mb_mode = 'face.large'
 conf.mb_mult = 1.285
 # conf.mb_mode = 'face.small'
 # conf.mb_mult = 2.005 # 1.37
 conf.mbfc_wm = 1.  # 1.56
-conf.mbfc_dm = 1.  # 2
+conf.mbfc_dm = 2.  # 2
 
 conf.test_transform = trans.Compose([
     trans.ToTensor(),
@@ -116,14 +116,14 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 128 * num_devs
+conf.batch_size = 192 * num_devs
 # conf.batch_size = 16
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
 conf.log_interval = 15
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 4
+conf.acc_grad = 1
 # --------------------Training Config ------------------------
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
 conf.use_opt = 'sgd'  # adabound

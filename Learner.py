@@ -946,14 +946,19 @@ class face_learner(object):
             # ], lr=conf.lr, momentum=conf.momentum)
 
             ## not fastfc exactly
-            self.optimizer = optim.SGD([
-                {'params': paras_wo_bn[:-1], 'weight_decay': conf.weight_decay},
-                {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': conf.weight_decay,
-                 'lr_mult': 10},
-                {'params': paras_only_bn, },
-            ], lr=conf.lr, momentum=conf.momentum, )
+            # self.optimizer = optim.SGD([
+            #     {'params': paras_wo_bn[:-1], 'weight_decay': conf.weight_decay},
+            #     {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': conf.weight_decay,
+            #      'lr_mult': 10},
+            #     {'params': paras_only_bn, },
+            # ], lr=conf.lr, momentum=conf.momentum, )
 
             ## fastfc: only head mult 10
+            self.optimizer = optim.SGD([
+                {'params': paras_wo_bn, 'weight_decay': conf.weight_decay},
+                {'params': [*self.head.parameters()], 'weight_decay': conf.weight_decay, 'lr_mult': 10},
+                {'params': paras_only_bn, },
+            ], lr=conf.lr, momentum=conf.momentum, )
 
         elif conf.use_opt == 'adabound':
             from tools.adabound import AdaBound
@@ -2470,8 +2475,8 @@ class face_learner(object):
         #         collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
         #     )
         loader = DataLoader(self.dataset, batch_size=conf.batch_size,
-                                num_workers=conf.num_workers, shuffle=False,
-                                drop_last=False, pin_memory=True, )
+                            num_workers=conf.num_workers, shuffle=False,
+                            drop_last=False, pin_memory=True, )
         self.class_num = conf.num_clss = self.dataset.num_classes
         import h5py
         from sklearn.preprocessing import normalize
@@ -2737,7 +2742,8 @@ class face_cotching(face_learner):
             self.dataset = DatasetCasia(conf.use_data_folder, )
             self.loader = DataLoader(self.dataset, batch_size=conf.batch_size,
                                      num_workers=conf.num_workers,
-                                     sampler=torch.utils.data.sampler.WeightedRandomSampler(weis, weis.shape[0]),
+                                     # sampler=torch.utils.data.sampler.WeightedRandomSampler(weis, weis.shape[0]),
+                                     shuffle=True,
                                      drop_last=True, pin_memory=True, )
             self.class_num = conf.num_clss = self.dataset.num_classes
             conf.explored = np.zeros(self.class_num, dtype=int)
@@ -2747,8 +2753,9 @@ class face_cotching(face_learner):
             self.loader = DataLoader(
                 self.dataset, batch_size=conf.batch_size,
                 num_workers=conf.num_workers,
-                sampler=RandomIdSampler(self.dataset.imgidx,
-                                        self.dataset.ids, self.dataset.id2range),
+                # sampler=RandomIdSampler(self.dataset.imgidx,
+                #                         self.dataset.ids, self.dataset.id2range),
+                shuffle=True,
                 drop_last=True, pin_memory=True,
                 collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
             )
@@ -2768,10 +2775,12 @@ class face_cotching(face_learner):
             self.writer = SummaryWriter(str(conf.log_path))
         else:
             self.writer = None
+        conf.writer = self.writer
         self.step = 0
 
         if conf.net_mode == 'mobilefacenet' or conf.net_mode == 'mbfc':
             self.model = MobileFaceNet(conf.embedding_size)
+            self.model2 = MobileFaceNet(conf.embedding_size)
             logging.info('MobileFaceNet model generated')
         elif conf.net_mode == 'sglpth':
             self.model = models.singlepath()
@@ -2825,31 +2834,36 @@ class face_cotching(face_learner):
                                         amsgrad=True,
                                         lr=conf.lr,
                                         )
-        elif conf.net_mode == 'mobilefacenet' or conf.net_mode == 'csmobilefacenet':
-            if conf.use_opt == 'sgd':
-                self.optimizer = optim.SGD([
-                    {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
-                    {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
-                    {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
-                # embed()
-            elif conf.use_opt == 'adabound':
-                from tools.adabound import AdaBound
-                self.optimizer = AdaBound([
-                    {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
-                    {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
-                    {'params': paras_only_bn}
-                ], lr=conf.lr, betas=(conf.adam_betas1, conf.adam_betas2),
-                    gamma=1e-3, final_lr=conf.final_lr, )
         elif conf.use_opt == 'sgd':
-            self.optimizer = optim.SGD([
-                {'params': paras_wo_bn + [*self.head.parameters()],
-                 'weight_decay': conf.weight_decay},
-                {'params': paras_only_bn},
-            ], lr=conf.lr, momentum=conf.momentum)
             paras_only_bn2, paras_wo_bn2 = separate_bn_paras(self.model2)
+
+            ## wdecay
+            # self.optimizer = optim.SGD([
+            #     {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
+            #     {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
+            #     {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
+
+            ## normal
+            # self.optimizer = optim.SGD([
+            #     {'params': paras_wo_bn + [*self.head.parameters()],
+            #      'weight_decay': conf.weight_decay},
+            #     {'params': paras_only_bn},
+            # ], lr=conf.lr, momentum=conf.momentum)
+            # self.optimizer2 = optim.SGD([
+            #     {'params': paras_wo_bn2 + [*self.head2.parameters()],
+            #      'weight_decay': conf.weight_decay},
+            #     {'params': paras_only_bn2},
+            # ], lr=conf.lr, momentum=conf.momentum)
+
+            ## fastfc truly
+            self.optimizer = optim.SGD([
+                {'params': paras_wo_bn, 'weight_decay': conf.weight_decay},
+                {'params': [*self.head.parameters()], 'weight_decay': conf.weight_decay, 'lr_mult': 10},
+                {'params': paras_only_bn, },
+            ], lr=conf.lr, momentum=conf.momentum, )
             self.optimizer2 = optim.SGD([
-                {'params': paras_wo_bn2 + [*self.head2.parameters()],
-                 'weight_decay': conf.weight_decay},
+                {'params': paras_wo_bn2, 'weight_decay': conf.weight_decay},
+                {'params': [*self.head2.parameters()], 'weight_decay': conf.weight_decay, 'lr_mult': 10},
                 {'params': paras_only_bn2},
             ], lr=conf.lr, momentum=conf.momentum)
         elif conf.use_opt == 'adabound':
@@ -3279,14 +3293,13 @@ class face_cotching(face_learner):
                 if not imgs_l or sum([imgs.shape[0] for imgs in imgs_l]) < conf.batch_size:
                     imgs = data['imgs'].to(device=conf.model1_dev[0])
                     assert imgs.max() < 2
-                    labels_cpu = data['labels'].cpu()
                     labels = data['labels'].to(device=conf.model1_dev[0])
                     data_time.update(
                         lz.timer.since_last_check(verbose=False)
                     )
                     with torch.no_grad():
-                        embeddings = self.model(imgs, mode='train')
-                        embeddings2 = self.model2(imgs, mode='train')
+                        embeddings = self.model(imgs, )
+                        embeddings2 = self.model2(imgs, )
                         thetas = self.head(embeddings, labels)
                         thetas2 = self.head2(embeddings2, labels)
                         pred = thetas.argmax(dim=1)
@@ -3322,7 +3335,7 @@ class face_cotching(face_learner):
                     imgs_l = []
                     labels_l = []
                     labels_cpu = labels.cpu()
-                    embeddings2 = self.model2(imgs, mode='train')
+                    embeddings2 = self.model2(imgs, )
                     thetas2 = self.head2(embeddings2, labels)
                     loss_xent2 = F.cross_entropy(thetas2, labels)
                     self.optimizer2.zero_grad()
@@ -3347,7 +3360,7 @@ class face_cotching(face_learner):
                     imgs2_l = []
                     labels2_l = []
 
-                    embeddings = self.model(imgs2, mode='train')
+                    embeddings = self.model(imgs2, )
                     thetas = self.head(embeddings, labels2)
                     loss_xent = F.cross_entropy(thetas, labels2)
                     self.optimizer.zero_grad()

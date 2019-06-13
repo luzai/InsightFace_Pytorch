@@ -92,7 +92,10 @@ if __name__ == '__main__':
     # learner.train_ghm(conf, conf.epochs)
     # learner.train_with_wei(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)
-    res = learner.validate_ori(conf)
+    # res = learner.validate_ori(conf)
+
+    from tools.test_ijbc3 import test_ijbc3
+    res = test_ijbc3(conf, learner)
 
     #     steps = learner.list_steps(conf.model_path)
     #     for step in steps[::-1]:

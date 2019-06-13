@@ -354,26 +354,8 @@ class SinglePath(nn.Module):
             *([[5, 128, 128, True, 'RE', 1]] * blocks[2]),
             [5, 512, 128, True, 'RE', 2],
             *([[5, 256, 128, True, 'RE', 1]] * blocks[3]),
-
-            # [3, 16, 16, False, 'RE', 1],
-            # [3, 64, 24, False, 'RE', 2],
-            # [3, 72, 24, False, 'RE', 1],
-            # [5, 72, 40, True, 'RE', 2],
-            # [5, 120, 40, True, 'RE', 1],
-            # [5, 120, 40, True, 'RE', 1],
-            # [3, 240, 80, False, 'HS', 2],
-            # [3, 200, 80, False, 'HS', 1],
-            # [3, 184, 80, False, 'HS', 1],
-            # [3, 184, 80, False, 'HS', 1],
-            # [3, 480, 112, True, 'HS', 1],
-            # [3, 672, 112, True, 'HS', 1],
-            # [5, 672, 112, True, 'HS', 1],  # c = 112, paper set it to 160 by error
-            # [5, 672, 160, True, 'HS', 2],
-            # [5, 960, 160, True, 'HS', 1],
         ]
         # building first layer
-        # assert input_size % 32 == 0
-        # input_channel = make_divisible(input_channel * width_mult)  # first channel is always 16!
         self.last_channel = make_divisible(last_channel * width_mult) if width_mult > 1.0 else last_channel
         self.features = [conv_bn(3, input_channel, 2, nlin_layer=lambda inplace: nn.PReLU()  # Hswish
                                  )]
