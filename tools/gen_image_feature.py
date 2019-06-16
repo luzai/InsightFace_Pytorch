@@ -88,9 +88,11 @@ def get_feature(buffer):
         embedding1 = _embedding[0::2]
         embedding2 = _embedding[1::2]
         embedding = embedding1 + embedding2
+        embedding /= 2
     else:
         embedding = _embedding
-    embedding = sklearn.preprocessing.normalize(embedding)
+    embedding = sklearn.preprocessing.normalize(embedding) # todo
+    # print('norm ', np.linalg.norm(embedding, axis=1))
     return embedding
 
 
@@ -195,7 +197,7 @@ def parse_arguments(argv):
     parser.add_argument('--model', type=str, help='', default='')
     parser.set_defaults(
         input='/data/share/iccv19.lwface/iccv19-challenge-data/',
-        output=lz.work_path + 'hrnet.arc.bin',
+        output=lz.work_path + 'hrnet.arc.unrmed.bin',
         # model=lz.root_path + '../insightface/logs/r50-arcface-retina/model,16',
         model=lz.root_path + 'work_space/hrnet.retina.arc.3/models',
     )

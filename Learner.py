@@ -360,7 +360,8 @@ class TorchDataset(object):
         lz.timer.since_last_check('finish cal dataset info')
         if conf.kd and conf.sftlbl_from_file:  # todo deprecated
             self.teacher_embedding_db = lz.Database('work_space/teacher_embedding.h5', 'r')
-
+        if conf.clean_ids is not None:
+            conf.num_clss = self.num_classes = np.unique(conf.clean_ids).shape[0] - 1
         self.rec_cache = {}
         if conf.fill_cache:
             self.fill_cache()
@@ -436,6 +437,9 @@ class TorchDataset(object):
         # return res
         # else:
         # try:
+        if conf.clean_ids is not None:
+            lbl = conf.clean_ids[index]
+            if lbl == -1: return self._get_single_item(np.random.randint(low=0, high=len(self)))
         index += 1  # 1 based!
         if index in self.rec_cache:
             s = self.rec_cache[index]
@@ -453,6 +457,8 @@ class TorchDataset(object):
         label = int(label)
         imgs = self.preprocess_img(imgs)
         assert label == int(self.idx2id[index])
+        if conf.clean_ids is not None:
+            label = lbl
         # assert label in self.ids_map
         # label = self.ids_map[label]
         # label = int(label)
@@ -1233,8 +1239,8 @@ class face_learner(object):
     def train_simple(self, conf, epochs):
         self.model.train()
         loader = self.loader
-        self.evaluate_every = conf.other_every or len(loader) // 1
-        self.save_every = conf.other_every or len(loader) // 1
+        self.evaluate_every = conf.other_every or len(loader) // 3
+        self.save_every = conf.other_every or len(loader) // 3
         self.step = conf.start_step
         writer = self.writer
         lz.timer.since_last_check('start train')

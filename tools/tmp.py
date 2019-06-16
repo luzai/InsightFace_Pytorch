@@ -1,10 +1,27 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from lz import *
+import torch.optim
+from torch.optim.lr_scheduler import MultiStepLR, CyclicLR
+from models import Backbone
+from config import conf
 
-init_dev(3)
+model = Backbone(20)
+opt = torch.optim.SGD(model.parameters(), lr=conf.lr, momentum=conf.momentum, )
+# scheduler = MultiStepLR(opt, milestones=[100, 200, 300])
+scheduler = CyclicLR(opt,base_lr=0.01, max_lr = 0.1, )
+lrs = []
+es = 9999
+for e in range(es):
+    # scheduler.last_epoch = e - 1
+    scheduler.step()
+    lr = scheduler.get_lr()[0]
+    lrs.append(lr)
 
+plt.plot(list(range(es)), lrs, '.')
+plt.show()
 
+'''
 def show_adabound():
     T = 22709 * 9
     # T = 200 * 391
@@ -22,7 +39,7 @@ def show_adabound():
         print(high[ind] - 1)
 
 
-'''
+
 from nvidia.dali.pipeline import Pipeline
 import nvidia.dali.ops as ops
 import nvidia.dali.types as types

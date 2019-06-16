@@ -221,9 +221,10 @@ from torch.utils.checkpoint import checkpoint_sequential
 
 
 class Backbone(Module):
-    def __init__(self, num_layers, drop_ratio, mode='ir', ebsize=conf.embedding_size):
+    def __init__(self, num_layers=conf.net_depth, drop_ratio=conf.drop_ratio, mode=conf.net_mode,
+                 ebsize=conf.embedding_size):
         super(Backbone, self).__init__()
-        assert num_layers in [50, 100, 152, 20], 'num_layers should be 50,100, or 152'
+        assert num_layers in [20, 50, 100, 152, ], 'num_layers should be 20, 50, 100, or 152'
         assert mode in ['ir', 'ir_se'], 'mode should be ir or ir_se'
         blocks = get_blocks(num_layers)
         if mode == 'ir':
@@ -233,11 +234,12 @@ class Backbone(Module):
         self.input_layer = Sequential(Conv2d(3, 64, (3, 3), 1, 1, bias=False),
                                       bn2d(64, conf.ipabn),
                                       PReLU(64))
-
+        out_resolution = conf.input_size // 16
         self.output_layer = Sequential(bn2d(512, conf.ipabn),
                                        Dropout(drop_ratio),
                                        Flatten(),
-                                       Linear(512 * 7 * 7, ebsize, bias=True if not conf.upgrade_bnneck else False),
+                                       Linear(512 * out_resolution ** 2, ebsize,
+                                              bias=True if not conf.upgrade_bnneck else False),
                                        BatchNorm1d(ebsize))
 
         modules = []
@@ -251,6 +253,8 @@ class Backbone(Module):
         self._initialize_weights()
 
     def forward(self, x, ):
+        if conf.input_size != 112:
+            x = F.upsample_bilinear(x, size=conf.input_size)
         x = self.input_layer(x)
         x = self.body(x)
         x = self.output_layer(x)
@@ -474,7 +478,7 @@ def get_controller(
 
 
 class Conv_block(Module):
-    def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1, width_mult=1.):
+    def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1, ):
         super(Conv_block, self).__init__()
         self.conv = Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding,
                            bias=False)
@@ -490,7 +494,7 @@ class Conv_block(Module):
 
 
 class Linear_block(Module):
-    def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1, width_mult=1.):
+    def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1, ):
         super(Linear_block, self).__init__()
         self.conv = Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding,
                            bias=False)
@@ -503,26 +507,69 @@ class Linear_block(Module):
         return x
 
 
+class Hsigmoid(nn.Module):
+    def __init__(self, inplace=True):
+        super(Hsigmoid, self).__init__()
+        self.inplace = inplace
+
+    def forward(self, x):
+        res = F.relu6(x + 3., inplace=self.inplace) / 6.
+        assert not torch.isnan(res).any().item()
+        return res
+
+
+class SEModule(nn.Module):
+    def __init__(self, channel, reduction=4):
+        super(SEModule, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channel, channel // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channel // reduction, channel, bias=False),
+            Hsigmoid()
+        )
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
+
+from models.lpf import Downsample
+
+
 class Depth_Wise(Module):
-    def __init__(self, in_c, out_c, residual=False, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=1,
-                 width_mult=1.):
+    def __init__(self, in_c, out_c, residual=False, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=1, ):
         super(Depth_Wise, self).__init__()
-        self.conv = Conv_block(in_c, out_c=groups, kernel=(1, 1), padding=(0, 0), stride=(1, 1), width_mult=width_mult)
-        self.conv_dw = Conv_block(groups, groups, groups=groups, kernel=kernel, padding=padding, stride=stride,
-                                  width_mult=width_mult)
-        self.project = Linear_block(groups, out_c, kernel=(1, 1), padding=(0, 0), stride=(1, 1), width_mult=width_mult)
+        self.conv = Conv_block(in_c, out_c=groups, kernel=(1, 1), padding=(0, 0), stride=(1, 1), )
+        if conf.lpf and stride[0] == 2:
+            self.conv_dw = Linear_block(groups, groups, groups=groups, kernel=kernel, padding=padding, stride=(1, 1), )
+        else:
+            self.conv_dw = Linear_block(groups, groups, groups=groups, kernel=kernel, padding=padding, stride=stride, )
+        if conf.mbfc_se:
+            self.se = SEModule(groups)
+        else:
+            self.se = Identity()
+        self.conv_dw_nlin = nn.PReLU()
+        if conf.lpf and stride[0]==2:
+            self.dnsmpl = Downsample(channels=groups, filt_size=5, stride=2)
+        else:
+            self.dnsmpl = Identity()
+        self.project = Linear_block(groups, out_c, kernel=(1, 1), padding=(0, 0), stride=(1, 1), )
         self.residual = residual
 
     def forward(self, x):
+        xx = self.conv(x)
+        xx = self.conv_dw(xx)
+        xx = self.se(xx)
+        xx = self.conv_dw_nlin(xx)
+        xx = self.dnsmpl(xx)
+        xx = self.project(xx)
         if self.residual:
-            short_cut = x
-        x = self.conv(x)
-        x = self.conv_dw(x)
-        x = self.project(x)
-        if self.residual:
-            output = short_cut + x
+            output = x + xx
         else:
-            output = x
+            output = xx
         return output
 
 
@@ -533,7 +580,7 @@ class Residual(Module):
         for _ in range(num_block):
             modules.append(
                 Depth_Wise(c, c, residual=True, kernel=kernel, padding=padding, stride=stride, groups=groups,
-                           width_mult=width_mult))
+                           ))
         self.model = Sequential(*modules)
 
     # @jit.script_method
@@ -560,7 +607,8 @@ class MobileFaceNet(Module):
         #     blocks = [2, 8, 16, 4]
         blocks = [1, 4, 8, 2]
         blocks = [make_divisible(b * depth_mult, 1) for b in blocks]
-        self.conv1 = Conv_block(3, make_divisible(64 * width_mult), kernel=(3, 3), stride=(2, 2), padding=(1, 1), )
+        self.conv1 = Conv_block(3, make_divisible(64 * width_mult),
+                                kernel=(3, 3), stride=(2, 2), padding=(1, 1), )
         # if blocks[0] == 1:
         #     self.conv2_dw = Conv_block(make_divisible(64 * width_mult), make_divisible(64 * width_mult), kernel=(3, 3),
         #                                stride=(1, 1), padding=(1, 1), groups=make_divisible(64 * width_mult),
@@ -570,8 +618,10 @@ class MobileFaceNet(Module):
                                  groups=make_divisible(64 * width_mult), kernel=(3, 3), stride=(1, 1),
                                  padding=(1, 1),
                                  )
-        self.conv_23 = Depth_Wise(make_divisible(64 * width_mult), make_divisible(64 * width_mult), kernel=(3, 3),
-                                  stride=(2, 2), padding=(1, 1), groups=make_divisible(128 * width_mult),
+        self.conv_23 = Depth_Wise(make_divisible(64 * width_mult), make_divisible(64 * width_mult),
+                                  kernel=(3, 3),
+                                  stride=(2, 2), padding=(1, 1),
+                                  groups=make_divisible(128 * width_mult),
                                   )
         self.conv_3 = Residual(make_divisible(64 * width_mult), num_block=blocks[1],
                                groups=make_divisible(128 * width_mult), kernel=(3, 3), stride=(1, 1), padding=(1, 1),
@@ -638,129 +688,9 @@ class MobileFaceNet(Module):
         return out
 
 
-##########################################################
-class CSMobileFaceNet(Module):
-    def __init__(self, embedding_size):
-        super(CSMobileFaceNet, self).__init__()
-        self.conv1 = Conv_block(3, 66, kernel=(3, 3), stride=(2, 2), padding=(1, 1))
-        self.conv2_dw = Conv_block(66, 66, kernel=(3, 3), stride=(1, 1), padding=(1, 1), groups=66)
-        self.conv_23 = Depth_Wise_2(66, 66, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=132)
-        self.conv_3 = Residual_2(66, num_block=4, groups=132, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
-        self.conv_34 = Depth_Wise_2(66, 132, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=264)
-        self.conv_4 = Residual_2(132, num_block=6, groups=264, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
-        self.conv_45 = Depth_Wise_2(132, 132, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=528)
-        self.conv_5 = Residual_2(132, num_block=2, groups=264, kernel=(3, 3), stride=(1, 1), padding=(1, 1))
-        self.conv_6_sep = Conv_block(132, 512, kernel=(1, 1), stride=(1, 1), padding=(0, 0))
-        self.conv_6_dw = Linear_block(512, 512, groups=512, kernel=(7, 7), stride=(1, 1), padding=(0, 0))
-        self.conv_6_flatten = Flatten()
-        self.linear = Linear(512, embedding_size, bias=False)
-        self.bn = BatchNorm1d(embedding_size)
-
-    def forward(self, x):
-        out = self.conv1(x)
-        out = self.conv2_dw(out)
-        out = self.conv_23(out)
-        out = self.conv_3(out)
-        out = self.conv_34(out)
-        out = self.conv_4(out)
-        out = self.conv_45(out)
-        out = self.conv_5(out)
-        out = self.conv_6_sep(out)
-        out = self.conv_6_dw(out)
-        out = self.conv_6_flatten(out)
-        out = self.linear(out)
-        out = self.bn(out)
-        return l2_norm(out)
-
-
-class Depth_Wise_2(Module):
-    def __init__(self, in_c, out_c, residual=False, kernel=(3, 3), stride=(2, 2), padding=(1, 1), groups=1):
-        super(Depth_Wise_2, self).__init__()
-        self.residual = residual
-        self.reduction = 6
-
-        if self.residual:
-            out_c = out_c // 3
-            in_c = in_c // 3
-        else:
-            out_c = out_c // 2
-        self.out_c = out_c
-
-        self.branch1 = nn.Sequential(
-            Conv_block(in_c, out_c=groups, kernel=(1, 1), padding=(0, 0), stride=(1, 1)),
-            Conv_block(groups, groups, groups=groups, kernel=kernel, padding=padding, stride=stride),
-            Linear_block(groups, out_c, kernel=(1, 1), padding=(0, 0), stride=(1, 1))
-        )
-
-        if self.residual:
-            self.branch2 = nn.Sequential(
-                Conv_block(in_c, out_c=in_c, kernel=(1, 1), padding=(0, 0), stride=(1, 1)),
-                Linear_block(in_c, in_c, groups=in_c, kernel=kernel, padding=padding, stride=stride),
-                Conv_block(in_c, out_c, kernel=(1, 1), padding=(0, 0), stride=(1, 1))
-            )
-        else:
-            self.branch3 = nn.Sequential(
-                Linear_block(in_c, in_c, kernel=kernel, groups=in_c, padding=padding, stride=stride),
-                Conv_block(in_c, out_c, kernel=(1, 1), padding=(0, 0), stride=(1, 1))
-            )
-        if out_c >= self.reduction:
-            self.se = SEBlock(out_c, self.reduction)
-
-    def forward(self, x):
-        if self.residual:
-            x_first_part = x[:, :(x.shape[1] // 3), :, :]
-            x_second_part = x[:, (x.shape[1] // 3):(x.shape[1] // 3) * 2, :, :]
-            x_last_part = x[:, (x.shape[1] // 3) * 2:, :, :]
-            x_first_part = self.branch2(x_first_part)
-            x_second_part = self.branch1(x_second_part)
-            if self.out_c >= self.reduction:
-                x_first_part = self.se(x_first_part)
-                x_second_part = self.se(x_second_part)
-            out = channel_concatenate(x_first_part, x_second_part)
-            out = channel_concatenate(out, x_last_part)
-            out = channel_shuffle(out, 3)
-        else:
-            x1 = self.branch1(x)
-            x2 = self.branch3(x)
-            if self.out_c >= self.reduction:
-                x1 = self.se(x1)
-                x2 = self.se(x2)
-            out = channel_concatenate(x1, x2)
-            out = channel_shuffle(out, 2)
-        return out
-
-
-def channel_concatenate(x, out):
-    return torch.cat((x, out), 1)
-
-
-def channel_shuffle(x, groups):
-    batch_size, channels, height, width = x.data.size()
-    channels_per_group = channels // groups
-
-    # reshape
-    x = x.view(batch_size, groups, channels_per_group, height, width)
-
-    # transpose
-    torch.transpose(x, 1, 2).contiguous()
-
-    # flatten
-    x = x.view(batch_size, -1, height, width)
-
-    return x
-
-
-class Residual_2(Module):
-    def __init__(self, c, num_block, groups, kernel=(3, 3), stride=(1, 1), padding=(1, 1)):
-        super(Residual_2, self).__init__()
-        modules = []
-        for _ in range(num_block):
-            modules.append(
-                Depth_Wise_2(c, c, residual=True, kernel=kernel, padding=padding, stride=stride, groups=groups))
-        self.model = Sequential(*modules)
-
-    def forward(self, x):
-        return self.model(x)
+class CSMobileFaceNet(nn.Module):
+    def __init__(self):
+        raise ValueError('deprecated')
 
 
 class SEBlock(nn.Module):
@@ -1305,36 +1235,37 @@ if __name__ == '__main__':
     init_dev(3)
     # model = Backbone(50, 0, 'ir_se').cuda()
     params = []
-    wms = np.arange(1, 1.4, .01)
+    # wms = np.arange(1, 1.4, .01)
+    wms = [1]
     for wm in wms:
         model = MobileFaceNet(512,
                               width_mult=wm,
-                              depth_mult=1.,
+                              depth_mult=2,
                               ).cuda()
         model.eval()
         print('mobilenetv3:\n', model)
         ttl_params = (sum(p.numel() for p in model.parameters()) / 1000000.0)
         print('Total params: %.2fM' % ttl_params)
         params.append(ttl_params)
-    plt.plot(wms, params)
-    plt.show()
-
-    dms = np.arange(1, 2, .01)
-    params2 = []
-    for dm in dms:
-        model = MobileFaceNet(512,
-                              width_mult=1.,
-                              depth_mult=dm,
-                              ).cuda()
-        model.eval()
-        print('mobilenetv3:\n', model)
-        ttl_params = (sum(p.numel() for p in model.parameters()) / 1000000.0)
-        params2.append(ttl_params)
-        print('Total params: %.2fM' % ttl_params)
-    plt.plot(dms, params2)
-    plt.show()
-    embed()
-    exit()
+    # exit()
+    # plt.plot(wms, params)
+    # plt.show()
+    # dms = np.arange(1, 2, .01)
+    # params2 = []
+    # for dm in dms:
+    #     model = MobileFaceNet(512,
+    #                           width_mult=1.,
+    #                           depth_mult=dm,
+    #                           ).cuda()
+    #     model.eval()
+    #     print('mobilenetv3:\n', model)
+    #     ttl_params = (sum(p.numel() for p in model.parameters()) / 1000000.0)
+    #     params2.append(ttl_params)
+    #     print('Total params: %.2fM' % ttl_params)
+    # plt.plot(dms, params2)
+    # plt.show()
+    # embed()
+    # exit()
 
     # model2 = torch.jit.trace(model, torch.rand(2, 3, 112, 112).cuda())
     # model2.eval()

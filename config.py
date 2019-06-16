@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/mbfc.retina.arc.cotch')
+conf.work_path = Path('work_space/mbfc.lrg.se.lpf.retina.clean.arc')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -50,7 +50,7 @@ dingyi_folder = conf.data_path / 'faces_casia'
 
 conf.use_data_folder = retina_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
-
+conf.clean_ids = msgpack_load(root_path + 'train.configs/clean2.pk')  # None
 if conf.use_data_folder == ms1m_folder:
     conf.cutoff = 0
 elif conf.use_data_folder == glint_folder:
@@ -74,20 +74,21 @@ conf.tri_wei = 0
 conf.scale = 48
 conf.instances = 4
 
-conf.input_size = [112, 112]
+conf.input_size = 112  # 112
 conf.embedding_size = 512
-
 conf.drop_ratio = .4
 conf.conv2dmask_drop_ratio = .1
 conf.conv2dmask_runtime_reg = []
 conf.net_mode = 'mobilefacenet'  # sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
-conf.net_depth = 20  # 100 121 169 201 264 50 20
+conf.net_depth = 100  # 100 121 169 201 264 50 20
 conf.mb_mode = 'face.large'
 conf.mb_mult = 1.285
 # conf.mb_mode = 'face.small'
 # conf.mb_mult = 2.005 # 1.37
 conf.mbfc_wm = 1.  # 1.56
 conf.mbfc_dm = 2.  # 2
+conf.mbfc_se = True
+conf.lpf = True
 
 conf.test_transform = trans.Compose([
     trans.ToTensor(),
@@ -116,14 +117,13 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 192 * num_devs
-# conf.batch_size = 16
+conf.batch_size = 80 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
 conf.log_interval = 15
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 1
+conf.acc_grad = 2
 # --------------------Training Config ------------------------
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
 conf.use_opt = 'sgd'  # adabound
@@ -144,7 +144,7 @@ conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = .5
+conf.fill_cache = .1
 
 
 # todo may use kl_div to speed up
@@ -166,7 +166,7 @@ class CrossEntropyLabelSmooth(nn.Module):
     def forward(self, inputs, targets):
         """
         Args:
-            inputs: prediction matrix (before softmax) with shape (batch_size, num_classes)
+            inputs: prediction matrix (before softmax) with shape (bs, num_classes)
             targets: ground truth labels with shape (num_classes)
         """
         log_probs = self.logsoftmax(inputs)
