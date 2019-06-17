@@ -254,7 +254,8 @@ class Backbone(Module):
 
     def forward(self, x, ):
         if conf.input_size != 112:
-            x = F.upsample_bilinear(x, size=conf.input_size)
+            with torch.no_grad():
+                x = F.upsample_bilinear(x, size=conf.input_size)
         x = self.input_layer(x)
         x = self.body(x)
         x = self.output_layer(x)
@@ -552,7 +553,7 @@ class Depth_Wise(Module):
         else:
             self.se = Identity()
         self.conv_dw_nlin = nn.PReLU()
-        if conf.lpf and stride[0]==2:
+        if conf.lpf and stride[0] == 2:
             self.dnsmpl = Downsample(channels=groups, filt_size=5, stride=2)
         else:
             self.dnsmpl = Identity()
@@ -671,6 +672,10 @@ class MobileFaceNet(Module):
 
     # @jit.script_method
     def forward(self, x, *args, **kwargs):
+        if conf.input_rg_255:
+            with torch.no_grad():
+                x*=127.5
+                x+=127.5
         out = self.conv1(x)
         out = self.conv2_dw(out)
         out = self.conv_23(out)

@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/mbfc.lrg.se.lpf.retina.clean.arc')
+conf.work_path = Path('work_space/mbfc.lrg.se.retina.clean.arc')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -74,6 +74,7 @@ conf.tri_wei = 0
 conf.scale = 48
 conf.instances = 4
 
+conf.input_rg_255 = False
 conf.input_size = 112  # 112
 conf.embedding_size = 512
 conf.drop_ratio = .4
@@ -88,7 +89,7 @@ conf.mb_mult = 1.285
 conf.mbfc_wm = 1.  # 1.56
 conf.mbfc_dm = 2.  # 2
 conf.mbfc_se = True
-conf.lpf = True
+conf.lpf = False
 
 conf.test_transform = trans.Compose([
     trans.ToTensor(),
@@ -117,13 +118,13 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 80 * num_devs
+conf.batch_size = 128 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
 conf.log_interval = 15
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 2
+conf.acc_grad = 1
 # --------------------Training Config ------------------------
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
 conf.use_opt = 'sgd'  # adabound
@@ -144,7 +145,7 @@ conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = .1
+conf.fill_cache = .6
 
 
 # todo may use kl_div to speed up

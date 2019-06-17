@@ -2474,12 +2474,6 @@ class face_learner(object):
 
     def calc_img_feas(self, out='t.h5'):
         self.model.eval()
-        # loader = DataLoader(
-        #         self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
-        #         shuffle=False, sampler=SeqSampler(), drop_last=False,
-        #         pin_memory=True,
-        #         collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
-        #     )
         loader = DataLoader(self.dataset, batch_size=conf.batch_size,
                             num_workers=conf.num_workers, shuffle=False,
                             drop_last=False, pin_memory=True, )
@@ -2536,97 +2530,7 @@ class face_learner(object):
                 # break
         f.flush()
         f.close()
-
-    def calc_fc_feas(self, out='t.pk'):
-        self.model.eval()
-        loader = DataLoader(
-            self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
-            shuffle=False, sampler=SeqSampler(), drop_last=False,
-            pin_memory=True,
-            collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
-        )
-        features = np.empty((self.dataset.num_classes, 512))
-        import collections
-        features_tmp = collections.defaultdict(list)
-        features_wei = collections.defaultdict(list)
-        for ind_data, data in data_prefetcher(enumerate(loader)):
-            if ind_data % 99 == 3:
-                logging.info(f'{ind_data} / {len(loader)}')
-                # break
-            imgs = data['imgs']
-            labels = data['labels_cpu'].numpy()
-            labels_unique = np.unique(labels)
-            with torch.no_grad():
-                # embeddings = self.model(imgs, normalize=False).half().cpu().numpy().astype(np.float16)
-                embeddings = self.model(imgs, normalize=False).cpu().numpy()
-            for la in labels_unique:
-                features_tmp[la].append(embeddings[labels == la].mean(axis=0))
-                features_wei[la].append(np.count_nonzero(labels == la))
-        self.nimgs = np.asarray([
-            range_[1] - range_[0] for id_, range_ in self.dataset.id2range.items()
-        ])
-        self.nimgs_normed = self.nimgs / self.nimgs.sum()
-        for ind_fea in features_tmp:
-            fea_tmp = features_tmp[ind_fea]
-            fea_tmp = np.asarray(fea_tmp)
-            fea_wei = features_wei[ind_fea]
-            fea_wei = np.asarray(fea_wei)
-            fea_wei = fea_wei / fea_wei.sum()
-            fea_wei = fea_wei.reshape((-1, 1))
-            fea = (fea_tmp * fea_wei).sum(axis=0)
-            from sklearn.preprocessing import normalize
-            print('how many norm', self.nimgs[ind_fea], np.sqrt((fea ** 2).sum()))
-            fea = normalize(fea.reshape(1, -1)).flatten()
-            features[ind_fea, :] = fea
-        lz.msgpack_dump(features, out)
-
-    def calc_importance(self, out):
-        self.model.eval()
-        loader = DataLoader(
-            self.dataset, batch_size=conf.batch_size, num_workers=conf.num_workers,
-            shuffle=False, sampler=SeqSampler(), drop_last=False,
-            pin_memory=True,
-        )
-        conf.dop = np.ones(ds.ids.max() + 1, dtype=int) * 1e-8
-        conf.id2range_dop = {str(id_):
-                                 np.ones((range_[1] - range_[0],)) * 1e-8
-                             for id_, range_ in
-                             ds.id2range.items()}
-        conf.sub_imp_loss = {str(id_):
-                                 np.ones((range_[1] - range_[0],)) * 1e-8
-                             for id_, range_ in
-                             ds.id2range.items()}
-        for ind_data, data in enumerate(loader):
-            if ind_data % 999 == 0:
-                logging.info(f'{ind_data} / {len(loader)}')
-            imgs = data['imgs']
-            labels_cpu = data['labels']
-            ind_inds = data['ind_inds']
-            imgs = imgs.cuda()
-            labels = labels_cpu.cuda()
-
-            with torch.no_grad():
-                embeddings = self.model(imgs)
-            embeddings.requires_grad_(True)
-            thetas = self.head(embeddings, labels)
-            losses = nn.CrossEntropyLoss(reduction='none')(thetas, labels)
-            loss = losses.mean()
-            if conf.tri_wei != 0:
-                loss_triplet = self.head_triplet(embeddings, labels)
-                loss = ((1 - conf.tri_wei) * loss + conf.tri_wei * loss_triplet) / (1 - conf.tri_wei)
-            grad = torch.autograd.grad(loss, embeddings,
-                                       retain_graph=True, create_graph=False,
-                                       only_inputs=True)[0].detach()
-            gi = torch.norm(grad, dim=1)
-            for lable_, ind_ind_, gi_, loss_ in zip(labels_cpu.numpy(), ind_inds.numpy(), gi.cpu().numpy(),
-                                                    losses.detach().cpu().numpy()):
-                conf.id2range_dop[str(lable_)][ind_ind_] = gi_
-                conf.sub_imp_loss[str(lable_)][ind_ind_] = loss_
-                conf.dop[lable_] = conf.id2range_dop[str(lable_)].mean()
-        lz.msgpack_dump({'dop': conf.dop,
-                         'id2range_dop': conf.id2range_dop,
-                         'sub_imp_loss': conf.sub_imp_loss
-                         }, out)
+        self.model.train()
 
     def find_lr(self,
                 init_value=1e-5,
