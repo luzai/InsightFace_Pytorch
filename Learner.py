@@ -1256,10 +1256,15 @@ class face_learner(object):
                 self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                 logging.info(f'validation accuracy on {ds} is {accuracy} ')
         for e in range(conf.start_epoch, epochs):
-            if e >= 10: conf.conv2dmask_drop_ratio = 0.
+            # todo
+            if e >= 10:
+                conf.conv2dmask_drop_ratio = 0.
+                lambda_runtime_reg = 2e-3 # todo how many is suitable??
+            else:
+                # conf.conv2dmask_drop_ratio = .1
+                lambda_runtime_reg = 0
             lz.timer.since_last_check('epoch {} started'.format(e))
             # self.schedule_lr(e)
-
             loader_enum = self.get_loader_enum()
             acc_grad_cnt = 0
             while True:
@@ -1297,14 +1302,11 @@ class face_learner(object):
                 loss_xent = F.cross_entropy(thetas, labels, )
                 runtime_reg = to_torch(np.zeros(1, 'float32')).cuda()
                 if conf.conv2dmask_runtime_reg:
-                    # runtime_reg = sum(conf.conv2dmask_runtime_reg).sum()
-                    # runtime_reg = {}
-                    # for rtreg_ in conf.conv2dmask_runtime_reg:
-                    #     name = list(rtreg_.keys())[0]
-                    #     rtreg = list(rtreg_.values())[0]
-                    #     break
-                    # lambda_runtime_reg = 2e-3
-                    # runtime_reg *= lambda_runtime_reg
+                    runtime_reg = 0
+                    for rtreg in conf.conv2dmask_runtime_reg:
+                        if rtreg.device.index == 0:
+                            runtime_reg += rtreg
+                    runtime_reg = lambda_runtime_reg * torch.log(runtime_reg)
                     conf.conv2dmask_runtime_reg = []
                 if conf.fp16:
                     with amp.scale_loss((loss_xent + runtime_reg) / conf.acc_grad,

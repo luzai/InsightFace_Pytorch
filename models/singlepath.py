@@ -216,7 +216,7 @@ class SuperKernel(nn.Module):
                 d50c = Indicator(x50c)
             else:
                 d50c = self.const_one
-        return (d5x5, d100c, d50c)
+        return d5x5, d100c, d50c, self.t5x5, self.t100c,self.t50c
 
     def build_kernel(self):
         dropout_rate = conf.conv2dmask_drop_ratio
@@ -252,12 +252,13 @@ class SuperKernel(nn.Module):
             self.R50c = self.runtimes[2]
             self.R5x5 = self.R100c = self.runtimes[3]
             self.R3x3 = self.runtimes[1]
-        ratio = self.R3x3 / self.R5x5
-        runtime_channels = d50c * (self.R50c + d100c * (self.R100c - self.R50c))
-        runtime_reg = runtime_channels * ratio + runtime_channels * (1 - ratio) * d5x5
-        conf.conv2dmask_runtime_reg.append( runtime_reg)
+        if self.depthwise_kernel.device.index == 0:
+            ratio = self.R3x3 / self.R5x5
+            runtime_channels = d50c * (self.R50c + d100c * (self.R100c - self.R50c))
+            runtime_reg = runtime_channels * ratio + runtime_channels * (1 - ratio) * d5x5
+            conf.conv2dmask_runtime_reg.append(runtime_reg) # todo may do not need global var, just get_dec ?
 
-        # if self.writer and self.step_internal % self.interval == 0 and self.depthwise_kernel.device.index == 0:
+        # if self.writer and self.step_internal % self.interval == 0 and self.depthwise_kernel.device.index == 0: # todo find a way to log
         #     self.writer.add_scalar(f'd5x5/{self.name}', d5x5.item(), global_step=self.step_internal)
         #     self.writer.add_scalar(f'd50c/{self.name}', d50c.item(), global_step=self.step_internal)
         #     self.writer.add_scalar(f'd100c/{self.name}', d100c.item(), global_step=self.step_internal)
@@ -301,14 +302,14 @@ class MobileBottleneck5x5(nn.Module):
             SELayer = SEModule
         else:
             SELayer = Identity
-
+        self.super_kernel = SuperKernel(exp, kernel, stride, padding, use_res_connect=self.use_res_connect)
         self.conv = nn.Sequential(
             # pw
             conv_layer(inp, exp, 1, 1, 0, bias=False),
             norm_layer(exp),
             nlin_layer(inplace=True),
             # dw
-            SuperKernel(exp, kernel, stride, padding, use_res_connect=self.use_res_connect),
+            self.super_kernel,
             norm_layer(exp),
             SELayer(exp),
             nlin_layer(inplace=True),
@@ -323,6 +324,8 @@ class MobileBottleneck5x5(nn.Module):
             return x + xx
         else:
             return xx
+    def get_decision(self):
+        return self.super_kernel.get_decision()
 
 
 class Linear_block(nn.Module):
@@ -359,7 +362,7 @@ class SinglePath(nn.Module):
         self.last_channel = make_divisible(last_channel * width_mult) if width_mult > 1.0 else last_channel
         self.features = [conv_bn(3, input_channel, 2, nlin_layer=lambda inplace: nn.PReLU()  # Hswish
                                  )]
-
+        # self.mb
         # building mobile blocks
         for k, exp, c, se, nl, s in mobile_setting:
             k = 5

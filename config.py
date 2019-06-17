@@ -9,7 +9,7 @@ from torchvision import transforms as trans
 # todo label smooth
 
 dist = False
-num_devs = 4
+num_devs = 3
 if dist:
     num_devs = 1
 else:
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/mbfc.lrg.se.retina.clean.arc')
+conf.work_path = Path('work_space/sglpth.retina.clean.arc')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -71,7 +71,7 @@ conf.topk = 5
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
 conf.tri_wei = 0
-conf.scale = 48
+conf.scale = 32
 conf.instances = 4
 
 conf.input_rg_255 = False
@@ -80,7 +80,7 @@ conf.embedding_size = 512
 conf.drop_ratio = .4
 conf.conv2dmask_drop_ratio = .1
 conf.conv2dmask_runtime_reg = []
-conf.net_mode = 'mobilefacenet'  # sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
+conf.net_mode = 'sglpth'  # sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
 conf.net_depth = 100  # 100 121 169 201 264 50 20
 conf.mb_mode = 'face.large'
 conf.mb_mult = 1.285
@@ -88,7 +88,7 @@ conf.mb_mult = 1.285
 # conf.mb_mult = 2.005 # 1.37
 conf.mbfc_wm = 1.  # 1.56
 conf.mbfc_dm = 2.  # 2
-conf.mbfc_se = True
+conf.mbfc_se = False
 conf.lpf = False
 
 conf.test_transform = trans.Compose([
@@ -124,7 +124,7 @@ conf.board_loss_every = 15
 conf.log_interval = 15
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 1
+conf.acc_grad = 2
 # --------------------Training Config ------------------------
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
 conf.use_opt = 'sgd'  # adabound
@@ -145,7 +145,7 @@ conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = .6
+conf.fill_cache = .1
 
 
 # todo may use kl_div to speed up
