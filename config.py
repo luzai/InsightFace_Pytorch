@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/sglpth.retina.clean.arc')
+conf.work_path = Path('work_space/sglpth.casia.clean.arc')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -48,9 +48,9 @@ casia_folder = conf.data_path / 'casia'  # the cleaned one todo may need the oth
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = retina_folder
+conf.use_data_folder = dingyi_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
-conf.clean_ids = msgpack_load(root_path + 'train.configs/clean2.pk')  # None
+conf.clean_ids = None  # msgpack_load(root_path + 'train.configs/clean2.pk')
 if conf.use_data_folder == ms1m_folder:
     conf.cutoff = 0
 elif conf.use_data_folder == glint_folder:
@@ -79,7 +79,6 @@ conf.input_size = 112  # 112
 conf.embedding_size = 512
 conf.drop_ratio = .4
 conf.conv2dmask_drop_ratio = .1
-conf.conv2dmask_runtime_reg = []
 conf.net_mode = 'sglpth'  # sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
 conf.net_depth = 100  # 100 121 169 201 264 50 20
 conf.mb_mode = 'face.large'
@@ -118,7 +117,7 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 
-conf.batch_size = 128 * num_devs
+conf.batch_size = 196 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
 conf.log_interval = 15
@@ -139,13 +138,11 @@ conf.start_step = 0
 # conf.milestones = (np.array([23, 32])).astype(int)
 conf.epochs = 16
 conf.milestones = (np.array([9, 13])).astype(int)
-# conf.epochs = 12
-# conf.milestones = (np.array([5, 9])).astype(int)
 conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = .1
+conf.fill_cache = 1
 
 
 # todo may use kl_div to speed up

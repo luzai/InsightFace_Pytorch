@@ -674,8 +674,8 @@ class MobileFaceNet(Module):
     def forward(self, x, *args, **kwargs):
         if conf.input_rg_255:
             with torch.no_grad():
-                x*=127.5
-                x+=127.5
+                x *= 127.5
+                x += 127.5
         out = self.conv1(x)
         out = self.conv2_dw(out)
         out = self.conv_23(out)

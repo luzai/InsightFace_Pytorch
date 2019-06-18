@@ -986,15 +986,8 @@ class face_learner(object):
         logging.info(f'optimizers generated {self.optimizer}')
 
         if conf.local_rank is None:
-            # self.model.train()
-            # self.model.eval()
-            # self.model = torch.jit.trace(self.model, torch.rand(4, 3, 112, 112).cuda())
-            # self.model.train()
             self.model = torch.nn.DataParallel(self.model)
             self.model = self.model.cuda()
-            # self.model.eval()
-            # self.model = torch.jit.trace(self.model, torch.rand(4, 3, 112, 112).cuda())
-            # self.model.train()
         else:
             self.model = torch.nn.parallel.DistributedDataParallel(self.model.cuda(),
                                                                    device_ids=[conf.local_rank],
@@ -1131,91 +1124,85 @@ class face_learner(object):
         data_time = lz.AverageMeter()
         loss_time = lz.AverageMeter()
         accuracy = 0
+        e = 0
         ttl_batch = int(epochs * len(loader))
-        for e in range(conf.start_epoch, int(epochs) + 1):
-            lz.timer.since_last_check('epoch {} started'.format(e))
-            loader_enum = data_prefetcher(enumerate(loader))
-            while True:
-                now_lr = conf.lr * (self.step + 1) / ttl_batch
-                for params in self.optimizer.param_groups:
-                    params['lr'] = now_lr
+        loader_enum = data_prefetcher(enumerate(loader))
+        while True:
+            now_lr = conf.lr * (self.step + 1) / ttl_batch
+            for params in self.optimizer.param_groups:
+                params['lr'] = now_lr
+            ind_data, data = next(loader_enum)
+            if ind_data is None:
+                logging.info(f'one epoch finish {e} {ind_data}')
+                loader_enum = data_prefetcher(enumerate(loader))
                 ind_data, data = next(loader_enum)
-                if ind_data is None:
-                    logging.info(f'one epoch finish {e} {ind_data}')
-                    loader_enum = data_prefetcher(enumerate(loader))
-                    ind_data, data = next(loader_enum)
-                if (self.step + 1) % len(loader) == 0 or self.step > ttl_batch:
-                    self.step += 1
-                    break
-                imgs = data['imgs'].cuda()
-                assert imgs.max() < 2
-                if 'labels_cpu' in data:
-                    labels_cpu = data['labels_cpu'].cpu()
-                else:
-                    labels_cpu = data['labels'].cpu()
-                labels = data['labels'].cuda()
-                data_time.update(
-                    lz.timer.since_last_check(verbose=False)
-                )
-                self.optimizer.zero_grad()
-                embeddings = self.model(imgs, )
-                thetas = self.head(embeddings, labels)
-                loss_xent = conf.ce_loss(thetas, labels)
-                if conf.fp16:
-                    with self.optimizer.scale_loss(loss_xent) as scaled_loss:
-                        scaled_loss.backward()
-                else:
-                    loss_xent.backward()
-                with torch.no_grad():
-                    if conf.mining == 'dop':
-                        update_dop_cls(thetas, labels_cpu, conf.dop)
-                    if conf.mining == 'rand.id':
-                        conf.dop[labels_cpu.numpy()] = 1
-                conf.explored[labels_cpu.numpy()] = 1
-                with torch.no_grad():
-                    acc_t = (thetas.argmax(dim=1) == labels)
-                    acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
-                self.optimizer.step()
-                loss_time.update(
-                    lz.timer.since_last_check(verbose=False)
-                )
-                if self.step % self.board_loss_every == 0:
-                    logging.info(f'epoch {e}/{epochs} lr {now_lr}' +
-                                 f'step {self.step}/{len(loader)}: ' +
-                                 f'xent: {loss_xent.item():.2e} ' +
-                                 f'data time: {data_time.avg:.2f} ' +
-                                 f'loss time: {loss_time.avg:.2f} ' +
-                                 f'acc: {acc:.2e} ' +
-                                 f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
-                    writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
-                    writer.add_scalar('loss/xent', loss_xent.item(), self.step)
-                    writer.add_scalar('info/acc', acc, self.step)
-                    writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
-                    writer.add_scalar('info/datatime', data_time.avg, self.step)
-                    writer.add_scalar('info/losstime', loss_time.avg, self.step)
-                    writer.add_scalar('info/epoch', e, self.step)
-                    dop = conf.dop
-                    if dop is not None:
-                        writer.add_histogram('top_imp', dop, self.step)
-                        writer.add_scalar('info/doprat',
-                                          np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
-
-                if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
-                    for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
-                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
-                            conf,
-                            self.loader.dataset.root_path,
-                            ds)
-                        self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
-                        logging.info(f'validation accuracy on {ds} is {accuracy} ')
-                if self.step % self.save_every == 0 and self.step != 0:
-                    self.save_state(conf, accuracy)
-
+            if (self.step + 1) % len(loader) == 0 or self.step > ttl_batch:
                 self.step += 1
-                if conf.prof and self.step % 29 == 28:
-                    break
-            if conf.prof and e > 5:
                 break
+            imgs = data['imgs'].cuda()
+            assert imgs.max() < 2
+            if 'labels_cpu' in data:
+                labels_cpu = data['labels_cpu'].cpu()
+            else:
+                labels_cpu = data['labels'].cpu()
+            labels = data['labels'].cuda()
+            data_time.update(
+                lz.timer.since_last_check(verbose=False)
+            )
+            self.optimizer.zero_grad()
+            embeddings = self.model(imgs, )
+            thetas = self.head(embeddings, labels)
+            loss_xent = conf.ce_loss(thetas, labels)
+            if conf.fp16:
+                with amp.scale_loss(loss_xent, self.optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else:
+                loss_xent.backward()
+            with torch.no_grad():
+                if conf.mining == 'dop':
+                    update_dop_cls(thetas, labels_cpu, conf.dop)
+                if conf.mining == 'rand.id':
+                    conf.dop[labels_cpu.numpy()] = 1
+            conf.explored[labels_cpu.numpy()] = 1
+            with torch.no_grad():
+                acc_t = (thetas.argmax(dim=1) == labels)
+                acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
+            self.optimizer.step()
+            loss_time.update(
+                lz.timer.since_last_check(verbose=False)
+            )
+            if self.step % self.board_loss_every == 0:
+                logging.info(f'epoch {e}/{epochs} lr {now_lr}' +
+                             f'step {self.step}/{len(loader)}: ' +
+                             f'xent: {loss_xent.item():.2e} ' +
+                             f'data time: {data_time.avg:.2f} ' +
+                             f'loss time: {loss_time.avg:.2f} ' +
+                             f'acc: {acc:.2e} ' +
+                             f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
+                writer.add_scalar('loss/xent', loss_xent.item(), self.step)
+                writer.add_scalar('info/acc', acc, self.step)
+                writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                writer.add_scalar('info/datatime', data_time.avg, self.step)
+                writer.add_scalar('info/losstime', loss_time.avg, self.step)
+                writer.add_scalar('info/epoch', e, self.step)
+                dop = conf.dop
+                if dop is not None:
+                    writer.add_histogram('top_imp', dop, self.step)
+                    writer.add_scalar('info/doprat',
+                                      np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
+
+            if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
+                for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                        conf,
+                        self.loader.dataset.root_path,
+                        ds)
+                    self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                    logging.info(f'validation accuracy on {ds} is {accuracy} ')
+            if self.step % self.save_every == 0 and self.step != 0:
+                self.save_state(conf, accuracy)
+            self.step += 1
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
     def get_loader_enum(self, loader=None):
@@ -1256,10 +1243,9 @@ class face_learner(object):
                 self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                 logging.info(f'validation accuracy on {ds} is {accuracy} ')
         for e in range(conf.start_epoch, epochs):
-            # todo
-            if e >= 10:
+            if e >= 10:  # todo
                 conf.conv2dmask_drop_ratio = 0.
-                lambda_runtime_reg = 2e-3 # todo how many is suitable??
+                lambda_runtime_reg = 2 * 10 ** 3  # todo how many is suitable??
             else:
                 # conf.conv2dmask_drop_ratio = .1
                 lambda_runtime_reg = 0
@@ -1294,20 +1280,23 @@ class face_learner(object):
                 )
                 if acc_grad_cnt == 0:
                     self.optimizer.zero_grad()
+                runtime_reg = 0
                 embeddings = self.model(imgs, )
+                if conf.net_mode == 'sglpth':
+                    embeddings, ttl_runtime_reg = embeddings
+                    runtime_reg = lambda_runtime_reg * torch.log(ttl_runtime_reg.mean())
                 assert not torch.isnan(embeddings).any().item()
                 thetas = self.head(embeddings, labels)
                 # loss_xent_all = F.cross_entropy(thetas , labels , reduction='none')
                 # loss_xent = loss_xent_all.mean()
                 loss_xent = F.cross_entropy(thetas, labels, )
-                runtime_reg = to_torch(np.zeros(1, 'float32')).cuda()
-                if conf.conv2dmask_runtime_reg:
-                    runtime_reg = 0
-                    for rtreg in conf.conv2dmask_runtime_reg:
-                        if rtreg.device.index == 0:
-                            runtime_reg += rtreg
-                    runtime_reg = lambda_runtime_reg * torch.log(runtime_reg)
-                    conf.conv2dmask_runtime_reg = []
+                # logging.info(f'{self.model.module.features[17].dw_conv.depthwise_kernel.mean().item()}  '
+                #              f'{self.model.module.features[17].dw_conv.t5x5.mean()} '
+                #              f'{self.model.module.features[17].pw_conv.weight.mean() } '
+                #              f'{self.model.module.features[1].dw_conv.depthwise_kernel.mean().item()}  '
+                #              f'{self.model.module.features[1].dw_conv.t5x5.mean()} '
+                #              f'{self.model.module.features[1].pw_conv.weight.mean()} '
+                #              )
                 if conf.fp16:
                     with amp.scale_loss((loss_xent + runtime_reg) / conf.acc_grad,
                                         self.optimizer) as scaled_loss:
@@ -1350,6 +1339,17 @@ class face_learner(object):
                     writer.add_scalar('info/datatime', data_time.avg, self.step)
                     writer.add_scalar('info/losstime', loss_time.avg, self.step)
                     writer.add_scalar('info/epoch', e, self.step)
+
+                    if conf.net_mode == 'sglpth':
+                        with torch.no_grad():
+                            for depth, dec in enumerate(self.model.module.get_decisions()):
+                                d5x5, d100c, d50c, t5x5, t100c, t50c = dec
+                                self.writer.add_scalar(f'd5x5/{depth}', d5x5, global_step=self.step)
+                                self.writer.add_scalar(f'd50c/{depth}', d50c, global_step=self.step)
+                                self.writer.add_scalar(f'd100c/{depth}', d100c, global_step=self.step)
+                                self.writer.add_scalar(f't100c/{depth}', t100c, global_step=self.step)
+                                self.writer.add_scalar(f't50c/{depth}', t50c, global_step=self.step)
+
                     dop = conf.dop
                     if dop is not None:
                         writer.add_histogram('top_imp', dop, self.step)
