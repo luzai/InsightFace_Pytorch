@@ -552,7 +552,7 @@ class Depth_Wise(Module):
             self.se = SEModule(groups)
         else:
             self.se = Identity()
-        self.conv_dw_nlin = nn.PReLU()
+        self.conv_dw_nlin = nn.PReLU(groups)
         if conf.lpf and stride[0] == 2:
             self.dnsmpl = Downsample(channels=groups, filt_size=5, stride=2)
         else:
@@ -593,9 +593,6 @@ def make_divisible(x, divisible_by=8):
     import numpy as np
     return int(np.ceil(x * 1. / divisible_by) * divisible_by)
 
-
-# import lz
-# lz.logging.info(f'ok {conf.mbfc_dm} {conf.mbfc_wm}')
 
 class MobileFaceNet(Module):
     def __init__(self, embedding_size=conf.embedding_size,
@@ -1248,11 +1245,11 @@ if __name__ == '__main__':
                               depth_mult=2,
                               ).cuda()
         model.eval()
-        print('mobilenetv3:\n', model)
+        print('mbfc:\n', model)
         ttl_params = (sum(p.numel() for p in model.parameters()) / 1000000.0)
         print('Total params: %.2fM' % ttl_params)
         params.append(ttl_params)
-    # exit()
+    exit()
     # plt.plot(wms, params)
     # plt.show()
     # dms = np.arange(1, 2, .01)

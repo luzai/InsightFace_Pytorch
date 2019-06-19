@@ -1245,7 +1245,7 @@ class face_learner(object):
         for e in range(conf.start_epoch, epochs):
             if e >= 10:  # todo
                 conf.conv2dmask_drop_ratio = 0.
-                lambda_runtime_reg = 2 * 10 ** 3  # todo how many is suitable??
+                lambda_runtime_reg = 2 * 10 ** 1  # todo how many is suitable??
             else:
                 # conf.conv2dmask_drop_ratio = .1
                 lambda_runtime_reg = 0
@@ -1281,10 +1281,13 @@ class face_learner(object):
                 if acc_grad_cnt == 0:
                     self.optimizer.zero_grad()
                 runtime_reg = 0
-                embeddings = self.model(imgs, )
                 if conf.net_mode == 'sglpth':
+                    embeddings = self.model(imgs, need_runtime_reg=True)
                     embeddings, ttl_runtime_reg = embeddings
                     runtime_reg = lambda_runtime_reg * torch.log(ttl_runtime_reg.mean())
+                else:
+                    embeddings = self.model(imgs, )
+
                 assert not torch.isnan(embeddings).any().item()
                 thetas = self.head(embeddings, labels)
                 # loss_xent_all = F.cross_entropy(thetas , labels , reduction='none')

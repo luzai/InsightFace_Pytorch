@@ -9,7 +9,7 @@ from torchvision import transforms as trans
 # todo label smooth
 
 dist = False
-num_devs = 3
+num_devs = 1
 if dist:
     num_devs = 1
 else:
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/sglpth.casia.clean.arc')
+conf.work_path = Path('work_space/sglpth.casia.arc.ep10.lambda20')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -65,7 +65,7 @@ conf.mining = 'rand.id'  # todo balance opt # 'dop' 'imp' rand.img(slow) rand.id
 conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
 conf.rand_ratio = 9 / 27
 
-conf.margin = .5  # todo do not forget if use adacos!
+conf.margin = .3  # todo do not forget if use adacos!
 conf.margin2 = .25
 conf.topk = 5
 conf.fgg = ''  # g gg ''
@@ -123,7 +123,7 @@ conf.board_loss_every = 15
 conf.log_interval = 15
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 2
+conf.acc_grad = 6
 # --------------------Training Config ------------------------
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
 conf.use_opt = 'sgd'  # adabound
@@ -132,7 +132,7 @@ conf.adam_betas2 = .999  # 0.999 0.99
 conf.final_lr = 1e-1
 conf.lr = 1e-1
 conf.lr_gamma = 0.1
-conf.start_epoch = 0
+conf.start_epoch = 10
 conf.start_step = 0
 # conf.epochs = 37
 # conf.milestones = (np.array([23, 32])).astype(int)
