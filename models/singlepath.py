@@ -156,8 +156,11 @@ def Indicator(x):
 
 
 def my_dropout(x, drop_ratio):
-    # x = F.dropout(Indicator(x), drop_ratio) * (1 - drop_ratio)
-    x = F.dropout(Indicator(x), drop_ratio)  # note: dropout scale the value
+    if drop_ratio != 0.:
+        # x = F.dropout(Indicator(x), drop_ratio) * (1 - drop_ratio)
+        # x = F.dropout(Indicator(x), drop_ratio)  # note: dropout scale the value
+        if np.random.rand() < drop_ratio:
+            x = torch.FloatTensor([0]).to(x.device)
     return x
 
 
@@ -195,6 +198,7 @@ class SuperKernel(nn.Module):
         self.mask50c = to_torch(mask_50c).cuda()
         self.mask100c = to_torch(mask_100c).cuda()
         self.const_one = to_torch(np.ones(1, 'float32')).cuda()
+        self.const_zero = to_torch(np.zeros(1, 'float32')).cuda()
         if inp is not None:
             self.R5x5 = self.R100c = 5 ** 2 * exp + inp * exp + exp * oup
             self.R50c = 5 ** 2 * exp / 2 + inp * exp / 2 + exp / 2 * oup
@@ -224,6 +228,7 @@ class SuperKernel(nn.Module):
             d50c = self.const_one
         # return d5x5, d100c, d50c, self.t5x5, self.t100c, self.t50c
         # logging.info(f'{norm5x5.item()} {self.t5x5.item()}')
+        # logging.info(f'{d5x5.item()}')
         return d5x5.item(), d100c.item(), d50c.item(), self.t5x5.item(), self.t100c.item(), self.t50c.item()
 
     def build_kernel(self):
@@ -251,13 +256,14 @@ class SuperKernel(nn.Module):
             d50c = self.const_one.to(device)
         depthwise_kernel_masked = d50c * (kernel_50c + d100c * kernel_100c)
 
-        if not self.runtimes:
+        if self.runtimes:
             ratio = self.R3x3 / self.R5x5
             runtime_channels = d50c * (self.R50c + d100c * (self.R100c - self.R50c))
             runtime_reg = runtime_channels * ratio + runtime_channels * (1 - ratio) * d5x5
+            # runtime_reg = d50c * (self.R50c + d100c * (self.R100c - self.R50c)) * (ratio + (1 - ratio) * d5x5)
         else:
-            runtime_reg = 0
-
+            runtime_reg = self.const_zero.to(device)
+        # logging.info(f'{d5x5.item()} {runtime_reg.item()}')
         return depthwise_kernel_masked, runtime_reg
 
     def forward(self, x):
@@ -275,7 +281,8 @@ class MobileBottleneck5x5(nn.Module):
         super(MobileBottleneck5x5, self).__init__()
 
         assert stride in [1, 2]
-        assert kernel in [3, 5]
+        # assert kernel in [3, 5]
+        assert kernel == 5
         padding = (kernel - 1) // 2
         self.use_res_connect = stride == 1 and inp == oup
 
@@ -387,9 +394,12 @@ class SinglePath(nn.Module):
         # make it nn.Sequential
         self.features = nn.Sequential(*self.features)
         self._initialize_weights()
+        self.const_one = to_torch(np.ones(1, 'float32')).cuda()
+        self.const_zero = to_torch(np.zeros(1, 'float32')).cuda()
 
     def forward(self, x, need_runtime_reg=False, *args, **kwargs):
         # bs, nc, nh, nw = x.shape
+        device = x.device
         ttl_runtime_reg = 0
         x = self.head(x)
         # x = self.features(x)
@@ -454,9 +464,9 @@ def singlepath(pretrained=False, **kwargs):
 
 
 if __name__ == '__main__':
-    init_dev((2, 3))
+    init_dev((0, 1))
     net = singlepath(
-        use_superkernel=False,
+        use_superkernel=True,
         # width_mult=1.285,
         # width_mult=1,
     )
@@ -470,25 +480,28 @@ if __name__ == '__main__':
     classifier.train()
     opt = torch.optim.SGD(list(net.parameters()) + list(classifier.parameters()), lr=1e-1)
 
-    # bs = 128
-    # input_size = (bs, 3, 112, 112)
-    # target = to_torch(np.random.randint(low=0, high=10, size=(bs,)), ).cuda()
-    # x = torch.rand(input_size).cuda()
-    # # net.module.get_weight_by_decisions()
-    # for i in range(99):
-    #     print(' forward ----- ', i)
-    #     net.module.get_decisions()
-    #     opt.zero_grad()
-    #     out, runtime_reg = net(x)
-    #     logits = classifier(out)
-    #     loss = nn.CrossEntropyLoss()(logits, target)
-    #     runtime_reg = 2 * 10 ** 3 * torch.log(runtime_reg.mean())
-    #     # runtime_reg = 2*10**3 * (runtime_reg.sum())
-    #     runtime_reg.backward(retain_graph=True)
-    #     loss.backward()
-    #     # torch.nn.utils.clip_grad_value_(net.parameters(), 5)
-    #     opt.step()
-    #     print(' now loss: ', loss.item(), ' ', runtime_reg.item())
+    bs = 128
+    input_size = (bs, 3, 112, 112)
+    target = to_torch(np.random.randint(low=0, high=10, size=(bs,)), ).cuda()
+    x = torch.rand(input_size).cuda()
+    # net.module.get_weight_by_decisions()
+    for i in range(99):
+        print(' forward ----- ', i)
+        with torch.no_grad():
+            net.module.get_decisions()
+        opt.zero_grad()
+        out, runtime_reg = net(x, need_runtime_reg=True)
+        # out = net(x)
+        logits = classifier(out)
+        loss = nn.CrossEntropyLoss()(logits, target)
+        runtime_reg = runtime_reg.mean()
+        runtime_reg_loss = 0.1 * 1000 * 10 ** 3 * torch.log(runtime_reg)
+        runtime_reg_loss.backward(retain_graph=True)
+        loss.backward()
+        # torch.nn.utils.clip_grad_value_(net.parameters(), 5)
+        opt.step()
+        # print(' now loss: ', loss.item(), )
+        print(' now loss: ', loss.item(), ' ', runtime_reg.item(), ' ', runtime_reg_loss.item())
 
     # from thop import profile
     # model = net.to('cuda:0')
