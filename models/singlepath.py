@@ -161,6 +161,8 @@ def my_dropout(x, drop_ratio):
         # x = F.dropout(Indicator(x), drop_ratio)  # note: dropout scale the value
         if np.random.rand() < drop_ratio:
             x = torch.FloatTensor([0]).to(x.device)
+        else:
+            x /= (1-drop_ratio) # todo whether?
     return x
 
 
@@ -227,8 +229,6 @@ class SuperKernel(nn.Module):
         else:
             d50c = self.const_one
         # return d5x5, d100c, d50c, self.t5x5, self.t100c, self.t50c
-        # logging.info(f'{norm5x5.item()} {self.t5x5.item()}')
-        # logging.info(f'{d5x5.item()}')
         return d5x5.item(), d100c.item(), d50c.item(), self.t5x5.item(), self.t100c.item(), self.t50c.item()
 
     def build_kernel(self):
@@ -263,7 +263,6 @@ class SuperKernel(nn.Module):
             # runtime_reg = d50c * (self.R50c + d100c * (self.R100c - self.R50c)) * (ratio + (1 - ratio) * d5x5)
         else:
             runtime_reg = self.const_zero.to(device)
-        # logging.info(f'{d5x5.item()} {runtime_reg.item()}')
         return depthwise_kernel_masked, runtime_reg
 
     def forward(self, x):
@@ -491,16 +490,12 @@ if __name__ == '__main__':
             net.module.get_decisions()
         opt.zero_grad()
         out, runtime_reg = net(x, need_runtime_reg=True)
-        # out = net(x)
         logits = classifier(out)
         loss = nn.CrossEntropyLoss()(logits, target)
         runtime_reg = runtime_reg.mean()
-        runtime_reg_loss = 0.1 * 1000 * 10 ** 3 * torch.log(runtime_reg)
-        runtime_reg_loss.backward(retain_graph=True)
-        loss.backward()
-        # torch.nn.utils.clip_grad_value_(net.parameters(), 5)
+        runtime_reg_loss = 0.1 *10**3 * 10 ** 3 * torch.log(runtime_reg)
+        (0*loss + runtime_reg_loss).backward()
         opt.step()
-        # print(' now loss: ', loss.item(), )
         print(' now loss: ', loss.item(), ' ', runtime_reg.item(), ' ', runtime_reg_loss.item())
 
     # from thop import profile

@@ -1280,7 +1280,7 @@ class face_learner(object):
                 )
                 if acc_grad_cnt == 0:
                     self.optimizer.zero_grad()
-                runtime_reg = 0
+                runtime_reg = 0.52*10**6 # todo
                 if conf.net_mode == 'sglpth':
                     embeddings = self.model(imgs, need_runtime_reg=True)
                     embeddings, ttl_runtime_reg = embeddings
@@ -1293,13 +1293,6 @@ class face_learner(object):
                 # loss_xent_all = F.cross_entropy(thetas , labels , reduction='none')
                 # loss_xent = loss_xent_all.mean()
                 loss_xent = F.cross_entropy(thetas, labels, )
-                # logging.info(f'{self.model.module.features[17].dw_conv.depthwise_kernel.mean().item()}  '
-                #              f'{self.model.module.features[17].dw_conv.t5x5.mean()} '
-                #              f'{self.model.module.features[17].pw_conv.weight.mean() } '
-                #              f'{self.model.module.features[1].dw_conv.depthwise_kernel.mean().item()}  '
-                #              f'{self.model.module.features[1].dw_conv.t5x5.mean()} '
-                #              f'{self.model.module.features[1].pw_conv.weight.mean()} '
-                #              )
                 if conf.fp16:
                     with amp.scale_loss((loss_xent + runtime_reg) / conf.acc_grad,
                                         self.optimizer) as scaled_loss:
@@ -1334,8 +1327,8 @@ class face_learner(object):
                                  f'acc: {acc:.2e} ' +
                                  f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     writer.add_scalar('loss/xent', loss_xent.item(), self.step)
-                    writer.add_scalar('loss/ttlrtreg', runtime_reg.item(), self.step)
-
+                    writer.add_scalar('loss/runtime_reg', runtime_reg.item(), self.step)
+                    writer.add_scalar('loss/ttl_runtime_reg', ttl_runtime_reg.mean().item(), self.step)
                     writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     writer.add_scalar('info/acc', acc, self.step)
                     writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
