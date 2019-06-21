@@ -162,7 +162,7 @@ def my_dropout(x, drop_ratio):
         if np.random.rand() < drop_ratio:
             x = torch.FloatTensor([0]).to(x.device)
         else:
-            x /= (1-drop_ratio) # todo whether?
+            x = x / (1 - drop_ratio)  # todo whether?
     return x
 
 
@@ -263,6 +263,7 @@ class SuperKernel(nn.Module):
             # runtime_reg = d50c * (self.R50c + d100c * (self.R100c - self.R50c)) * (ratio + (1 - ratio) * d5x5)
         else:
             runtime_reg = self.const_zero.to(device)
+        # logging.info(f'{x5x5.item()} {self.t5x5.item()} {depthwise_kernel_masked.mean().item()} {runtime_reg.item()}')
         return depthwise_kernel_masked, runtime_reg
 
     def forward(self, x):
@@ -345,7 +346,9 @@ class Linear_block(nn.Module):
 
 
 class SinglePath(nn.Module):
-    def __init__(self, width_mult=1.0, depth_mult=2., use_superkernel=True):
+    def __init__(self,
+                 width_mult=conf.mbfc_wm,
+                 depth_mult=conf.mbfc_dm, use_superkernel=True):
         super(SinglePath, self).__init__()
         input_channel = make_divisible(64 * width_mult)
         last_channel = 512
@@ -463,10 +466,12 @@ def singlepath(pretrained=False, **kwargs):
 
 
 if __name__ == '__main__':
+    from config import conf
+
+    conf.conv2dmask_drop_ratio = 0
     init_dev((0, 1))
     net = singlepath(
         use_superkernel=True,
-        # width_mult=1.285,
         # width_mult=1,
     )
     # state_dict = torch.load('mobilenetv3_small_67.218.pth.tar')
@@ -489,14 +494,21 @@ if __name__ == '__main__':
         with torch.no_grad():
             net.module.get_decisions()
         opt.zero_grad()
-        out, runtime_reg = net(x, need_runtime_reg=True)
+        ttl_runtime = 0.452 * 10 ** 6
+        target_runtime = 2.5 * 10 ** 6
+        out, runtime_ = net(x, need_runtime_reg=True)
         logits = classifier(out)
         loss = nn.CrossEntropyLoss()(logits, target)
-        runtime_reg = runtime_reg.mean()
-        runtime_reg_loss = 0.1 *10**3 * 10 ** 3 * torch.log(runtime_reg)
-        (0*loss + runtime_reg_loss).backward()
+        ttl_runtime += runtime_.mean()
+        # runtime_reg_loss = 0.1 *10**3 * 10 ** 3 * torch.log(runtime_reg)
+        if ttl_runtime > target_runtime:
+            w_ = 1.03
+        else:
+            w_ = 0
+        runtime_regloss = 10 * (ttl_runtime / target_runtime) ** w_
+        (loss + runtime_regloss).backward()
         opt.step()
-        print(' now loss: ', loss.item(), ' ', runtime_reg.item(), ' ', runtime_reg_loss.item())
+        print(' now loss: ', loss.item(), 'rt ', ttl_runtime.item(), 'rtloss ', runtime_regloss.item())
 
     # from thop import profile
     # model = net.to('cuda:0')
