@@ -2,16 +2,13 @@
 # -*- coding: future_fstrings -*-
 
 import matplotlib
-
 # matplotlib.use('Gtk3Agg')
 # matplotlib.use('TkAgg')
-# matplotlib.use('Agg')
-try:
-    import matplotlib.pyplot as plt
-except:
-    print('plt fail..')
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 # plt.switch_backend('Agg')
-# plt.switch_backend('TkAgg')
+plt.switch_backend('TkAgg')
+# print(matplotlib.get_backend())
 
 import os, sys, time, \
     random, \

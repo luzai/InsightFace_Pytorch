@@ -852,11 +852,13 @@ class face_learner(object):
         self.writer.add_text('conf', f'{conf}', 0)  # todo to markdown
         self.step = 0
 
-        if conf.net_mode == 'mobilefacenet' or conf.net_mode == 'mbfc':
+        if conf.net_mode == 'mobilefacenet' :
             self.model = MobileFaceNet(conf.embedding_size)
             logging.info('MobileFaceNet model generated')
+        elif  conf.net_mode == 'mbfc':
+            self.model = models.mbfc()
         elif conf.net_mode == 'sglpth':
-            self.model = models.singlepath(width_mult=1.15, )  # todo
+            self.model = models.singlepath()
         elif conf.net_mode == 'mbv3':
             self.model = models.mobilenetv3(mode=conf.mb_mode, width_mult=conf.mb_mult)
         elif conf.net_mode == 'hrnet':
@@ -866,7 +868,7 @@ class face_learner(object):
         elif conf.net_mode == 'resnext':
             self.model = models.ResNeXt(**models.resnext._NETS[str(conf.net_depth)])
         elif conf.net_mode == 'csmobilefacenet':
-            self.model = CSMobileFaceNet(conf.embedding_size)
+            self.model = CSMobileFaceNet()
             logging.info('CSMobileFaceNet model generated')
         elif conf.net_mode == 'densenet':
             self.model = models.DenseNet(**models.densenet._NETS[str(conf.net_depth)])
@@ -1243,11 +1245,10 @@ class face_learner(object):
                 self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                 logging.info(f'validation accuracy on {ds} is {accuracy} ')
         for e in range(conf.start_epoch, epochs):
-            if e >= 10:  # todo
+            if e >= 6:  # todo
                 conf.conv2dmask_drop_ratio = 0.
-                lambda_runtime_reg = 2 * 10 ** 1  # todo how many is suitable??
+                lambda_runtime_reg = conf.lambda_runtime_reg
             else:
-                # conf.conv2dmask_drop_ratio = .1
                 lambda_runtime_reg = 0
             lz.timer.since_last_check('epoch {} started'.format(e))
             # self.schedule_lr(e)
@@ -1280,13 +1281,21 @@ class face_learner(object):
                 )
                 if acc_grad_cnt == 0:
                     self.optimizer.zero_grad()
-                runtime_reg = 0.52*10**6 # todo
                 if conf.net_mode == 'sglpth':
+                    ttl_runtime = 0.452 * 10 ** 6  # todo
+                    target_runtime = 2.5 * 10 ** 6
                     embeddings = self.model(imgs, need_runtime_reg=True)
-                    embeddings, ttl_runtime_reg = embeddings
-                    runtime_reg = lambda_runtime_reg * torch.log(ttl_runtime_reg.mean())
+                    embeddings, runtime_ = embeddings
+                    ttl_runtime += runtime_.mean()
+                    # runtime_regloss = lambda_runtime_reg * torch.log(ttl_runtime)
+                    if ttl_runtime.item() > target_runtime:
+                        w_ = 1.03  # todo
+                    else:
+                        w_ = 0
+                    runtime_regloss = lambda_runtime_reg * (ttl_runtime/target_runtime) ** w_
                 else:
                     embeddings = self.model(imgs, )
+                    ttl_runtime = runtime_regloss = torch.FloatTensor([0]).cuda()
 
                 assert not torch.isnan(embeddings).any().item()
                 thetas = self.head(embeddings, labels)
@@ -1294,11 +1303,11 @@ class face_learner(object):
                 # loss_xent = loss_xent_all.mean()
                 loss_xent = F.cross_entropy(thetas, labels, )
                 if conf.fp16:
-                    with amp.scale_loss((loss_xent + runtime_reg) / conf.acc_grad,
+                    with amp.scale_loss((loss_xent + runtime_regloss) / conf.acc_grad,
                                         self.optimizer) as scaled_loss:
                         scaled_loss.backward()
                 else:
-                    ((loss_xent + runtime_reg) / conf.acc_grad).backward()
+                    ((loss_xent + runtime_regloss) / conf.acc_grad).backward()
                 # torch.nn.utils.clip_grad_value_(self.model.parameters(), 5)
                 with torch.no_grad():
                     if conf.mining == 'dop':
@@ -1321,14 +1330,14 @@ class face_learner(object):
                 if self.step % self.board_loss_every == 0:
                     logging.info(f'epoch {e}/{epochs} step {self.step}/{len(loader)}: ' +
                                  f'xent: {loss_xent.item():.2e} ' +
-                                 f'rtreg: {runtime_reg.item():.2e} ' +
+                                 f'ttlrt: {ttl_runtime.item():.2e} ' +
                                  f'data time: {data_time.avg:.2f} ' +
                                  f'loss time: {loss_time.avg:.2f} ' +
                                  f'acc: {acc:.2e} ' +
                                  f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
                     writer.add_scalar('loss/xent', loss_xent.item(), self.step)
-                    writer.add_scalar('loss/runtime_reg', runtime_reg.item(), self.step)
-                    writer.add_scalar('loss/ttl_runtime_reg', ttl_runtime_reg.mean().item(), self.step)
+                    writer.add_scalar('loss/runtime_regloss', runtime_regloss.item(), self.step)
+                    writer.add_scalar('loss/ttl_runtime', ttl_runtime.item(), self.step)
                     writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
                     writer.add_scalar('info/acc', acc, self.step)
                     writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
@@ -2283,6 +2292,7 @@ class face_learner(object):
     def evaluate(self, conf, path, name, nrof_folds=10, tta=True):
         # from utils import ccrop_batch
         self.model.eval()
+        roc_curve_tensor = None
         idx = 0
         if name in self.val_loader_cache:
             carray, issame = self.val_loader_cache[name]
@@ -2292,35 +2302,39 @@ class face_learner(object):
             self.val_loader_cache[name] = carray, issame
         carray = carray[:, ::-1, :, :].copy()  # BGR 2 RGB!
         embeddings = np.zeros([len(carray), conf.embedding_size])
-        with torch.no_grad():
-            while idx + conf.batch_size <= len(carray):
-                batch = torch.tensor(carray[idx:idx + conf.batch_size])
-                if tta:
-                    # batch = ccrop_batch(batch)
-                    fliped = hflip_batch(batch)
-                    emb_batch = self.model(batch.cuda()) + self.model(fliped.cuda())
-                    emb_batch = emb_batch.cpu()
-                    embeddings[idx:idx + conf.batch_size] = l2_norm(emb_batch)
-                else:
-                    embeddings[idx:idx + conf.batch_size] = self.model(batch.cuda()).cpu()
-                idx += conf.batch_size
-            if idx < len(carray):
-                batch = torch.tensor(carray[idx:])
-                if tta:
-                    # batch = ccrop_batch(batch)
-                    fliped = hflip_batch(batch)
-                    emb_batch = self.model(batch.cuda()) + self.model(fliped.cuda())
-                    emb_batch = emb_batch.cpu()
-                    embeddings[idx:] = l2_norm(emb_batch)
-                else:
-                    embeddings[idx:] = self.model(batch.cuda()).cpu()
-        tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
-        roc_curve_tensor = None
-        # buf = gen_plot(fpr, tpr)
-        # roc_curve = Image.open(buf)
-        # roc_curve_tensor = trans.ToTensor()(roc_curve)
+        try:
+            with torch.no_grad():
+                while idx + conf.batch_size <= len(carray):
+                    batch = torch.tensor(carray[idx:idx + conf.batch_size])
+                    if tta:
+                        # batch = ccrop_batch(batch)
+                        fliped = hflip_batch(batch)
+                        emb_batch = self.model(batch.cuda()) + self.model(fliped.cuda())
+                        emb_batch = emb_batch.cpu()
+                        embeddings[idx:idx + conf.batch_size] = l2_norm(emb_batch)
+                    else:
+                        embeddings[idx:idx + conf.batch_size] = self.model(batch.cuda()).cpu()
+                    idx += conf.batch_size
+                if idx < len(carray):
+                    batch = torch.tensor(carray[idx:])
+                    if tta:
+                        # batch = ccrop_batch(batch)
+                        fliped = hflip_batch(batch)
+                        emb_batch = self.model(batch.cuda()) + self.model(fliped.cuda())
+                        emb_batch = emb_batch.cpu()
+                        embeddings[idx:] = l2_norm(emb_batch)
+                    else:
+                        embeddings[idx:] = self.model(batch.cuda()).cpu()
+            tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
+            res = accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
+            # buf = gen_plot(fpr, tpr)
+            # roc_curve = Image.open(buf)
+            # roc_curve_tensor = trans.ToTensor()(roc_curve)
+        except Exception as e:
+            logging.info(f'exp is {e}')
+            res = 0, 0, None
         self.model.train()
-        return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
+        return res
 
     evaluate_accelerate = evaluate
 
@@ -2337,7 +2351,7 @@ class face_learner(object):
             else:
                 dataset = Dataset_val(path, name)
             loader = DataLoader(dataset, batch_size=conf.batch_size, num_workers=0,
-                                shuffle=False, pin_memory=False)  # todo why shuffle must false
+                                shuffle=False, pin_memory=False)
             self.val_loader_cache[name] = loader  # because we have limited memory
         length = len(loader.dataset)
         embeddings = np.zeros([length, conf.embedding_size])
@@ -2686,7 +2700,7 @@ class face_cotching(face_learner):
         conf.writer = self.writer
         self.step = 0
 
-        if conf.net_mode == 'mobilefacenet' or conf.net_mode == 'mbfc':
+        if conf.net_mode == 'mobilefacenet':
             self.model = MobileFaceNet(conf.embedding_size)
             self.model2 = MobileFaceNet(conf.embedding_size)
             logging.info('MobileFaceNet model generated')
@@ -3228,11 +3242,190 @@ class face_cotching(face_learner):
                         num_remember = max(int(round(num_disagree * lambda_e)), 1)
                         ind_update = ind_sorted[:num_remember]
                         ind2_update = ind2_sorted[:num_remember]
-                        imgs_l.append(imgs[ind_update].cpu())
-                        labels_l.append(labels[ind_update].cpu())
-                        imgs2_l.append(imgs[ind2_update].cpu())
-                        labels2_l.append(labels[ind2_update].cpu())
+                        imgs_l.append(imgs[disagree][ind_update].cpu())
+                        labels_l.append(labels[disagree][ind_update].cpu())
+                        imgs2_l.append(imgs[disagree][ind2_update].cpu())
+                        labels2_l.append(labels[disagree][ind2_update].cpu())
                     continue
+                else:
+                    imgs_new = torch.cat(imgs_l, dim=0)
+                    imgs = imgs_new[:conf.batch_size].to(device=conf.model1_dev[0])
+                    labels_new = torch.cat(labels_l, dim=0)
+                    labels = labels_new[:conf.batch_size].to(device=conf.model1_dev[0])
+                    # imgs_l = [imgs_new[conf.batch_size:]]  # whether this right
+                    # labels_l = [labels_new[conf.batch_size:]]
+                    imgs_l = []
+                    labels_l = []
+                    labels_cpu = labels.cpu()
+                    embeddings2 = self.model2(imgs, )
+                    thetas2 = self.head2(embeddings2, labels)
+                    loss_xent2 = F.cross_entropy(thetas2, labels)
+                    self.optimizer2.zero_grad()
+                    if conf.fp16:
+                        with amp.scale_loss(loss_xent2, self.optimizer2) as scaled_loss:
+                            scaled_loss.backward()
+                    else:
+                        loss_xent2.backward()
+                    self.optimizer2.step()
+
+                    imgs2_new = torch.cat(imgs2_l, dim=0)
+                    imgs2 = imgs2_new[:conf.batch_size].to(device=conf.model1_dev[0])
+                    labels2_new = torch.cat(labels2_l, dim=0)
+                    labels2 = labels2_new[:conf.batch_size].to(device=conf.model1_dev[0])
+                    # imgs2_l = [imgs2_new[conf.batch_size:]]
+                    # labels2_l = [labels2_new[conf.batch_size:]]
+                    # logging.info(f'{imgs2_new.shape[0]} {step_det}')
+                    step_det += imgs2_new[conf.batch_size:].shape[0] / conf.batch_size
+                    if step_det > 1:
+                        self.step -= 1
+                        step_det -= 1
+                    imgs2_l = []
+                    labels2_l = []
+
+                    embeddings = self.model(imgs2, )
+                    thetas = self.head(embeddings, labels2)
+                    loss_xent = F.cross_entropy(thetas, labels2)
+                    self.optimizer.zero_grad()
+                    if conf.fp16:
+                        with amp.scale_loss(loss_xent, self.optimizer) as scaled_loss:
+                            scaled_loss.backward()
+                    else:
+                        loss_xent.backward()
+                    self.optimizer.step()
+
+                with torch.no_grad():
+                    if conf.mining == 'dop':
+                        update_dop_cls(thetas, labels_cpu, conf.dop)
+                    if conf.mining == 'rand.id':
+                        conf.dop[labels_cpu.numpy()] = 1
+                conf.explored[labels_cpu.numpy()] = 1
+                with torch.no_grad():
+                    acc_t = (thetas.argmax(dim=1) == labels)
+                    acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
+                loss_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
+                if self.step % self.board_loss_every == 0:
+                    logging.info(f'epoch {e}/{epochs} step {self.step}/{len(loader)}: ' +
+                                 f'xent: {loss_xent.item():.2e} ' +
+                                 f'data time: {data_time.avg:.2f} ' +
+                                 f'loss time: {loss_time.avg:.2f} ' +
+                                 f'acc: {acc:.2e} ' +
+                                 f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                    writer.add_scalar('info/disagree', disagree.sum().item(), self.step)
+                    writer.add_scalar('info/disagree_ratio', num_disagree / conf.batch_size, self.step)
+                    writer.add_scalar('info/remenber', num_remember, self.step)
+                    writer.add_scalar('info/remenber_ratio', num_remember / conf.batch_size, self.step)
+                    writer.add_scalar('info/lambda_e', lambda_e, self.step)
+                    writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
+                    writer.add_scalar('loss/xent', loss_xent.item(), self.step)
+                    writer.add_scalar('loss/xent2', loss_xent2.item(), self.step)
+                    writer.add_scalar('info/acc', acc, self.step)
+                    writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                    writer.add_scalar('info/datatime', data_time.avg, self.step)
+                    writer.add_scalar('info/losstime', loss_time.avg, self.step)
+                    writer.add_scalar('info/epoch', e, self.step)
+                    dop = conf.dop
+                    if dop is not None:
+                        writer.add_histogram('top_imp', dop, self.step)
+                        writer.add_scalar('info/doprat',
+                                          np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
+
+                if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
+                    for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
+                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                            conf,
+                            self.loader.dataset.root_path,
+                            ds)
+                        self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                        logging.info(f'validation accuracy on {ds} is {accuracy} ')
+                if self.step % self.save_every == 0 and self.step != 0:
+                    self.save_state(conf, accuracy)
+
+                self.step += 1
+                if conf.prof and self.step % 29 == 28:
+                    break
+            if conf.prof and e > 5:
+                break
+        self.save_state(conf, accuracy, to_save_folder=True, extra='final')
+
+    def train_cotching_accbs_v2(self, conf, epochs):
+        self.model.train()
+        self.model2.train()
+        loader = self.loader
+        self.evaluate_every = conf.other_every or len(loader) // 3
+        self.save_every = conf.other_every or len(loader) // 3
+        self.step = conf.start_step
+        writer = self.writer
+        lz.timer.since_last_check('start train')
+        data_time = lz.AverageMeter()
+        loss_time = lz.AverageMeter()
+        target_bs = conf.batch_size* conf.acc_grad
+        imgs_l = []
+        labels_l = []
+        imgs2_l = []
+        labels2_l = []
+        accuracy = 0
+        step_det = 0
+        if conf.start_eval:
+            for ds in ['cfp_fp', ]:
+                accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                    conf,
+                    self.loader.dataset.root_path,
+                    ds)
+                self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                logging.info(f'validation accuracy on {ds} is {accuracy} ')
+        for e in range(conf.start_epoch, epochs):
+            lz.timer.since_last_check('epoch {} started'.format(e))
+            self.schedule_lr(e)
+            loader_enum = data_prefetcher(enumerate(loader))
+            while True:
+                try:
+                    ind_data, data = next(loader_enum)
+                except StopIteration as err:
+                    logging.info(f'one epoch finish {e} {ind_data}')
+                    loader_enum = data_prefetcher(enumerate(loader))
+                    ind_data, data = next(loader_enum)
+                if ind_data is None:
+                    logging.info(f'one epoch finish {e} {ind_data}')
+                    loader_enum = data_prefetcher(enumerate(loader))
+                    ind_data, data = next(loader_enum)
+                if (self.step + 1) % len(loader) == 0:
+                    self.step += 1
+                    break
+                if not imgs_l or sum([imgs.shape[0] for imgs in imgs_l]) < conf.batch_size:
+                    imgs = data['imgs'].to(device=conf.model1_dev[0])
+                    assert imgs.max() < 2
+                    labels = data['labels'].to(device=conf.model1_dev[0])
+                    data_time.update(
+                        lz.timer.since_last_check(verbose=False)
+                    )
+                    embeddings = self.model(imgs, )
+                    embeddings2 = self.model2(imgs, )
+                    thetas = self.head(embeddings, labels)
+                    thetas2 = self.head2(embeddings2, labels)
+                    pred = thetas.argmax(dim=1)
+                    pred2 = thetas2.argmax(dim=1)
+                    disagree = pred != pred2
+                    if disagree.sum().item() == 0:
+                        continue  # this assert acc can finally reach bs
+                    loss_xent = F.cross_entropy(thetas[disagree], labels[disagree], reduction='none')
+                    loss_xent2 = F.cross_entropy(thetas2[disagree], labels[disagree], reduction='none')
+                    ind_sorted = loss_xent.argsort()
+                    ind2_sorted = loss_xent2.argsort()
+                    num_disagree = labels[disagree].shape[0]
+                    tau = 0.05 # 0.35
+                    Ek = len(loader)
+                    Emax = len(loader) * conf.epochs
+                    lambda_e = 1 - min(self.step / Ek * tau, (1 + (self.step - Ek) / (Emax - Ek)) * tau)
+                    num_remember = max(int(round(num_disagree * lambda_e)), 1)
+                    ind_update = ind_sorted[:num_remember]
+                    ind2_update = ind2_sorted[:num_remember]
+                    imgs_l.append(imgs[ind_update].cpu())
+                    labels_l.append(labels[ind_update].cpu())
+                    imgs2_l.append(imgs[ind2_update].cpu())
+                    labels2_l.append(labels[ind2_update].cpu())
+                # continue
                 else:
                     imgs_new = torch.cat(imgs_l, dim=0)
                     imgs = imgs_new[:conf.batch_size].to(device=conf.model1_dev[0])

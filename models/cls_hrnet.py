@@ -12,7 +12,11 @@ from __future__ import print_function
 import os
 import logging
 import functools
-from yacs.config import CfgNode as CN
+
+try:
+    from yacs.config import CfgNode as CN
+except:
+    logging.warning('no hrnet')
 import lz
 import numpy as np
 
@@ -337,7 +341,7 @@ class HighResolutionNet(nn.Module):
             nn.BatchNorm2d(1024, ),
             nn.Dropout(0.3),
             Flatten(),
-            nn.Linear(1024* 7 * 7, 512, bias=False),
+            nn.Linear(1024 * 7 * 7, 512, bias=False),
             nn.BatchNorm1d(512)
         )
 
@@ -387,7 +391,7 @@ class HighResolutionNet(nn.Module):
         #     nn.BatchNorm2d(2048, momentum=BN_MOMENTUM),
         #     nn.ReLU(inplace=True)
         # )
-        final_layer=None
+        final_layer = None
 
         return incre_modules, downsamp_modules, final_layer
 

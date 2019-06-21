@@ -253,6 +253,10 @@ class Backbone(Module):
         self._initialize_weights()
 
     def forward(self, x, ):
+        if conf.input_rg_255:
+            with torch.no_grad():
+                x *= 127.5
+                x += 127.5
         if conf.input_size != 112:
             with torch.no_grad():
                 x = F.upsample_bilinear(x, size=conf.input_size)
@@ -639,8 +643,9 @@ class MobileFaceNet(Module):
         # Conv2d = STNConv
         self.conv_6_sep = Conv_block(make_divisible(128 * width_mult), make_divisible(512 * width_mult), kernel=(1, 1),
                                      stride=(1, 1), padding=(0, 0), )
+        out_resolution = conf.input_size // 16
         self.conv_6_dw = Linear_block(make_divisible(512 * width_mult), make_divisible(512 * width_mult),
-                                      groups=make_divisible(512 * width_mult), kernel=(7, 7), stride=(1, 1),
+                                      groups=make_divisible(512 * width_mult), kernel=(out_resolution, out_resolution), stride=(1, 1),
                                       padding=(0, 0),
                                       )
         # Conv2d = nn.Conv2d
@@ -673,6 +678,9 @@ class MobileFaceNet(Module):
             with torch.no_grad():
                 x *= 127.5
                 x += 127.5
+        if conf.input_size != 112:
+            with torch.no_grad():
+                x = F.upsample_bilinear(x, size=conf.input_size)
         out = self.conv1(x)
         out = self.conv2_dw(out)
         out = self.conv_23(out)
@@ -1237,18 +1245,20 @@ if __name__ == '__main__':
     init_dev(3)
     # model = Backbone(50, 0, 'ir_se').cuda()
     params = []
-    # wms = np.arange(1, 1.4, .01)
-    wms = [1]
-    for wm in wms:
+    wmdm = "1.0,2.25 1.1,1.86 1.2,1.56 1.3,1.33 1.4,1.15 1.5,1.0".split(' ') # 1,2 1.56,2  1.0,1.0
+    wmdm = [(float(wd.split(',')[0]), float(wd.split(',')[1])) for wd in wmdm]
+    for wd in wmdm:
+        wm, dm = wd
         model = MobileFaceNet(512,
                               width_mult=wm,
-                              depth_mult=2,
+                              depth_mult=dm,
                               ).cuda()
         model.eval()
         print('mbfc:\n', model)
         ttl_params = (sum(p.numel() for p in model.parameters()) / 1000000.0)
         print('Total params: %.2fM' % ttl_params)
         params.append(ttl_params)
+    print(params)
     exit()
     # plt.plot(wms, params)
     # plt.show()

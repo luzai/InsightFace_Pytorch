@@ -15,20 +15,21 @@ def log_conf(conf):
 
 
 parser = argparse.ArgumentParser(description='PyTorch Training')
-parser.add_argument('--local_rank', default=None, type=int,)
-parser.add_argument('--mbfc_wm', default=conf.mbfc_wm, type=float,)
-parser.add_argument('--mbfc_dm', default=conf.mbfc_dm, type=float,)
-parser.add_argument('--work_path', default=None, type=str,)
-parser.add_argument('--epochs', default=conf.epochs, type=int,)
+parser.add_argument('--local_rank', default=None, type=int, )
+parser.add_argument('--mbfc_wm', default=conf.mbfc_wm, type=float, )
+parser.add_argument('--mbfc_dm', default=conf.mbfc_dm, type=float, )
+parser.add_argument('--work_path', default=None, type=str, )
+parser.add_argument('--epochs', default=conf.epochs, type=int, )
 
 if __name__ == '__main__':
     args = parser.parse_args()
     if args.work_path:
-        args.work_path = Path(args.work_path)
-        conf.work_path = args.work_path
+        conf.work_path = Path(args.work_path)
         conf.model_path = conf.work_path / 'models'
         conf.log_path = conf.work_path / 'log'
         conf.save_path = conf.work_path / 'save'
+    else:
+        args.work_path = conf.work_path
     conf.update(args.__dict__)
     conf.local_rank = args.local_rank
     if conf.local_rank is not None:
@@ -39,6 +40,7 @@ if __name__ == '__main__':
             set_stream_logger(logging.WARNING)
 
     from Learner import *
+
     # exit()
     learner = face_learner(conf, )
     # learner = face_cotching(conf, )
@@ -73,7 +75,7 @@ if __name__ == '__main__':
         # 'hrnet.retina.arc.3',
         # 'mbv3.retina.arc',
         # 'mbfc.lrg.retina.arc.s48',
-        # 'sglpth.casia.arc.ep10',
+        # 'sglpth.casia.arc.lambda.2.dp2.mg5',
     ]:
         learner.load_state(
             # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
@@ -87,6 +89,19 @@ if __name__ == '__main__':
         # ress[p] = res
         # logging.warning(f'{p} res: {res}')
     print(ress)
+
+    # ttl_params = (sum(p.numel() for p in learner.model.parameters()) / 1000000.0)
+    # from thop import profile
+    #
+    # flops, params = profile(learner.model.module, input_size=(1, 3, conf.input_size, conf.input_size),
+    #                         device='cuda:0',
+    #                         )
+    # flops /= 10 ** 9
+    # params /= 10 ** 6
+    # print('Total params: %.2fM' % ttl_params, flops,'\n',
+    #       conf.input_size, conf.mbfc_wm, conf.mbfc_dm)
+    # exit()
+
     # from tools.test_ijbc3 import test_ijbc3
     # res = test_ijbc3(conf, learner)
 
@@ -121,6 +136,7 @@ if __name__ == '__main__':
     # res = learner.validate_ori(conf)
 
     from tools.test_ijbc3 import test_ijbc3
+
     res = test_ijbc3(conf, learner)
 
     #     steps = learner.list_steps(conf.model_path)

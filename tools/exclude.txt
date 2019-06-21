@@ -18,3 +18,5 @@ Model_PAF.pkl
 param_whitening.pkl
 images_aligned_sample
 *huawei*
+clean.pk
+*.npy
