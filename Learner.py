@@ -852,10 +852,10 @@ class face_learner(object):
         self.writer.add_text('conf', f'{conf}', 0)  # todo to markdown
         self.step = 0
 
-        if conf.net_mode == 'mobilefacenet' :
+        if conf.net_mode == 'mobilefacenet':
             self.model = MobileFaceNet(conf.embedding_size)
             logging.info('MobileFaceNet model generated')
-        elif  conf.net_mode == 'mbfc':
+        elif conf.net_mode == 'mbfc':
             self.model = models.mbfc()
         elif conf.net_mode == 'sglpth':
             self.model = models.singlepath()
@@ -1292,7 +1292,7 @@ class face_learner(object):
                         w_ = 1.03  # todo
                     else:
                         w_ = 0
-                    runtime_regloss = lambda_runtime_reg * (ttl_runtime/target_runtime) ** w_
+                    runtime_regloss = lambda_runtime_reg * (ttl_runtime / target_runtime) ** w_
                 else:
                     embeddings = self.model(imgs, )
                     ttl_runtime = runtime_regloss = torch.FloatTensor([0]).cuda()
@@ -2971,8 +2971,7 @@ class face_cotching(face_learner):
                 ind2_sorted = loss_xent2.argsort()
                 num_disagree = labels[disagree].shape[0]
                 assert num_disagree == disagree.sum().item()
-                # tau = 0.35
-                tau = 0.05
+                tau=conf.tau
                 Ek = len(loader)
                 Emax = len(loader) * conf.epochs
                 lambda_e = 1 - min(self.step / Ek * tau, (1 + (self.step - Ek) / (Emax - Ek)) * tau)
@@ -3234,8 +3233,7 @@ class face_cotching(face_learner):
                         ind_sorted = loss_xent.argsort()
                         ind2_sorted = loss_xent2.argsort()
                         num_disagree = labels[disagree].shape[0]
-                        # tau = 0.35
-                        tau = 0.05
+                        tau=conf.tau
                         Ek = len(loader)
                         Emax = len(loader) * conf.epochs
                         lambda_e = 1 - min(self.step / Ek * tau, (1 + (self.step - Ek) / (Emax - Ek)) * tau)
@@ -3257,7 +3255,7 @@ class face_cotching(face_learner):
                     imgs_l = []
                     labels_l = []
                     labels_cpu = labels.cpu()
-                    embeddings2 = self.model2(imgs, )
+                    embeddings2 = self.model2(imgs, )  # model1 --> imgs1 --> model2
                     thetas2 = self.head2(embeddings2, labels)
                     loss_xent2 = F.cross_entropy(thetas2, labels)
                     self.optimizer2.zero_grad()
@@ -3360,13 +3358,11 @@ class face_cotching(face_learner):
         lz.timer.since_last_check('start train')
         data_time = lz.AverageMeter()
         loss_time = lz.AverageMeter()
-        target_bs = conf.batch_size* conf.acc_grad
-        imgs_l = []
-        labels_l = []
-        imgs2_l = []
-        labels2_l = []
+        target_bs = conf.batch_size * conf.acc_grad
+        now_bs = 0
         accuracy = 0
-        step_det = 0
+        self.optimizer.zero_grad()
+        self.optimizer2.zero_grad()
         if conf.start_eval:
             for ds in ['cfp_fp', ]:
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
@@ -3393,86 +3389,55 @@ class face_cotching(face_learner):
                 if (self.step + 1) % len(loader) == 0:
                     self.step += 1
                     break
-                if not imgs_l or sum([imgs.shape[0] for imgs in imgs_l]) < conf.batch_size:
-                    imgs = data['imgs'].to(device=conf.model1_dev[0])
-                    assert imgs.max() < 2
-                    labels = data['labels'].to(device=conf.model1_dev[0])
-                    data_time.update(
-                        lz.timer.since_last_check(verbose=False)
-                    )
-                    embeddings = self.model(imgs, )
-                    embeddings2 = self.model2(imgs, )
-                    thetas = self.head(embeddings, labels)
-                    thetas2 = self.head2(embeddings2, labels)
-                    pred = thetas.argmax(dim=1)
-                    pred2 = thetas2.argmax(dim=1)
-                    disagree = pred != pred2
-                    if disagree.sum().item() == 0:
-                        continue  # this assert acc can finally reach bs
-                    loss_xent = F.cross_entropy(thetas[disagree], labels[disagree], reduction='none')
-                    loss_xent2 = F.cross_entropy(thetas2[disagree], labels[disagree], reduction='none')
-                    ind_sorted = loss_xent.argsort()
-                    ind2_sorted = loss_xent2.argsort()
-                    num_disagree = labels[disagree].shape[0]
-                    tau = 0.05 # 0.35
-                    Ek = len(loader)
-                    Emax = len(loader) * conf.epochs
-                    lambda_e = 1 - min(self.step / Ek * tau, (1 + (self.step - Ek) / (Emax - Ek)) * tau)
-                    num_remember = max(int(round(num_disagree * lambda_e)), 1)
-                    ind_update = ind_sorted[:num_remember]
-                    ind2_update = ind2_sorted[:num_remember]
-                    imgs_l.append(imgs[ind_update].cpu())
-                    labels_l.append(labels[ind_update].cpu())
-                    imgs2_l.append(imgs[ind2_update].cpu())
-                    labels2_l.append(labels[ind2_update].cpu())
-                # continue
-                else:
-                    imgs_new = torch.cat(imgs_l, dim=0)
-                    imgs = imgs_new[:conf.batch_size].to(device=conf.model1_dev[0])
-                    labels_new = torch.cat(labels_l, dim=0)
-                    labels = labels_new[:conf.batch_size].to(device=conf.model1_dev[0])
-                    # imgs_l = [imgs_new[conf.batch_size:]]  # whether this right
-                    # labels_l = [labels_new[conf.batch_size:]]
-                    imgs_l = []
-                    labels_l = []
-                    labels_cpu = labels.cpu()
-                    embeddings2 = self.model2(imgs, )
-                    thetas2 = self.head2(embeddings2, labels)
-                    loss_xent2 = F.cross_entropy(thetas2, labels)
-                    self.optimizer2.zero_grad()
-                    if conf.fp16:
-                        with amp.scale_loss(loss_xent2, self.optimizer2) as scaled_loss:
-                            scaled_loss.backward()
-                    else:
-                        loss_xent2.backward()
-                    self.optimizer2.step()
-
-                    imgs2_new = torch.cat(imgs2_l, dim=0)
-                    imgs2 = imgs2_new[:conf.batch_size].to(device=conf.model1_dev[0])
-                    labels2_new = torch.cat(labels2_l, dim=0)
-                    labels2 = labels2_new[:conf.batch_size].to(device=conf.model1_dev[0])
-                    # imgs2_l = [imgs2_new[conf.batch_size:]]
-                    # labels2_l = [labels2_new[conf.batch_size:]]
-                    # logging.info(f'{imgs2_new.shape[0]} {step_det}')
-                    step_det += imgs2_new[conf.batch_size:].shape[0] / conf.batch_size
-                    if step_det > 1:
-                        self.step -= 1
-                        step_det -= 1
-                    imgs2_l = []
-                    labels2_l = []
-
-                    embeddings = self.model(imgs2, )
-                    thetas = self.head(embeddings, labels2)
-                    loss_xent = F.cross_entropy(thetas, labels2)
-                    self.optimizer.zero_grad()
-                    if conf.fp16:
-                        with amp.scale_loss(loss_xent, self.optimizer) as scaled_loss:
-                            scaled_loss.backward()
-                    else:
-                        loss_xent.backward()
+                if now_bs >= target_bs:
+                    now_bs = 0
                     self.optimizer.step()
+                    self.optimizer.zero_grad()
+                    self.optimizer2.step()
+                    self.optimizer2.zero_grad()
+                imgs = data['imgs'].to(device=conf.model1_dev[0])
+                assert imgs.max() < 2
+                labels = data['labels'].to(device=conf.model1_dev[0])
+                data_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
+                embeddings = self.model(imgs, )
+                embeddings2 = self.model2(imgs, )
+                thetas = self.head(embeddings, labels)
+                thetas2 = self.head2(embeddings2, labels)
+                pred = thetas.argmax(dim=1)
+                pred2 = thetas2.argmax(dim=1)
+                disagree = pred != pred2
+                num_disagree = disagree.sum().item()
+                if num_disagree == 0:
+                    continue  # this assert acc can finally reach bs
+                loss_xent = F.cross_entropy(thetas[disagree], labels[disagree], reduction='none')
+                loss_xent2 = F.cross_entropy(thetas2[disagree], labels[disagree], reduction='none')
+                ind_sorted = loss_xent.argsort()
+                ind2_sorted = loss_xent2.argsort()
+                tau = conf.tau
+                Ek = len(loader) # todo
+                Emax = len(loader) * conf.epochs
+                lambda_e = 1 - min(self.step / Ek * tau, (1 + (self.step - Ek) / (Emax - Ek)) * tau)
+                num_remember = max(int(round(num_disagree * lambda_e)), 1)
+                ind_update = ind_sorted[:num_remember]
+                ind2_update = ind2_sorted[:num_remember]
+                loss_xent_rmbr = loss_xent[ind2_update].mean() # this is where exchange
+                loss_xent2_rmbr = loss_xent2[ind_update].mean()
+                if conf.fp16:
+                    with amp.scale_loss(loss_xent2_rmbr, self.optimizer2) as scaled_loss:
+                        scaled_loss.backward()
+                else:
+                    loss_xent2_rmbr.backward()
+                if conf.fp16:
+                    with amp.scale_loss(loss_xent_rmbr, self.optimizer) as scaled_loss:
+                        scaled_loss.backward()
+                else:
+                    loss_xent_rmbr.backward()
+                now_bs += num_remember
 
                 with torch.no_grad():
+                    labels_cpu = labels.cpu()
                     if conf.mining == 'dop':
                         update_dop_cls(thetas, labels_cpu, conf.dop)
                     if conf.mining == 'rand.id':
@@ -3486,19 +3451,19 @@ class face_cotching(face_learner):
                 )
                 if self.step % self.board_loss_every == 0:
                     logging.info(f'epoch {e}/{epochs} step {self.step}/{len(loader)}: ' +
-                                 f'xent: {loss_xent.item():.2e} ' +
+                                 f'xent: {loss_xent_rmbr.item():.2e} ' +
                                  f'data time: {data_time.avg:.2f} ' +
                                  f'loss time: {loss_time.avg:.2f} ' +
                                  f'acc: {acc:.2e} ' +
                                  f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
-                    writer.add_scalar('info/disagree', disagree.sum().item(), self.step)
+                    writer.add_scalar('info/disagree', num_disagree, self.step)
                     writer.add_scalar('info/disagree_ratio', num_disagree / conf.batch_size, self.step)
                     writer.add_scalar('info/remenber', num_remember, self.step)
                     writer.add_scalar('info/remenber_ratio', num_remember / conf.batch_size, self.step)
                     writer.add_scalar('info/lambda_e', lambda_e, self.step)
                     writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
-                    writer.add_scalar('loss/xent', loss_xent.item(), self.step)
-                    writer.add_scalar('loss/xent2', loss_xent2.item(), self.step)
+                    writer.add_scalar('loss/xent', loss_xent_rmbr.item(), self.step)
+                    writer.add_scalar('loss/xent2', loss_xent2_rmbr.item(), self.step)
                     writer.add_scalar('info/acc', acc, self.step)
                     writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
                     writer.add_scalar('info/datatime', data_time.avg, self.step)
@@ -3757,8 +3722,7 @@ class face_cotching_head(face_learner):
                 ind2_sorted = loss_xent2.argsort()
                 num_disagree = labels[disagree].shape[0]
                 assert num_disagree == disagree.sum().item()
-                # tau = 0.35
-                tau = 0.05  # todo
+                tau = conf.tau
                 Ek = len(loader)
                 Emax = len(loader) * conf.epochs
                 lambda_e = 1 - min(self.step / Ek * tau, (1 + (self.step - Ek) / (Emax - Ek)) * tau)

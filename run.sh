@@ -9,8 +9,12 @@
 #    python train.py --mbfc_wm $wm --mbfc_dm $dm --work_path work_space/mbfc.$wm.$dm.retina.arc --epochs 1
 #done
 
-for i in 4 # 1  2 3
-do
-    cp config.$i.py config.py
+#for i in 4 3 2 1
+#do
+#    cp config.$i.py config.py
 #    python train.py
-done
+#done
+
+python train.cotching.py
+python train.cotching.2.py
+python train.cotching.py --tau 0

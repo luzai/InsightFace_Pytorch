@@ -20,10 +20,11 @@ def log_conf(conf):
 
 parser = argparse.ArgumentParser(description='PyTorch Training')
 parser.add_argument('--local_rank', default=None, type=int)
+parser.add_argument('--tau', default=conf.tau, type=float)
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    conf.local_rank = args.local_rank
+    conf.update(args.__dict__)
     if conf.local_rank is not None:
         torch.cuda.set_device(conf.local_rank)
         torch.distributed.init_process_group(backend='nccl',
@@ -36,37 +37,14 @@ if __name__ == '__main__':
     # learner = face_cotching_head(conf, )
     ress = {}
     for p in [
-        # 'ms1m.mb.arc.warmup.ghm',
-        # 'ms1m.mb.arc.warmup.ghm.2',
-        # 'ms1m.mb.arc.2',
-        # 'ms1m.mb.arc.cl.2'
-        # 'ms1m.mb.arc.cutoff',
-        # 'ms1m.mb.arc.cutoff.bl',
-        # 'ms1m.mb.arc.all',
-        # 'ms1m.mb.arc.neg',
-        # 'ms1m.mb.arcneg.2.2.5',
-        # 'ms1m.mb.neg.top10',
-        # 'ms1m.mb.neg',
-        # 'ms1m.mb.neg.2',
-        # 'ms1m.mb.sft',
-        # 'ms1m.mb.sft.long',
-        # 'emore.r50.dop',
-        # 'emore.r152.ada.chkpnt',
-        # 'emore.r152.ada.chkpnt.2',
-        # 'emore.r152.ada.chkpnt.3',
-        # 'casia.r50.arc.bl',
-        # 'casia.r50.sft',
-        # 'casia.r50.arc.use_test',
-        # 'casia.coth.cont',
-        # 'casia.r20.cotch',
+        # 'mbfc.casia.arc.cotch',
     ]:
         learner.load_state(
-            # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
-            resume_path=Path(f'work_space/{p}/save/'),
+            resume_path=Path(f'work_space/{p}/models/'),
             load_optimizer=False,
-            load_head=False, # todo note !!!
+            load_head=True, # todo note !!!
             load_imp=False,
-            latest=False,
+            latest=True,
             load_model2=True,
         )
         # res = learner.validate_ori(conf)
@@ -88,7 +66,8 @@ if __name__ == '__main__':
     # learner.train_dist(conf, conf.epochs)
     # learner.train_simple(conf, conf.epochs)
     # learner.train_cotching(conf, conf.epochs)
-    learner.train_cotching_accbs(conf, conf.epochs)
+    # learner.train_cotching_accbs(conf, conf.epochs)
+    learner.train_cotching_accbs_v2(conf, conf.epochs)
     # learner.train_ghm(conf, conf.epochs)
     # learner.train_with_wei(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)

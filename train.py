@@ -31,7 +31,6 @@ if __name__ == '__main__':
     else:
         args.work_path = conf.work_path
     conf.update(args.__dict__)
-    conf.local_rank = args.local_rank
     if conf.local_rank is not None:
         torch.cuda.set_device(conf.local_rank)
         torch.distributed.init_process_group(backend='nccl',

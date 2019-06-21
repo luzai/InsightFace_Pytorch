@@ -9,7 +9,7 @@ from torchvision import transforms as trans
 # todo label smooth
 
 dist = False
-num_devs = 1
+num_devs = 4
 if dist:
     num_devs = 1
 else:
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/mbfc.cmpnd.retina.cl.arc')
+conf.work_path = Path('work_space/mbfc.retina.cl.arc.cotch')  # mbfc.cmpnd.retina.cl.arc')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -48,9 +48,9 @@ casia_folder = conf.data_path / 'casia'  # the cleaned one todo may need the oth
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = dingyi_folder
+conf.use_data_folder = retina_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
-conf.clean_ids =None# msgpack_load(root_path + 'train.configs/clean2.pk')
+conf.clean_ids = msgpack_load(root_path + 'train.configs/clean2.pk')
 if conf.use_data_folder == ms1m_folder:
     conf.cutoff = 0
 elif conf.use_data_folder == glint_folder:
@@ -76,7 +76,7 @@ conf.instances = 4
 
 conf.phi = 1.9
 conf.input_rg_255 = False
-conf.input_size =112 #128  # int(112 * 1.15**conf.phi)
+conf.input_size = 112  # 128  # int(112 * 1.15**conf.phi)
 conf.embedding_size = 512
 conf.drop_ratio = .4
 conf.conv2dmask_drop_ratio = .2
@@ -87,8 +87,8 @@ conf.mb_mode = 'face.large'
 conf.mb_mult = 1.285
 # conf.mb_mode = 'face.small'
 # conf.mb_mult = 2.005 # 1.37
-conf.mbfc_wm = 1 #1.2 ** conf.phi
-conf.mbfc_dm =2 #1.56 ** conf.phi
+conf.mbfc_wm = 1  # 1.2 ** conf.phi
+conf.mbfc_dm = 2  # 1.56 ** conf.phi
 conf.mbfc_se = False
 conf.lpf = False
 
@@ -118,14 +118,15 @@ conf.online_imp = False
 conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
+conf.tau = 0.05
 
-conf.batch_size = 80 * num_devs
+conf.batch_size = 64 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
-conf.log_interval = 999
+conf.log_interval = 99
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 1
+conf.acc_grad = 2
 # --------------------Training Config ------------------------
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
 conf.use_opt = 'sgd'  # adabound
@@ -144,7 +145,7 @@ conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = 0
+conf.fill_cache = .2
 
 
 # todo may use kl_div to speed up
