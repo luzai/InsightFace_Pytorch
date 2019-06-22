@@ -855,6 +855,11 @@ class face_learner(object):
         if conf.net_mode == 'mobilefacenet':
             self.model = MobileFaceNet(conf.embedding_size)
             logging.info('MobileFaceNet model generated')
+        elif conf.net_mode == 'effnet':
+            name = 'efficientnet-b0'
+            self.model = models.EfficientNet.from_pretrained(name)
+            imgsize = models.EfficientNet.get_image_size(name)
+            conf.input_size = imgsize
         elif conf.net_mode == 'mbfc':
             self.model = models.mbfc()
         elif conf.net_mode == 'sglpth':
@@ -2503,7 +2508,7 @@ class face_learner(object):
         dst_gtri_norm = f.create_dataset("gtri_norm", (chunksize,), maxshape=(None,), dtype='f2')
         dst_gxent_norm = f.create_dataset("gxent_norm", (chunksize,), maxshape=(None,), dtype='f2')
         dst_img = f.create_dataset("img", (chunksize, 3, 112, 112), maxshape=(None, 3, 112, 112), dtype='f2')
-        dst_xent[:chunksize] = -1
+        dst_inds = f.create_dataset("inds", (chunksize,), maxshape=(None,), dtype='f4')
         ind_dst = 0
         for ind_data, data in data_prefetcher(enumerate(loader)):
             imgs = data['imgs'].cuda()
@@ -2515,8 +2520,10 @@ class face_learner(object):
                 dst_xent.resize((dst.shape[0] + chunksize,), )
                 dst_xent[dst.shape[0]:dst.shape[0] + chunksize] = -1
                 dst_gxent_norm.resize((dst.shape[0] + chunksize,), )
+                dst_inds.resize((dst.shape[0] + chunksize,))
                 # dst_img.resize((dst.shape[0] + chunksize, 3, 112, 112))
-            assert (data['indexes'].numpy() == np.arange(ind_dst + 1, ind_dst + bs + 1)).all()
+            # assert (data['indexes'].numpy() == np.arange(ind_dst + 1, ind_dst + bs + 1)).all()
+            dst_inds[ind_dst:ind_dst + bs] = data['indexes'].numpy()
 
             with torch.no_grad():
                 embeddings = self.model(imgs, )
@@ -2971,7 +2978,7 @@ class face_cotching(face_learner):
                 ind2_sorted = loss_xent2.argsort()
                 num_disagree = labels[disagree].shape[0]
                 assert num_disagree == disagree.sum().item()
-                tau=conf.tau
+                tau = conf.tau
                 Ek = len(loader)
                 Emax = len(loader) * conf.epochs
                 lambda_e = 1 - min(self.step / Ek * tau, (1 + (self.step - Ek) / (Emax - Ek)) * tau)
@@ -3233,7 +3240,7 @@ class face_cotching(face_learner):
                         ind_sorted = loss_xent.argsort()
                         ind2_sorted = loss_xent2.argsort()
                         num_disagree = labels[disagree].shape[0]
-                        tau=conf.tau
+                        tau = conf.tau
                         Ek = len(loader)
                         Emax = len(loader) * conf.epochs
                         lambda_e = 1 - min(self.step / Ek * tau, (1 + (self.step - Ek) / (Emax - Ek)) * tau)
@@ -3347,6 +3354,24 @@ class face_cotching(face_learner):
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
+    def get_loader_enum(self, loader=None):
+        import gc
+        loader = loader or self.loader
+        succ = False
+        while not succ:
+            try:
+                loader_enum = data_prefetcher(enumerate(loader))
+                succ = True
+            except Exception as e:
+                try:
+                    del loader_enum
+                except:
+                    pass
+                gc.collect()
+                logging.info(f'err is {e}')
+                time.sleep(10)
+        return loader_enum
+
     def train_cotching_accbs_v2(self, conf, epochs):
         self.model.train()
         self.model2.train()
@@ -3374,17 +3399,17 @@ class face_cotching(face_learner):
         for e in range(conf.start_epoch, epochs):
             lz.timer.since_last_check('epoch {} started'.format(e))
             self.schedule_lr(e)
-            loader_enum = data_prefetcher(enumerate(loader))
+            loader_enum = self.get_loader_enum()
             while True:
                 try:
                     ind_data, data = next(loader_enum)
                 except StopIteration as err:
                     logging.info(f'one epoch finish {e} {ind_data}')
-                    loader_enum = data_prefetcher(enumerate(loader))
+                    loader_enum = self.get_loader_enum()
                     ind_data, data = next(loader_enum)
                 if ind_data is None:
                     logging.info(f'one epoch finish {e} {ind_data}')
-                    loader_enum = data_prefetcher(enumerate(loader))
+                    loader_enum = self.get_loader_enum()
                     ind_data, data = next(loader_enum)
                 if (self.step + 1) % len(loader) == 0:
                     self.step += 1
@@ -3416,13 +3441,13 @@ class face_cotching(face_learner):
                 ind_sorted = loss_xent.argsort()
                 ind2_sorted = loss_xent2.argsort()
                 tau = conf.tau
-                Ek = len(loader) # todo
+                Ek = len(loader)  # todo
                 Emax = len(loader) * conf.epochs
                 lambda_e = 1 - min(self.step / Ek * tau, (1 + (self.step - Ek) / (Emax - Ek)) * tau)
                 num_remember = max(int(round(num_disagree * lambda_e)), 1)
                 ind_update = ind_sorted[:num_remember]
                 ind2_update = ind2_sorted[:num_remember]
-                loss_xent_rmbr = loss_xent[ind2_update].mean() # this is where exchange
+                loss_xent_rmbr = loss_xent[ind2_update].mean()  # this is where exchange
                 loss_xent2_rmbr = loss_xent2[ind_update].mean()
                 if conf.fp16:
                     with amp.scale_loss(loss_xent2_rmbr, self.optimizer2) as scaled_loss:

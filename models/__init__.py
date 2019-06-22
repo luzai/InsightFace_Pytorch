@@ -8,3 +8,4 @@ from models.mobilenetv3 import *
 from models.cls_hrnet import get_cls_net
 from models.singlepath import singlepath
 from models.mbfc import mbfc
+from models.effnet import EfficientNet

@@ -1241,11 +1241,12 @@ class TripletLoss(Module):
 
 if __name__ == '__main__':
     from lz import *
-
+    conf.input_size = 128
     init_dev(3)
     # model = Backbone(50, 0, 'ir_se').cuda()
     params = []
-    wmdm = "1.0,2.25 1.1,1.86 1.2,1.56 1.3,1.33 1.4,1.15 1.5,1.0".split(' ') # 1,2 1.56,2  1.0,1.0
+    # wmdm = "1.0,2.25 1.1,1.86 1.2,1.56 1.3,1.33 1.4,1.15 1.5,1.0".split(' ') # 1,2 1.56,2  1.0,1.0
+    wmdm = "1.2,1.56".split(' ')
     wmdm = [(float(wd.split(',')[0]), float(wd.split(',')[1])) for wd in wmdm]
     for wd in wmdm:
         wm, dm = wd
@@ -1259,7 +1260,6 @@ if __name__ == '__main__':
         print('Total params: %.2fM' % ttl_params)
         params.append(ttl_params)
     print(params)
-    exit()
     # plt.plot(wms, params)
     # plt.show()
     # dms = np.arange(1, 2, .01)
@@ -1305,13 +1305,15 @@ if __name__ == '__main__':
     from thop import profile
     from lz import timer
 
-    flops, params = profile(model, input_size=(1, 3, 112, 112),
+    flops, params = profile(model, input_size=(1, 3, 128, 128),
                             custom_ops={DoubleConv: count_double_conv},
+                            # only_ops=(nn.Conv2d, nn.Linear),
                             device='cuda:0',
                             )
     flops /= 10 ** 9
     params /= 10 ** 6
-
+    print(flops, params,)
+    exit()
     for i in range(5):
         img = torch.rand(1, 3, 112, 112).cuda()
         f = model(img)

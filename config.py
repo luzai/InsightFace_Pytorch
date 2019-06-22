@@ -14,8 +14,8 @@ if dist:
     num_devs = 1
 else:
     pass
-    # lz.init_dev((0, 1, 2))
-    lz.init_dev(lz.get_dev(num_devs))
+    lz.init_dev((1, 2, 3))
+    # lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
 conf.num_workers = ndevs * 3
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/mbfc.retina.cl.arc.cotch')  # mbfc.cmpnd.retina.cl.arc')
+conf.work_path = Path('work_space/mbfc.retina.cl.arc.cotch.cont')  # mbfc.cmpnd.retina.cl.arc')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -76,12 +76,12 @@ conf.instances = 4
 
 conf.phi = 1.9
 conf.input_rg_255 = False
-conf.input_size = 112  # 128  # int(112 * 1.15**conf.phi)
+conf.input_size = 112  # 128
 conf.embedding_size = 512
 conf.drop_ratio = .4
 conf.conv2dmask_drop_ratio = .2
 conf.lambda_runtime_reg = 10
-conf.net_mode = 'mobilefacenet'  # mbfc sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
+conf.net_mode = 'effnet'  # effnet mbfc sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
 conf.net_depth = 100  # 100 121 169 201 264 50 20
 conf.mb_mode = 'face.large'
 conf.mb_mult = 1.285
@@ -120,7 +120,7 @@ conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 conf.tau = 0.05
 
-conf.batch_size = 64 * num_devs
+conf.batch_size = 80 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
 conf.log_interval = 99
@@ -136,7 +136,7 @@ conf.final_lr = 1e-1
 conf.lr = 1e-1
 conf.lr_gamma = 0.1
 conf.start_epoch = 0
-conf.start_step = 0
+conf.start_step = 10789
 # conf.epochs = 37
 # conf.milestones = (np.array([23, 32])).astype(int)
 conf.epochs = 16
@@ -145,7 +145,7 @@ conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = .2
+conf.fill_cache = 0
 
 
 # todo may use kl_div to speed up

@@ -92,7 +92,9 @@ if __name__ == '__main__':
     # ttl_params = (sum(p.numel() for p in learner.model.parameters()) / 1000000.0)
     # from thop import profile
     #
-    # flops, params = profile(learner.model.module, input_size=(1, 3, conf.input_size, conf.input_size),
+    # flops, params = profile(learner.model.module,
+    #                         input_size=(1, 3, conf.input_size, conf.input_size),
+    #                         only_ops=(nn.Conv2d, nn.Linear),
     #                         device='cuda:0',
     #                         )
     # flops /= 10 ** 9

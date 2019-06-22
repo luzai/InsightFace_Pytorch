@@ -37,7 +37,7 @@ if __name__ == '__main__':
     # learner = face_cotching_head(conf, )
     ress = {}
     for p in [
-        # 'mbfc.casia.arc.cotch',
+        'mbfc.retina.cl.arc.cotch',
     ]:
         learner.load_state(
             resume_path=Path(f'work_space/{p}/models/'),
