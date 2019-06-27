@@ -129,7 +129,6 @@ class DatasetCasia(torch.utils.data.Dataset):
         line = self.lines[item].split()
         path = '/data2/share/casia/' + line[0]
         if item in self.cache:
-            # if False:
             img = self.cache[item]
         else:
             img = open(path, 'rb').read()
@@ -275,7 +274,7 @@ class TestDataset(object):
         return res
 
 
-# rec_cache = {}
+rec_cache = {}
 
 
 class TorchDataset(object):
@@ -362,7 +361,8 @@ class TorchDataset(object):
             self.teacher_embedding_db = lz.Database('work_space/teacher_embedding.h5', 'r')
         if conf.clean_ids is not None:
             conf.num_clss = self.num_classes = np.unique(conf.clean_ids).shape[0] - 1
-        self.rec_cache = {}
+        global rec_cache
+        self.rec_cache = rec_cache
         if conf.fill_cache:
             self.fill_cache()
 
@@ -410,62 +410,62 @@ class TorchDataset(object):
 
     def _get_single_item(self, index):
         # global rec_cache
-        # if isinstance(index, tuple):
-        assert not isinstance(index, tuple)
-        # index, pid, ind_ind = index
-        # if index in rec_cache:
-        #     s = rec_cache[index]
-        # else:
-        #     with self.locks[0]:
-        #         s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
-        #     # rec_cache[index] = s
-        # header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
-        # imgs = self.imdecode(img)
-        # assert imgs is not None
-        # label = int(pid)
-        # # assert label in self.ids_map
-        # # label = self.ids_map[label]
-        # # label = int(label)
-        # imgs = self.preprocess_img(imgs)
-        # if conf.use_redis and self.r and lz.get_mem() >= 20:
-        #     self.r.set(f'{conf.dataset_name}/imgs/{index}', img)
-        # res = {'imgs': imgs, 'labels': label,
-        #        'ind_inds': ind_ind, 'indexes': index,
-        #        'is_trains': True}
-        # if hasattr(self, 'teacher_embedding_db'):
-        #     res['teacher_embedding'] = self.teacher_embedding_db[str(index)]
-        # return res
-        # else:
-        # try:
-        if conf.clean_ids is not None:
-            lbl = conf.clean_ids[index]
-            if lbl == -1: return self._get_single_item(np.random.randint(low=0, high=len(self)))
-        index += 1  # 1 based!
-        if index in self.rec_cache:
-            s = self.rec_cache[index]
+        if isinstance(index, tuple):
+            # assert not isinstance(index, tuple)
+            index, pid, ind_ind = index
+            if index in self.rec_cache:
+                s = self.rec_cache[index]
+            else:
+                with self.locks[0]:
+                    s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
+                # rec_cache[index] = s
+            header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
+            imgs = self.imdecode(img)
+            assert imgs is not None
+            label = int(pid)
+            # assert label in self.ids_map
+            # label = self.ids_map[label]
+            # label = int(label)
+            imgs = self.preprocess_img(imgs)
+            if conf.use_redis and self.r and lz.get_mem() >= 20:
+                self.r.set(f'{conf.dataset_name}/imgs/{index}', img)
+            res = {'imgs': imgs, 'labels': label,
+                   'ind_inds': ind_ind, 'indexes': index,
+                   'is_trains': True}
+            if hasattr(self, 'teacher_embedding_db'):
+                res['teacher_embedding'] = self.teacher_embedding_db[str(index)]
+            return res
         else:
-            with self.locks[0]:
-                s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
-            # rec_cache[index] = s
-        header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
-        imgs = self.imdecode(img)
-        assert imgs is not None
-        label = header.label
-        if not isinstance(label, numbers.Number):
-            assert label[-1] == 0. or label[-1] == 1., f'{label} {index} {imgs.shape}'
-            label = label[0]
-        label = int(label)
-        imgs = self.preprocess_img(imgs)
-        assert label == int(self.idx2id[index])
-        if conf.clean_ids is not None:
-            label = lbl
-        # assert label in self.ids_map
-        # label = self.ids_map[label]
-        # label = int(label)
-        res = {'imgs': imgs, 'labels': label,
-               'indexes': index,
-               }
-        return res
+            # try:
+            if conf.clean_ids is not None:
+                lbl = conf.clean_ids[index]
+                if lbl == -1: return self._get_single_item(np.random.randint(low=0, high=len(self)))
+            index += 1  # 1 based!
+            if index in self.rec_cache:
+                s = self.rec_cache[index]
+            else:
+                with self.locks[0]:
+                    s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
+                # rec_cache[index] = s
+            header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
+            imgs = self.imdecode(img)
+            assert imgs is not None
+            label = header.label
+            if not isinstance(label, numbers.Number):
+                assert label[-1] == 0. or label[-1] == 1., f'{label} {index} {imgs.shape}'
+                label = label[0]
+            label = int(label)
+            imgs = self.preprocess_img(imgs)
+            assert label == int(self.idx2id[index])
+            if conf.clean_ids is not None:
+                label = lbl
+            # assert label in self.ids_map
+            # label = self.ids_map[label]
+            # label = int(label)
+            res = {'imgs': imgs, 'labels': label,
+                   'indexes': index,
+                   }
+            return res
         # except Exception as err:
         #     logging.info(f'err is {err}')
         #     index = int(np.random.choice(list(range(len(self)))))
@@ -668,6 +668,11 @@ class FaceInfer():
             self.model = models.mobilenetv3(mode=conf.mb_mode, width_mult=conf.mb_mult)
         elif conf.net_mode == 'hrnet':
             self.model = models.get_cls_net()
+        elif conf.net_mode == 'effnet':
+            name = conf.eff_name
+            self.model = models.EfficientNet.from_name(name)
+            imgsize = models.EfficientNet.get_image_size(name)
+            assert conf.input_size == imgsize, imgsize
         else:
             raise ValueError(conf.net_mode)
         self.model = self.model.eval()
@@ -827,10 +832,10 @@ class face_learner(object):
             self.loader = DataLoader(
                 self.dataset, batch_size=conf.batch_size,
                 num_workers=conf.num_workers,
-                # sampler=RandomIdSampler(self.dataset.imgidx,
-                #                         self.dataset.ids, self.dataset.id2range),
-                shuffle=True,
-                drop_last=True, pin_memory=True,
+                sampler=RandomIdSampler(self.dataset.imgidx,
+                                        self.dataset.ids, self.dataset.id2range),
+                # shuffle=True,
+                drop_last=True, pin_memory=conf.pin_memory,
                 collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
             )
             self.class_num = self.dataset.num_classes
@@ -844,22 +849,21 @@ class face_learner(object):
                 lz.mkdir_p(conf.log_path, delete=False)
                 lz.set_file_logger(str(conf.log_path))
                 lz.set_file_logger_prt(str(conf.log_path))
-        if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        if conf.need_tb and not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
             self.writer = SummaryWriter(str(conf.log_path))
+            conf.writer = self.writer
+            self.writer.add_text('conf', f'{conf}', 0)  # todo to markdown
         else:
             self.writer = None
-        conf.writer = self.writer
-        self.writer.add_text('conf', f'{conf}', 0)  # todo to markdown
         self.step = 0
-
         if conf.net_mode == 'mobilefacenet':
             self.model = MobileFaceNet(conf.embedding_size)
             logging.info('MobileFaceNet model generated')
         elif conf.net_mode == 'effnet':
-            name = 'efficientnet-b0'
-            self.model = models.EfficientNet.from_pretrained(name)
+            name = conf.eff_name
+            self.model = models.EfficientNet.from_name(name)
             imgsize = models.EfficientNet.get_image_size(name)
-            conf.input_size = imgsize
+            assert conf.input_size == imgsize, imgsize
         elif conf.net_mode == 'mbfc':
             self.model = models.mbfc()
         elif conf.net_mode == 'sglpth':
@@ -1253,7 +1257,7 @@ class face_learner(object):
             if e >= 6:  # todo
                 conf.conv2dmask_drop_ratio = 0.
                 lambda_runtime_reg = conf.lambda_runtime_reg
-            else:
+            else:  # 0 1 2 3 4 5
                 lambda_runtime_reg = 0
             lz.timer.since_last_check('epoch {} started'.format(e))
             # self.schedule_lr(e)
@@ -1286,6 +1290,9 @@ class face_learner(object):
                 )
                 if acc_grad_cnt == 0:
                     self.optimizer.zero_grad()
+                if conf.input_rg_255:
+                    imgs *= 127.5
+                    imgs += 127.5
                 if conf.net_mode == 'sglpth':
                     ttl_runtime = 0.452 * 10 ** 6  # todo
                     target_runtime = 2.5 * 10 ** 6
@@ -1340,6 +1347,7 @@ class face_learner(object):
                                  f'loss time: {loss_time.avg:.2f} ' +
                                  f'acc: {acc:.2e} ' +
                                  f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                if writer and self.step % self.board_loss_every == 0:
                     writer.add_scalar('loss/xent', loss_xent.item(), self.step)
                     writer.add_scalar('loss/runtime_regloss', runtime_regloss.item(), self.step)
                     writer.add_scalar('loss/ttl_runtime', ttl_runtime.item(), self.step)
@@ -2290,9 +2298,10 @@ class face_learner(object):
 
     def board_val(self, db_name, accuracy, best_threshold, roc_curve_tensor, writer=None):
         writer = writer or self.writer
-        writer.add_scalar('{}_accuracy'.format(db_name), accuracy, self.step)
-        writer.add_scalar('{}_best_threshold'.format(db_name), best_threshold, self.step)
-        # writer.add_image('{}_roc_curve'.format(db_name), roc_curve_tensor, self.step)
+        if writer:
+            writer.add_scalar('{}_accuracy'.format(db_name), accuracy, self.step)
+            writer.add_scalar('{}_best_threshold'.format(db_name), best_threshold, self.step)
+            # writer.add_image('{}_roc_curve'.format(db_name), roc_curve_tensor, self.step)
 
     def evaluate(self, conf, path, name, nrof_folds=10, tta=True):
         # from utils import ccrop_batch
@@ -3248,9 +3257,15 @@ class face_cotching(face_learner):
                         ind_update = ind_sorted[:num_remember]
                         ind2_update = ind2_sorted[:num_remember]
                         imgs_l.append(imgs[disagree][ind_update].cpu())
+                        ## original
+                        # labels_l.append(labels[ind_update].cpu())
+                        # imgs2_l.append(imgs[ind2_update].cpu())
+                        # labels2_l.append(labels[ind2_update].cpu())
+                        ##after
                         labels_l.append(labels[disagree][ind_update].cpu())
                         imgs2_l.append(imgs[disagree][ind2_update].cpu())
                         labels2_l.append(labels[disagree][ind2_update].cpu())
+
                     continue
                 else:
                     imgs_new = torch.cat(imgs_l, dim=0)

@@ -14,8 +14,8 @@ if dist:
     num_devs = 1
 else:
     pass
-    lz.init_dev((1, 2, 3))
-    # lz.init_dev(lz.get_dev(num_devs))
+    # lz.init_dev((0, 1, 2, 3))
+    lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
 conf.num_workers = ndevs * 3
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/mbfc.retina.cl.arc.cotch.cont')  # mbfc.cmpnd.retina.cl.arc')
+conf.work_path = Path('work_space/effnet.casia.arc')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -48,9 +48,9 @@ casia_folder = conf.data_path / 'casia'  # the cleaned one todo may need the oth
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = retina_folder
+conf.use_data_folder = dingyi_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
-conf.clean_ids = msgpack_load(root_path + 'train.configs/clean2.pk')
+conf.clean_ids = None  # msgpack_load(root_path + 'train.configs/clean2.pk')
 if conf.use_data_folder == ms1m_folder:
     conf.cutoff = 0
 elif conf.use_data_folder == glint_folder:
@@ -67,16 +67,16 @@ conf.rand_ratio = 9 / 27
 
 conf.margin = .5  # todo do not forget if use adacos!
 conf.margin2 = .25
-conf.topk = 5
+conf.topk = 15
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
 conf.tri_wei = 0
-conf.scale = 48
+conf.scale = 32  # 48 64
 conf.instances = 4
 
 conf.phi = 1.9
-conf.input_rg_255 = False
-conf.input_size = 112  # 128
+conf.input_rg_255 = True
+conf.input_size = 224  # 128 224 112
 conf.embedding_size = 512
 conf.drop_ratio = .4
 conf.conv2dmask_drop_ratio = .2
@@ -91,6 +91,7 @@ conf.mbfc_wm = 1  # 1.2 ** conf.phi
 conf.mbfc_dm = 2  # 1.56 ** conf.phi
 conf.mbfc_se = False
 conf.lpf = False
+conf.eff_name = 'efficientnet-b0'
 
 conf.test_transform = trans.Compose([
     trans.ToTensor(),
@@ -108,7 +109,6 @@ conf.fast_load = False
 conf.fp16 = True
 conf.ipabn = False
 conf.cvt_ipabn = False
-
 conf.kd = False
 conf.sftlbl_from_file = False
 conf.alpha = .95
@@ -120,13 +120,14 @@ conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 conf.tau = 0.05
 
-conf.batch_size = 80 * num_devs
+conf.batch_size = 180 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
-conf.log_interval = 99
+conf.log_interval = 30
+conf.need_tb = True
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 2
+conf.acc_grad = 3
 # --------------------Training Config ------------------------
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
 conf.use_opt = 'sgd'  # adabound
@@ -136,16 +137,17 @@ conf.final_lr = 1e-1
 conf.lr = 1e-1
 conf.lr_gamma = 0.1
 conf.start_epoch = 0
-conf.start_step = 10789
+conf.start_step = 0
 # conf.epochs = 37
 # conf.milestones = (np.array([23, 32])).astype(int)
-conf.epochs = 16
-conf.milestones = (np.array([9, 13])).astype(int)
+conf.lowmrg_pretrain = 0
+conf.epochs = 16 + conf.lowmrg_pretrain
+conf.milestones = (np.array([9, 13]) + conf.lowmrg_pretrain).astype(int)
 conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = 0
+conf.fill_cache = 1
 
 
 # todo may use kl_div to speed up
@@ -180,8 +182,7 @@ class CrossEntropyLabelSmooth(nn.Module):
         return loss
 
 
-conf.ce_loss = CrossEntropyLoss()
-# conf.ce_loss = CrossEntropyLabelSmooth()
+conf.ce_loss = CrossEntropyLoss()  # CrossEntropyLabelSmooth()
 if conf.use_test:
     conf.vat_loss_func = VATLoss(xi=1e-6, eps=8, ip=1)
 conf.need_log = True

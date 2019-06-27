@@ -12,7 +12,7 @@ from models.utils import (
     efficientnet_params,
     load_pretrained_weights,
 )
-
+PReLU = lambda x: None # todo
 
 class MBConvBlock(nn.Module):
     """
@@ -40,7 +40,7 @@ class MBConvBlock(nn.Module):
         if self._block_args.expand_ratio != 1:
             self._expand_conv = Conv2dSamePadding(in_channels=inp, out_channels=oup, kernel_size=1, bias=False)
             self._bn0 = nn.BatchNorm2d(num_features=oup, momentum=self._bn_mom, eps=self._bn_eps)
-
+            self.prelu0=PReLU(oup)
         # Depthwise convolution phase
         k = self._block_args.kernel_size
         s = self._block_args.stride
@@ -48,11 +48,12 @@ class MBConvBlock(nn.Module):
             in_channels=oup, out_channels=oup, groups=oup,  # groups makes it depthwise
             kernel_size=k, stride=s, bias=False)
         self._bn1 = nn.BatchNorm2d(num_features=oup, momentum=self._bn_mom, eps=self._bn_eps)
-
+        self.prelu1 = PReLU(oup)
         # Squeeze and Excitation layer, if desired
         if self.has_se:
             num_squeezed_channels = max(1, int(self._block_args.input_filters * self._block_args.se_ratio))
             self._se_reduce = Conv2dSamePadding(in_channels=oup, out_channels=num_squeezed_channels, kernel_size=1)
+            self.prelu_se= PReLU(num_squeezed_channels)
             self._se_expand = Conv2dSamePadding(in_channels=num_squeezed_channels, out_channels=oup, kernel_size=1)
 
         # Output phase
@@ -70,19 +71,20 @@ class MBConvBlock(nn.Module):
         # Expansion and Depthwise Convolution
         x = inputs
         if self._block_args.expand_ratio != 1:
-            x = relu_fn(self._bn0(self._expand_conv(inputs)))
-        x = relu_fn(self._bn1(self._depthwise_conv(x)))
+            x = relu_fn(self._bn0(self._expand_conv(inputs)), self.prelu0)
+        x = relu_fn(self._bn1(self._depthwise_conv(x)), self.prelu1)
 
         # Squeeze and Excitation
         if self.has_se:
             x_squeezed = F.adaptive_avg_pool2d(x, 1)
-            x_squeezed = self._se_expand(relu_fn(self._se_reduce(x_squeezed)))
+            x_squeezed = self._se_expand(relu_fn(self._se_reduce(x_squeezed), self.prelu_se))
             x = torch.sigmoid(x_squeezed) * x
 
         x = self._bn2(self._project_conv(x))
 
         # Skip connection and drop connect
         input_filters, output_filters = self._block_args.input_filters, self._block_args.output_filters
+        assert drop_connect_rate==0, drop_connect_rate# todo
         if self.id_skip and self._block_args.stride == 1 and input_filters == output_filters:
             if drop_connect_rate:
                 x = drop_connect(x, p=drop_connect_rate, training=self.training)
@@ -137,7 +139,7 @@ class EfficientNet(nn.Module):
         out_channels = round_filters(32, self._global_params)  # number of output channels
         self._conv_stem = Conv2dSamePadding(in_channels, out_channels, kernel_size=3, stride=2, bias=False)
         self._bn0 = nn.BatchNorm2d(num_features=out_channels, momentum=bn_mom, eps=bn_eps)
-
+        self.prelu0 = PReLU(out_channels)
         # Build blocks
         self._blocks = nn.ModuleList([])
         for block_args in self._blocks_args:
@@ -167,7 +169,7 @@ class EfficientNet(nn.Module):
         # self._dropout = self._global_params.dropout_rate
         # todo gdconv or gnap
         out_resolution = conf.input_size //32
-        Linear_block(in_channels, in_channels,
+        self.pool = Linear_block(in_channels, in_channels,
                      groups=in_channels, kernel=(out_resolution, out_resolution), stride=(1, 1),
                      padding=(0, 0),
                      )
@@ -178,7 +180,7 @@ class EfficientNet(nn.Module):
         """ Returns output of the final convolution layer """
 
         # Stem
-        x = relu_fn(self._bn0(self._conv_stem(inputs)))
+        x = relu_fn(self._bn0(self._conv_stem(inputs)), self.prelu0)
 
         # Blocks
         for idx, block in enumerate(self._blocks):
@@ -199,7 +201,8 @@ class EfficientNet(nn.Module):
 
         # Head
         # x = relu_fn(self._bn1(self._conv_head(x)))
-        x = F.adaptive_avg_pool2d(x, 1).squeeze(-1).squeeze(-1)
+        # x = F.adaptive_avg_pool2d(x, 1).squeeze(-1).squeeze(-1)
+        x = self.pool(x).squeeze(-1).squeeze(-1)
         # if self._dropout:
         #     x = F.dropout(x, p=self._dropout, training=self.training)
         x = self.new_fc(x)
@@ -237,7 +240,7 @@ if __name__ == '__main__':
     import lz
     lz.init_dev(3)
     name = 'efficientnet-b0'
-    model = EfficientNet.from_pretrained(name)
+    model = EfficientNet.from_name(name)
     imgsize =EfficientNet.get_image_size(name)
     conf.input_size = imgsize
     from thop import profile
@@ -247,4 +250,4 @@ if __name__ == '__main__':
                             )
     flops /= 10 ** 9
     params /= 10 ** 6
-    print(flops, params,)
+    print(flops, params,imgsize )

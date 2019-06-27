@@ -45,36 +45,15 @@ if __name__ == '__main__':
     # learner = face_cotching(conf, )
     ress = {}
     for p in [
-        # 'ms1m.mb.arc.warmup.ghm',
-        # 'ms1m.mb.arc.warmup.ghm.2',
-        # 'ms1m.mb.arc.2',
-        # 'ms1m.mb.arc.cl.2'
-        # 'ms1m.mb.arc.cutoff',
-        # 'ms1m.mb.arc.cutoff.bl',
-        # 'ms1m.mb.arc.all',
-        # 'ms1m.mb.arc.neg',
-        # 'ms1m.mb.arcneg.2.2.5',
-        # 'ms1m.mb.neg.top10',
-        # 'ms1m.mb.neg',
-        # 'ms1m.mb.neg.2',
-        # 'ms1m.mb.sft',
-        # 'ms1m.mb.sft.long',
         # 'emore.r50.dop',
         # 'emore.r152.ada.chkpnt',
         # 'emore.r152.ada.chkpnt.2',
         # 'emore.r152.ada.chkpnt.3',
-        # 'casia.r50.arc.bl',
-        # 'casia.r50.sft',
-        # 'casia.r50.arc.use_test',
-        # 'casia.r20',
-        # 'casia.r50.mg.5.arcface2',
         # 'retina.r50',
-        # 'casia.mb.stnconv.7',
-        # 'casia.r20.arc.scrth.long',
         # 'hrnet.retina.arc.3',
         # 'mbv3.retina.arc',
         # 'mbfc.lrg.retina.arc.s48',
-        # 'sglpth.casia.arc.lambda.2.dp2.mg5',
+        # 'effnet.casia.arc',
     ]:
         learner.load_state(
             # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
@@ -127,7 +106,7 @@ if __name__ == '__main__':
     if conf.warmup:
         learner.warmup(conf, conf.warmup)
     # learner.train(conf, conf.epochs)
-    # learner.train_dist(conf, conf.epochstoo
+    # learner.train_dist(conf, conf.epochs)
     learner.train_simple(conf, conf.epochs)
     # learner.train_cotching(conf, conf.epochs)
     # learner.train_cotching_accbs(conf, conf.epochs)

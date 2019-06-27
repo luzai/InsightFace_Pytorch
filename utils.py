@@ -11,7 +11,9 @@ import torch
 from models.model import l2_norm
 import cv2
 
-known_bottom = ['SuperKernel', 'batchnorm', 'conv', 'activation', 'linear']
+known_bottom = ['SuperKernel', 'batchnorm', 'conv', 'activation', 'linear',
+                'Conv2dSamePadding',
+                ]
 
 
 def separate_bn_paras(modules):

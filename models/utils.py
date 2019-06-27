@@ -11,7 +11,6 @@ from torch import nn
 from torch.nn import functional as F
 from torch.utils import model_zoo
 
-
 ########################################################################
 ############### HELPERS FUNCTIONS FOR MODEL ARCHITECTURE ###############
 ########################################################################
@@ -21,23 +20,26 @@ from torch.utils import model_zoo
 GlobalParams = collections.namedtuple('GlobalParams', [
     'batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate',
     'num_classes', 'width_coefficient', 'depth_coefficient',
-    'depth_divisor', 'min_depth', 'drop_connect_rate',])
-
+    'depth_divisor', 'min_depth', 'drop_connect_rate', ])
 
 # Parameters for an individual model block
 BlockArgs = collections.namedtuple('BlockArgs', [
     'kernel_size', 'num_repeat', 'input_filters', 'output_filters',
     'expand_ratio', 'id_skip', 'stride', 'se_ratio'])
 
-
 # Change namedtuple defaults
 GlobalParams.__new__.__defaults__ = (None,) * len(GlobalParams._fields)
 BlockArgs.__new__.__defaults__ = (None,) * len(BlockArgs._fields)
 
 
-def relu_fn(x):
+def relu_fn(x, prelu=None):
     """ Swish activation function """
     return x * torch.sigmoid(x)
+    # if prelu is None:
+    #     return F.leaky_relu(x, inplace=True)
+    #     # return x * (F.relu6(x + 3., inplace=True) / 6.)
+    # else:
+    #     return prelu(x)
 
 
 def round_filters(filters, global_params):
@@ -77,9 +79,10 @@ def drop_connect(inputs, p, training):
 
 class Conv2dSamePadding(nn.Conv2d):
     """ 2D Convolutions like TensorFlow """
+
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
         super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
-        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]]*2
+        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
 
     def forward(self, x):
         ih, iw = x.size()[-2:]
@@ -89,7 +92,7 @@ class Conv2dSamePadding(nn.Conv2d):
         pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
         pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
         if pad_h > 0 or pad_w > 0:
-            x = F.pad(x, [pad_w//2, pad_w - pad_w//2, pad_h//2, pad_h - pad_h//2])
+            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
         return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
@@ -190,7 +193,7 @@ class BlockDecoder(object):
 
 
 def efficientnet(width_coefficient=None, depth_coefficient=None,
-                 dropout_rate=0.2, drop_connect_rate=0, # todo
+                 dropout_rate=0.2, drop_connect_rate=0,  # todo
                  ):
     """ Creates a efficientnet model. """
 
@@ -241,9 +244,9 @@ url_map = {
     'efficientnet-b5': 'http://storage.googleapis.com/public-models/efficientnet-b5-586e6cc6.pth',
 }
 
+
 def load_pretrained_weights(model, model_name):
     """ Loads pretrained weights, and downloads if loading for the first time. """
     state_dict = model_zoo.load_url(url_map[model_name])
-    state_dict={k:v for k,v in state_dict.items() if '_bn1' not in k and '_conv_head' not in k }
-    model.load_state_dict(state_dict,strict=False)
+    model.load_state_dict(state_dict, strict=False)
     print('Loaded pretrained weights for {}'.format(model_name))

@@ -197,9 +197,9 @@ def parse_arguments(argv):
     parser.add_argument('--model', type=str, help='', default='')
     parser.set_defaults(
         input='/data/share/iccv19.lwface/iccv19-challenge-data/',
-        output=lz.work_path + 'hrnet.arc.unrmed.bin',
+        output=lz.work_path + 'mbfc.retina.cl.arc.cotch.bin',
         # model=lz.root_path + '../insightface/logs/r50-arcface-retina/model,16',
-        model=lz.root_path + 'work_space/hrnet.retina.arc.3/models',
+        model=lz.root_path + 'work_space/mbfc.retina.cl.arc.cotch.cont/models',
     )
     return parser.parse_args(argv)
 

@@ -2,10 +2,12 @@
 # -*- coding: future_fstrings -*-
 
 import matplotlib
+
 # matplotlib.use('Gtk3Agg')
 # matplotlib.use('TkAgg')
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
 # plt.switch_backend('Agg')
 plt.switch_backend('TkAgg')
 # print(matplotlib.get_backend())
@@ -1777,14 +1779,15 @@ def softmax_ch(arr):
 
 def softmax_th(arr, dim=1, temperature=1):
     arr = np.asarray(arr, dtype=np.float32)
-    dim=2
     if len(arr.shape) == 1:
-        dim=1
+        ndims = 1
         arr = arr.reshape(1, -1)
+    else:
+        ndims = 2
     arr = to_torch(arr)
     arr /= temperature
     res = F.softmax(arr, dim=dim).numpy()
-    if dim==1:
+    if ndims == 1:
         res = res.flatten()
     return res
 
