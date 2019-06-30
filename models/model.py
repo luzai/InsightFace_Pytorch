@@ -32,55 +32,55 @@ def l2_norm(input, axis=1, need_norm=False, ):
 
 
 # todo which better?
-# class SEModule(nn.Module):
-#     def __init__(self, channels, reduction=4):
-#         super(SEModule, self).__init__()
-#         self.avg_pool = AdaptiveAvgPool2d(1)
-#         self.fc1 = Conv2d(
-#             channels, channels // reduction, kernel_size=1, padding=0, bias=False)
-#         nn.init.xavier_uniform_(self.fc1.weight.data)
-#         self.relu = PReLU(channels // reduction) if conf.upgrade_irse else ReLU(inplace=True)
-#         self.fc2 = Conv2d(
-#             channels // reduction, channels, kernel_size=1, padding=0, bias=False)
-#         self.sigmoid = Sigmoid()
+class SEModule(nn.Module):
+    def __init__(self, channels, reduction=4):
+        super(SEModule, self).__init__()
+        self.avg_pool = AdaptiveAvgPool2d(1)
+        self.fc1 = Conv2d(
+            channels, channels // reduction, kernel_size=1, padding=0, bias=False)
+        nn.init.xavier_uniform_(self.fc1.weight.data)
+        self.relu = PReLU(channels // reduction) if conf.upgrade_irse else ReLU(inplace=True)
+        self.fc2 = Conv2d(
+            channels // reduction, channels, kernel_size=1, padding=0, bias=False)
+        self.sigmoid = Sigmoid()
+
+    def forward(self, x):
+        module_input = x
+        x = self.avg_pool(x)
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        x = self.sigmoid(x)
+        return module_input * x
+
+
+# class Hsigmoid(nn.Module):
+#     def __init__(self, inplace=True):
+#         super(Hsigmoid, self).__init__()
+#         self.inplace = inplace
 #
 #     def forward(self, x):
-#         module_input = x
-#         x = self.avg_pool(x)
-#         x = self.fc1(x)
-#         x = self.relu(x)
-#         x = self.fc2(x)
-#         x = self.sigmoid(x)
-#         return module_input * x
-
-
-class Hsigmoid(nn.Module):
-    def __init__(self, inplace=True):
-        super(Hsigmoid, self).__init__()
-        self.inplace = inplace
-
-    def forward(self, x):
-        res = F.relu6(x + 3., inplace=self.inplace) / 6.
-        assert not torch.isnan(res).any().item()
-        return res
-
-
-class SEModule(nn.Module):
-    def __init__(self, channel, reduction=4):
-        super(SEModule, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(
-            nn.Linear(channel, channel // reduction, bias=False),
-            nn.ReLU(inplace=True),
-            nn.Linear(channel // reduction, channel, bias=False),
-            Hsigmoid()
-        )
-
-    def forward(self, x):
-        b, c, _, _ = x.size()
-        y = self.avg_pool(x).view(b, c)
-        y = self.fc(y).view(b, c, 1, 1)
-        return x * y.expand_as(x)
+#         res = F.relu6(x + 3., inplace=self.inplace) / 6.
+#         assert not torch.isnan(res).any().item()
+#         return res
+#
+#
+# class SEModule(nn.Module):
+#     def __init__(self, channel, reduction=4):
+#         super(SEModule, self).__init__()
+#         self.avg_pool = nn.AdaptiveAvgPool2d(1)
+#         self.fc = nn.Sequential(
+#             nn.Linear(channel, channel // reduction, bias=False),
+#             nn.ReLU(inplace=True),
+#             nn.Linear(channel // reduction, channel, bias=False),
+#             Hsigmoid()
+#         )
+#
+#     def forward(self, x):
+#         b, c, _, _ = x.size()
+#         y = self.avg_pool(x).view(b, c)
+#         y = self.fc(y).view(b, c, 1, 1)
+#         return x * y.expand_as(x)
 
 
 from modules.bn import InPlaceABN, InPlaceABNSync
@@ -282,8 +282,8 @@ class Backbone(Module):
 
     def forward(self, x, ):
         if conf.input_size != 112:
-            with torch.no_grad():
-                x = F.upsample_bilinear(x, size=conf.input_size)
+            x = F.interpolate(x, size=conf.input_size, mode='bilinear') #bicubic
+
         x = self.input_layer(x)
         x = self.body(x)
         x = self.output_layer(x)
@@ -1191,7 +1191,7 @@ class CosFace(Module):
 
 class Am_softmax(Module):
     # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599
-    def __init__(self, embedding_size=512, classnum=51332):
+    def __init__(self, embedding_size=conf.embedding_size, classnum=51332):
         super(Am_softmax, self).__init__()
         self.classnum = classnum
         self.kernel = Parameter(torch.Tensor(embedding_size, classnum))
@@ -1309,23 +1309,24 @@ if __name__ == '__main__':
 
     conf.input_size = 128
     init_dev(3)
-    # model = Backbone(50, 0, 'ir_se').cuda()
-    params = []
-    # wmdm = "1.0,2.25 1.1,1.86 1.2,1.56 1.3,1.33 1.4,1.15 1.5,1.0".split(' ') # 1,2 1.56,2  1.0,1.0
-    wmdm = "1.2,1.56".split(' ')
-    wmdm = [(float(wd.split(',')[0]), float(wd.split(',')[1])) for wd in wmdm]
-    for wd in wmdm:
-        wm, dm = wd
-        model = MobileFaceNet(512,
-                              width_mult=wm,
-                              depth_mult=dm,
-                              ).cuda()
-        model.eval()
-        print('mbfc:\n', model)
-        ttl_params = (sum(p.numel() for p in model.parameters()) / 1000000.0)
-        print('Total params: %.2fM' % ttl_params)
-        params.append(ttl_params)
-    print(params)
+    model = Backbone(50, 0, 'ir_se').cuda()
+    model.eval()
+    # params = []
+    # # wmdm = "1.0,2.25 1.1,1.86 1.2,1.56 1.3,1.33 1.4,1.15 1.5,1.0".split(' ') # 1,2 1.56,2  1.0,1.0
+    # wmdm = "1.2,1.56".split(' ')
+    # wmdm = [(float(wd.split(',')[0]), float(wd.split(',')[1])) for wd in wmdm]
+    # for wd in wmdm:
+    #     wm, dm = wd
+    #     model = MobileFaceNet(512,
+    #                           width_mult=wm,
+    #                           depth_mult=dm,
+    #                           ).cuda()
+    #     model.eval()
+    #     print('mbfc:\n', model)
+    #     ttl_params = (sum(p.numel() for p in model.parameters()) / 1000000.0)
+    #     print('Total params: %.2fM' % ttl_params)
+    #     params.append(ttl_params)
+    # print(params)
     # plt.plot(wms, params)
     # plt.show()
     # dms = np.arange(1, 2, .01)

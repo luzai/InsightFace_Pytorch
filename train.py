@@ -49,7 +49,7 @@ if __name__ == '__main__':
         # 'emore.r152.ada.chkpnt',
         # 'emore.r152.ada.chkpnt.2',
         # 'emore.r152.ada.chkpnt.3',
-        # 'retina.r50',
+        # 'r100.128.retina.clean.arc',
         # 'hrnet.retina.arc.3',
         # 'mbv3.retina.arc',
         # 'mbfc.lrg.retina.arc.s48',
@@ -84,8 +84,8 @@ if __name__ == '__main__':
 
     # from tools.test_ijbc3 import test_ijbc3
     # res = test_ijbc3(conf, learner)
-
-    # learner.calc_img_feas(out='work_space/retina.hrnet.h5')
+    # res = learner.validate_ori(conf, valds_names=('cfp_fp', ))
+    # learner.calc_img_feas(out='work_space/r100.retina.2.h5')
 
     # log_lrs, losses = learner.find_lr(
     #                                   num=999,
@@ -113,10 +113,8 @@ if __name__ == '__main__':
     # learner.train_ghm(conf, conf.epochs)
     # learner.train_with_wei(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)
-    # res = learner.validate_ori(conf)
 
     from tools.test_ijbc3 import test_ijbc3
-
     res = test_ijbc3(conf, learner)
 
     #     steps = learner.list_steps(conf.model_path)

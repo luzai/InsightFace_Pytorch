@@ -161,7 +161,7 @@ class EfficientNet(nn.Module):
         # Head
         in_channels = block_args.output_filters  # output of final block
         # out_channels = round_filters(1280, self._global_params)
-        out_channels = 512
+        out_channels = conf.embedding_size
         # self._conv_head = Conv2dSamePadding(in_channels, out_channels, kernel_size=1, bias=False)
         # self._bn1 = nn.BatchNorm2d(num_features=out_channels, momentum=bn_mom, eps=bn_eps)
 
@@ -193,10 +193,14 @@ class EfficientNet(nn.Module):
 
     def forward(self, inputs):
         """ Calls extract_features to extract features, applies final linear layer, and returns logits. """
+        if conf.input_rg_255:
+            inputs *= 127.5
+            inputs += 127.5
         if inputs.shape[-1] != conf.input_size:
             with torch.no_grad():
                 inputs = F.interpolate(inputs, size=conf.input_size, mode='bicubic', align_corners=True)
-            # Convolution layers
+
+        # Convolution layers
         x = self.extract_features(inputs)
 
         # Head

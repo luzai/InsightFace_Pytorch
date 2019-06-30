@@ -14,10 +14,11 @@ from sklearn.metrics import auc, roc_curve
 import h5py, lmdb, six
 from PIL import Image
 
+from config import conf
 os.chdir(lz.root_path)
 bs = 128
 use_mxnet = False
-DIM = 512
+DIM = conf.embedding_size
 
 IJBC_path = '/data1/share/IJB_release/' if 'amax' in hostname() else '/home/zl/zl_data/IJB_release/'
 ijbcp = IJBC_path + 'ijbc.info.h5'
@@ -222,7 +223,8 @@ def test_ijbc3(conf, learner):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--modelp', default='mbfc.lrg.retina.arc.s48',
+    parser.add_argument('--modelp',
+                        default='effnet.retina.cl.cut10.dim256',  # 'mbfc.lrg.retina.arc.s48',
                         type=str)
     args = parser.parse_args()
     lz.init_dev(lz.get_dev())
