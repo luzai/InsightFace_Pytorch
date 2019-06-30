@@ -3442,20 +3442,9 @@ class face_cotching(face_learner):
                 pred = thetas.argmax(dim=1)
                 pred2 = thetas2.argmax(dim=1)
                 # disagree = pred != pred2
-                disagree = pred != pred2  # todo disagree and wrong?
+                disagree = (pred != pred2  ) | ((pred == pred2) & (pred != labels))
                 num_disagree = disagree.sum().item()
-                print(
-                    torch.sum((pred == pred2) & (pred == labels)),
-                    torch.sum((pred == pred2) & (pred != labels)),
-                    torch.sum((pred != pred2) & (pred != labels) & (pred2 != labels)),
-                    torch.sum((pred != pred2) & ((pred == labels) | (pred2 == labels))))
-                res = [
-                    embeddings, embeddings2, thetas, thetas2, labels
-                ]
-                # embed()
-                res = list(map( to_numpy, res))
-                lz.msgpack_dump(res, '/tmp/t3.pk')
-                exit()
+
                 if num_disagree == 0:
                     continue  # this assert acc can finally reach bs
                 loss_xent = F.cross_entropy(thetas[disagree], labels[disagree], reduction='none')
