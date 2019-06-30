@@ -37,7 +37,7 @@ if __name__ == '__main__':
     # learner = face_cotching_head(conf, )
     ress = {}
     for p in [
-        'mbfc.retina.cl.arc.cotch',
+        'mbfc.retina.cl.arc.cotch.cont',
     ]:
         learner.load_state(
             resume_path=Path(f'work_space/{p}/models/'),
@@ -66,8 +66,8 @@ if __name__ == '__main__':
     # learner.train_dist(conf, conf.epochs)
     # learner.train_simple(conf, conf.epochs)
     # learner.train_cotching(conf, conf.epochs)
-    learner.train_cotching_accbs(conf, conf.epochs)
-    # learner.train_cotching_accbs_v2(conf, conf.epochs)
+    # learner.train_cotching_accbs(conf, conf.epochs)
+    learner.train_cotching_accbs_v2(conf, conf.epochs)
     # learner.train_ghm(conf, conf.epochs)
     # learner.train_with_wei(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)

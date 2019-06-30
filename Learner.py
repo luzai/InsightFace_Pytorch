@@ -3444,6 +3444,18 @@ class face_cotching(face_learner):
                 # disagree = pred != pred2
                 disagree = pred != pred2  # todo disagree and wrong?
                 num_disagree = disagree.sum().item()
+                print(
+                    torch.sum((pred == pred2) & (pred == labels)),
+                    torch.sum((pred == pred2) & (pred != labels)),
+                    torch.sum((pred != pred2) & (pred != labels) & (pred2 != labels)),
+                    torch.sum((pred != pred2) & ((pred == labels) | (pred2 == labels))))
+                res = [
+                    embeddings, embeddings2, thetas, thetas2, labels
+                ]
+                # embed()
+                res = list(map( to_numpy, res))
+                lz.msgpack_dump(res, '/tmp/t3.pk')
+                exit()
                 if num_disagree == 0:
                     continue  # this assert acc can finally reach bs
                 loss_xent = F.cross_entropy(thetas[disagree], labels[disagree], reduction='none')
@@ -3952,7 +3964,7 @@ if __name__ == '__main__':
     loader = DataLoader(
         ds, batch_size=conf.batch_size,
         num_workers=conf.num_workers,
-        sampler=RandomIdSampler(ds.imgidx,   ds.ids, ds.id2range),
+        sampler=RandomIdSampler(ds.imgidx, ds.ids, ds.id2range),
         # shuffle=True,
         drop_last=True, pin_memory=True,
         collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
