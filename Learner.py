@@ -292,13 +292,6 @@ class TorchDataset(object):
         self.imgrecs = []
         self.locks = []
 
-        if conf.use_redis:
-            import redis
-
-            self.r = redis.Redis()
-        else:
-            self.r = None
-
         lz.timer.since_last_check('start timer for imgrec')
         for num_rec in range(conf.num_recs):
             self.imgrecs.append(
@@ -324,14 +317,13 @@ class TorchDataset(object):
             s = self.imgrecs[0].read_idx(identity)
             header, _ = unpack_auto(s, self.path_imgidx)
             a, b = int(header.label[0]), int(header.label[1])
-            if b - a > conf.cutoff:
-                self.id2range[identity] = (a, b)
-                self.ids.append(identity)
-                self.imgidx += list(range(a, b))
+            self.id2range[identity] = (a, b)
+            self.ids.append(identity)
+            self.imgidx += list(range(a, b))
         self.ids = np.asarray(self.ids)
         self.num_classes = len(self.ids)
         self.ids_map = {identity - ids_shif: id2 for identity, id2 in
-                        zip(self.ids, range(self.num_classes))}  # if cutoff=0, this may be identity?
+                        zip(self.ids, range(self.num_classes))}  # now cutoff==0, this is identitical
         ids_map_tmp = {identity: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
         self.ids = np.asarray([ids_map_tmp[id_] for id_ in self.ids])
         self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
@@ -359,8 +351,30 @@ class TorchDataset(object):
         lz.timer.since_last_check('finish cal dataset info')
         if conf.kd and conf.sftlbl_from_file:  # todo deprecated
             self.teacher_embedding_db = lz.Database('work_space/teacher_embedding.h5', 'r')
+        if conf.cutoff:
+            assert conf.clean_ids is not None, 'not all option combination is implemented'
+            id2nimgs = collections.defaultdict(int)
+            for id_ in conf.clean_ids:
+                id2nimgs[id_] += 1
+            abadon_ids_hand = [83192, 47005]
+            abadon_ids = np.where(np.array(list(id2nimgs.values())) <= 10)[0]
+            abadon_ids = abadon_ids.tolist() + abadon_ids_hand
+            ids_remap = {}
+            new_id = -1
+            for id_ in np.unique(conf.clean_ids):
+                if id_ in abadon_ids:
+                    ids_remap[id_] = -1
+                else:
+                    ids_remap[id_] = new_id
+                    new_id += 1
+            new_ids = []
+            for id_ in conf.clean_ids:
+                new_ids.append(ids_remap[id_])
+            new_ids = np.array(new_ids)
+            conf.clean_ids = new_ids
         if conf.clean_ids is not None:
             conf.num_clss = self.num_classes = np.unique(conf.clean_ids).shape[0] - 1
+
         global rec_cache
         self.rec_cache = rec_cache
         if conf.fill_cache:
@@ -413,63 +427,36 @@ class TorchDataset(object):
         if isinstance(index, tuple):
             # assert not isinstance(index, tuple)
             index, pid, ind_ind = index
-            if index in self.rec_cache:
-                s = self.rec_cache[index]
-            else:
-                with self.locks[0]:
-                    s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
-                # rec_cache[index] = s
-            header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
-            imgs = self.imdecode(img)
-            assert imgs is not None
-            label = int(pid)
-            # assert label in self.ids_map
-            # label = self.ids_map[label]
-            # label = int(label)
-            imgs = self.preprocess_img(imgs)
-            if conf.use_redis and self.r and lz.get_mem() >= 20:
-                self.r.set(f'{conf.dataset_name}/imgs/{index}', img)
-            res = {'imgs': imgs, 'labels': label,
-                   'ind_inds': ind_ind, 'indexes': index,
-                   'is_trains': True}
-            if hasattr(self, 'teacher_embedding_db'):
-                res['teacher_embedding'] = self.teacher_embedding_db[str(index)]
-            return res
+            index -= 1
+        if conf.clean_ids is not None:
+            lbl = conf.clean_ids[index]
+            if lbl == -1: return self._get_single_item(np.random.randint(low=0, high=len(self)))
+        index += 1  # 1 based!
+        if index in self.rec_cache:
+            s = self.rec_cache[index]
         else:
-            # try:
-            if conf.clean_ids is not None:
-                lbl = conf.clean_ids[index]
-                if lbl == -1: return self._get_single_item(np.random.randint(low=0, high=len(self)))
-            index += 1  # 1 based!
-            if index in self.rec_cache:
-                s = self.rec_cache[index]
-            else:
-                with self.locks[0]:
-                    s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
-                # rec_cache[index] = s
-            header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
-            imgs = self.imdecode(img)
-            assert imgs is not None
-            label = header.label
-            if not isinstance(label, numbers.Number):
-                assert label[-1] == 0. or label[-1] == 1., f'{label} {index} {imgs.shape}'
-                label = label[0]
-            label = int(label)
-            imgs = self.preprocess_img(imgs)
-            assert label == int(self.idx2id[index])
-            if conf.clean_ids is not None:
-                label = lbl
-            # assert label in self.ids_map
-            # label = self.ids_map[label]
-            # label = int(label)
-            res = {'imgs': imgs, 'labels': label,
-                   'indexes': index,
-                   }
-            return res
-        # except Exception as err:
-        #     logging.info(f'err is {err}')
-        #     index = int(np.random.choice(list(range(len(self)))))
-        #     return self._get_single_item(index)
+            with self.locks[0]:
+                s = self.imgrecs[0].read_idx(index)  # from [ 1 to 3804846 ]
+            # rec_cache[index] = s
+        header, img = unpack_auto(s, self.path_imgidx)  # this is RGB format
+        imgs = self.imdecode(img)
+        assert imgs is not None
+        label = header.label
+        if not isinstance(label, numbers.Number):
+            assert label[-1] == 0. or label[-1] == 1., f'{label} {index} {imgs.shape}'
+            label = label[0]
+        label = int(label)
+        imgs = self.preprocess_img(imgs)
+        assert label == int(self.idx2id[index]), f'{label} {self.idx2id[index]}'
+        assert label in self.ids_map
+        label = self.ids_map[label]
+        label = int(label)
+        if conf.clean_ids is not None:
+            label = lbl
+        res = {'imgs': imgs, 'labels': label,
+               'indexes': index, 'ind_inds': -1,
+               }
+        return res
 
 
 class Dataset_val(torch.utils.data.Dataset):
@@ -623,8 +610,9 @@ class RandomIdSampler(Sampler):
 
 class SeqSampler(Sampler):
     def __init__(self):
+        # todo update code
         path_ms1m = conf.use_data_folder
-        _, self.ids, self.id2range = lz.msgpack_load(path_ms1m / f'info.{conf.cutoff}.pk')
+        # _, self.ids, self.id2range = lz.msgpack_load(path_ms1m / f'info.{conf.cutoff}.pk')
         # above is the imgidx of .rec file
         # remember -1 to convert to pytorch imgidx
         self.num_instances = conf.instances
@@ -832,9 +820,9 @@ class face_learner(object):
             self.loader = DataLoader(
                 self.dataset, batch_size=conf.batch_size,
                 num_workers=conf.num_workers,
-                sampler=RandomIdSampler(self.dataset.imgidx,
-                                        self.dataset.ids, self.dataset.id2range),
-                # shuffle=True,
+                # sampler=RandomIdSampler(self.dataset.imgidx,
+                #                         self.dataset.ids, self.dataset.id2range),
+                shuffle=True,
                 drop_last=True, pin_memory=conf.pin_memory,
                 collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
             )
@@ -1290,9 +1278,7 @@ class face_learner(object):
                 )
                 if acc_grad_cnt == 0:
                     self.optimizer.zero_grad()
-                if conf.input_rg_255:
-                    imgs *= 127.5
-                    imgs += 127.5
+
                 if conf.net_mode == 'sglpth':
                     ttl_runtime = 0.452 * 10 ** 6  # todo
                     target_runtime = 2.5 * 10 ** 6
@@ -2401,12 +2387,14 @@ class face_learner(object):
         lz.timer.since_last_check('eval end')
         return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
 
-    def validate_ori(self, conf, resume_path=None):
+    def validate_ori(self, conf, resume_path=None,
+                     valds_names=('lfw', 'agedb_30', 'cfp_fp',
+                                  'cfp_ff', 'calfw', 'cplfw', 'vgg2_fp',)):
         res = {}
         if resume_path is not None:
             self.load_state(resume_path=resume_path)
         self.model.eval()
-        for ds in ['lfw', 'agedb_30', 'cfp_fp', 'cfp_ff', 'calfw', 'cplfw', 'vgg2_fp', ]:
+        for ds in valds_names:
             accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.loader.dataset.root_path,
                                                                        ds)
             logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -2541,7 +2529,7 @@ class face_learner(object):
             loss_xent = nn.CrossEntropyLoss(reduction='sum')(thetas, labels)  # for grad of each sample
             grad_xent = torch.autograd.grad(loss_xent,
                                             embeddings,
-                                            retain_graph=True,
+                                            retain_graph=False,
                                             create_graph=False, only_inputs=True,
                                             allow_unused=True)[0].detach()
 
@@ -2739,6 +2727,12 @@ class face_cotching(face_learner):
             self.model = Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)
             self.model2 = Backbone(conf.net_depth, conf.drop_ratio, conf.net_mode)
             logging.info('{}_{} model generated'.format(conf.net_mode, conf.net_depth))
+        elif conf.net_mode == 'effnet':
+            name = conf.eff_name
+            self.model = models.EfficientNet.from_name(name)
+            imgsize = models.EfficientNet.get_image_size(name)
+            assert conf.input_size == imgsize, imgsize
+            self.model2 = models.EfficientNet.from_name(name)
         else:
             raise ValueError(conf.net_mode)
         if conf.loss == 'arcface':
@@ -3447,7 +3441,8 @@ class face_cotching(face_learner):
                 thetas2 = self.head2(embeddings2, labels)
                 pred = thetas.argmax(dim=1)
                 pred2 = thetas2.argmax(dim=1)
-                disagree = pred != pred2
+                # disagree = pred != pred2
+                disagree = pred != pred2  # todo disagree and wrong?
                 num_disagree = disagree.sum().item()
                 if num_disagree == 0:
                     continue  # this assert acc can finally reach bs
@@ -3944,10 +3939,25 @@ rescale = ReScale.apply
 if __name__ == '__main__':
     pass
     # ds = DatasetCfpFp()
-    ds = DatasetCasia()
+    # ds = DatasetCasia()
+    conf.fill_cache = 0
+    ds = TorchDataset(conf.use_data_folder)
     imgs = []
     for i in np.random.randint(0, 100, (10,)):
         img = ds[i]['imgs']
-        imgs.append(img)
-    plt_imshow_tensor(imgs)
-    plt.show()
+    #     imgs.append(img)
+    # plt_imshow_tensor(imgs)
+    # plt.show()
+
+    loader = DataLoader(
+        ds, batch_size=conf.batch_size,
+        num_workers=conf.num_workers,
+        sampler=RandomIdSampler(ds.imgidx,   ds.ids, ds.id2range),
+        # shuffle=True,
+        drop_last=True, pin_memory=True,
+        collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
+    )
+    for ind, data in enumerate(loader):
+        if ind >= 10: break
+    class_num = ds.num_classes
+    print(class_num)
