@@ -1110,18 +1110,19 @@ class ArcfaceNeg(Module):
                 logging.info(f'this concatins a difficult sample, {cond_mask.sum().item()}')
             output[idx_, label] = cos_theta_m.type_as(output)
         if self.m2 != 0:
-            cos_theta_neg = cos_theta.clone()
             with torch.no_grad():
+                cos_theta_neg = cos_theta.clone()
                 cos_theta_neg[idx_, label] = -self.s * 999
                 topk = conf.topk
                 topkind = torch.argsort(cos_theta_neg, dim=1)[:, -topk:]
                 idx = torch.stack([idx_] * topk, dim=1)
-            cos_theta_neg_need = cos_theta_neg[idx, topkind]
+            cos_theta_neg_need = cos_theta[idx, topkind].clone()
             theta = torch.acos(cos_theta_neg_need)
             cos_theta_neg_m = torch.cos(theta - self.m2)
-            # cond_mask = (cos_theta_neg_need < self.threshold2)  # what is masked is what should not be replaced
-            if torch.any(cos_theta_neg_need >= self.threshold2).item():
-                logging.info(f'neg concatins difficult samples {(cos_theta_neg_need >= self.threshold2).sum().item()}')
+            cond_mask = (cos_theta_neg_need >= self.threshold2)  # < is masked is what should not be replaced
+            if torch.any(cond_mask).item():
+                logging.info(f'neg concatins difficult samples '
+                             f'{(cond_mask).sum().item()}')
             output[idx, topkind] = cos_theta_neg_m.type_as(output)
         output *= self.s  # scale up in order to make softmax work, first introduced in normface
         self.step += 1
