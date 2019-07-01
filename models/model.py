@@ -825,12 +825,15 @@ class Arcface(Module):
     def update_mrg(self, m=conf.margin, s=conf.scale):
         m = np.float32(m)
         pi = np.float32(np.pi)
+        dev = self.kernel.get_device()
+        if dev == -1:
+            dev = 0
         self.m = m  # the margin value, default is 0.5
         self.s = s  # scalar value default is 64, see normface https://arxiv.org/abs/1704.06369
-        self.cos_m = torch.FloatTensor([np.cos(m)]).cuda()
-        self.sin_m = torch.FloatTensor([np.sin(m)]).cuda()
-        self.mm = torch.FloatTensor([np.sin(m) * m]).cuda()
-        self.threshold = torch.FloatTensor([math.cos(pi - m)]).cuda()
+        self.cos_m = torch.FloatTensor([np.cos(m)]).to(dev)
+        self.sin_m = torch.FloatTensor([np.sin(m)]).to(dev)
+        self.mm = torch.FloatTensor([np.sin(m) * m]).to(dev)
+        self.threshold = torch.FloatTensor([math.cos(pi - m)]).to(dev)
 
     def forward_eff_v1(self, embeddings, label=None):
         assert not torch.isnan(embeddings).any().item()

@@ -837,7 +837,7 @@ class face_learner(object):
                 lz.mkdir_p(conf.log_path, delete=False)
                 lz.set_file_logger(str(conf.log_path))
                 lz.set_file_logger_prt(str(conf.log_path))
-        if conf.need_tb and not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        if conf.need_tb and (not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0):
             self.writer = SummaryWriter(str(conf.log_path))
             conf.writer = self.writer
             self.writer.add_text('conf', f'{conf}', 0)  # todo to markdown
@@ -2748,28 +2748,22 @@ class face_cotching(face_learner):
         else:
             raise ValueError(f'{conf.loss}')
 
-        self.model.cuda()
-        self.model2.cuda()
+        self.model.to(conf.model1_dev[0])
+        self.model2.to(conf.model2_dev[0])
 
         if self.head is not None:
-            self.head = self.head.to(device=conf.model2_dev[0])
+            self.head = self.head.to(device=conf.model1_dev[0])
             self.head2 = self.head2.to(device=conf.model2_dev[0])
+            self.head.update_mrg()
+            self.head2.update_mrg()
 
         if conf.tri_wei != 0:
             self.head_triplet = TripletLoss().cuda()
         logging.info(' model heads generated')
 
         paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
-        if conf.use_opt == 'adam':  # todo deprecated
-            self.optimizer = optim.Adam([{'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': 0},
-                                         {'params': paras_only_bn}, ],
-                                        betas=(conf.adam_betas1, conf.adam_betas2),
-                                        amsgrad=True,
-                                        lr=conf.lr,
-                                        )
-        elif conf.use_opt == 'sgd':
-            paras_only_bn2, paras_wo_bn2 = separate_bn_paras(self.model2)
-
+        paras_only_bn2, paras_wo_bn2 = separate_bn_paras(self.model2)
+        if conf.use_opt == 'sgd':
             ## wdecay
             # self.optimizer = optim.SGD([
             #     {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
@@ -2799,27 +2793,23 @@ class face_cotching(face_learner):
                 {'params': [*self.head2.parameters()], 'weight_decay': conf.weight_decay, 'lr_mult': 10},
                 {'params': paras_only_bn2},
             ], lr=conf.lr, momentum=conf.momentum)
-        elif conf.use_opt == 'adabound':
-            from tools.adabound import AdaBound
-            self.optimizer = AdaBound([
-                {'params': paras_wo_bn + [*self.head.parameters()],
-                 'weight_decay': conf.weight_decay},
-                {'params': paras_only_bn},
-            ], lr=conf.lr, betas=(conf.adam_betas1, conf.adam_betas2),
-                gamma=1e-3, final_lr=conf.final_lr,
-            )
         else:
             raise ValueError(f'{conf.use_opt}')
         if conf.fp16:
-            self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O1")
-            self.model2, self.optimizer2 = amp.initialize(self.model2, self.optimizer2, opt_level="O1")
+            keep_batchnorm_fp32 = True if conf.opt_level=='O3' else None
+            self.model, self.optimizer = amp.initialize(
+                self.model, self.optimizer, opt_level=conf.opt_level,
+                keep_batchnorm_fp32=keep_batchnorm_fp32)
+            self.model2, self.optimizer2 = amp.initialize(
+                self.model2, self.optimizer2, opt_level=conf.opt_level,
+                keep_batchnorm_fp32=keep_batchnorm_fp32)
 
         logging.info(f'optimizers generated {self.optimizer}')
 
         self.model = torch.nn.DataParallel(self.model,
                                            device_ids=conf.model1_dev,
                                            output_device=conf.model1_dev[0]
-                                           ).cuda()
+                                           )
         self.model2 = torch.nn.DataParallel(self.model2,
                                             device_ids=conf.model2_dev,
                                             output_device=conf.model2_dev[0]
@@ -2831,20 +2821,45 @@ class face_cotching(face_learner):
         self.head2.train()
         self.model2.train()
 
-    def schedule_lr(self, e=0):
+    def schedule_lr_mstep(self, e=0, step=0):
         from bisect import bisect_right
-
         e2lr = {epoch: conf.lr * conf.lr_gamma ** bisect_right(self.milestones, epoch) for epoch in
                 range(conf.epochs)}
         logging.info(f'map e to lr is {e2lr}')
         lr = e2lr[e]
         for params in self.optimizer.param_groups:
-            params['lr'] = lr
+            if 'lr_mult' in params:
+                params['lr'] = lr * params['lr_mult']
+            else:
+                params['lr'] = lr
         for params in self.optimizer2.param_groups:
-            params['lr'] = lr
+            if 'lr_mult' in params:
+                params['lr'] = lr * params['lr_mult']
+            else:
+                params['lr'] = lr
         logging.info(f'lr is {lr}')
 
-    init_lr = schedule_lr
+    def schedule_lr_cosanl(self, e=0, step=0):
+        assert e == 0, 'not implement yet'
+        steps_per_epoch = len(self.loader)
+        ttl_steps = conf.epochs * steps_per_epoch
+        base_lr = conf.lr
+        # min_lr = base_lr/10 # defalt use 0
+        lr = 1 / 2 * (base_lr) * (1 + np.cos(step / ttl_steps * np.pi))
+        for params in self.optimizer.param_groups:
+            if 'lr_mult' in params:
+                params['lr'] = lr * params['lr_mult']
+            else:
+                params['lr'] = lr
+
+        for params in self.optimizer2.param_groups:
+            if 'lr_mult' in params:
+                params['lr'] = lr * params['lr_mult']
+            else:
+                params['lr'] = lr
+
+    # init_lr = schedule_lr = schedule_lr_mstep
+    schedule_lr = init_lr = schedule_lr_cosanl
 
     def evaluate(self, conf, path, name, nrof_folds=10, tta=True, ensemble=False):
         # from utils import ccrop_batch
@@ -3408,9 +3423,10 @@ class face_cotching(face_learner):
                 logging.info(f'validation accuracy on {ds} is {accuracy} ')
         for e in range(conf.start_epoch, epochs):
             lz.timer.since_last_check('epoch {} started'.format(e))
-            self.schedule_lr(e)
+            # self.schedule_lr(e)
             loader_enum = self.get_loader_enum()
             while True:
+                self.schedule_lr(step=self.step)
                 try:
                     ind_data, data = next(loader_enum)
                 except StopIteration as err:
@@ -3431,41 +3447,43 @@ class face_cotching(face_learner):
                     self.optimizer2.step()
                     self.optimizer2.zero_grad()
                 imgs = data['imgs'].to(device=conf.model1_dev[0])
+                imgs2 = data['imgs'].to(device=conf.model2_dev[0])
                 assert imgs.max() < 2
-                labels = data['labels'].to(device=conf.model1_dev[0])
+                labels = data['labels'].to(conf.model1_dev[0])
+                labels2 = data['labels'].to(conf.model2_dev[0])
                 data_time.update(
                     lz.timer.since_last_check(verbose=False)
                 )
-                embeddings = self.model(imgs, )
-                embeddings2 = self.model2(imgs, )
+                embeddings = self.model(imgs)
+                embeddings2 = self.model2(imgs2)
                 thetas = self.head(embeddings, labels)
-                thetas2 = self.head2(embeddings2, labels)
+                thetas2 = self.head2(embeddings2, labels2)
 
                 loss_xent = F.cross_entropy(thetas, labels, )
-                loss_xent2 = F.cross_entropy(thetas2, labels, )
+                loss_xent2 = F.cross_entropy(thetas2, labels2)
 
                 if conf.mutual_learning:
                     mual1 = F.kl_div(F.log_softmax(thetas, dim=1),
-                                     F.softmax(thetas2.detach(), dim=1),
+                                     F.softmax(thetas2.detach().to(conf.model1_dev[0]), dim=1),
                                      reduction='batchmean',
-                                     )  # todo may [ind2_update]
-                    loss_xent += mual1 * conf.mutual_learning
+                                     )
+                    loss_xent = loss_xent + mual1 * conf.mutual_learning
                     mual2 = F.kl_div(F.log_softmax(thetas2, dim=1),
-                                     F.softmax(thetas.detach(), dim=1),
+                                     F.softmax(thetas.detach().to(conf.model2_dev[0]), dim=1),
                                      reduction='batchmean',
-                                     )  # todo batchmean or mean
-                    loss_xent2 += mual2 * conf.mutual_learning
-
+                                     )  # todo temparature?
+                    loss_xent2 = loss_xent2 + mual2 * conf.mutual_learning
                 if conf.fp16:
-                    with amp.scale_loss(loss_xent, self.optimizer2) as scaled_loss:
-                        scaled_loss.backward()
-                else:
-                    loss_xent.backward()
-                if conf.fp16:
-                    with amp.scale_loss(loss_xent2, self.optimizer) as scaled_loss:
+                    with amp.scale_loss(loss_xent2, self.optimizer2) as scaled_loss:
                         scaled_loss.backward()
                 else:
                     loss_xent2.backward()
+                if conf.fp16:
+                    with amp.scale_loss(loss_xent, self.optimizer) as scaled_loss:
+                        scaled_loss.backward()
+                else:
+                    loss_xent.backward()
+                embed()
                 now_bs += conf.batch_size
 
                 with torch.no_grad():
@@ -4098,7 +4116,7 @@ class ReScale(torch.autograd.Function):
 rescale = ReScale.apply
 
 if __name__ == '__main__':
-    pass
+    exit()
     # ds = DatasetCfpFp()
     # ds = DatasetCasia()
     conf.fill_cache = 0

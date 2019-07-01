@@ -20,3 +20,6 @@ images_aligned_sample
 *huawei*
 clean.pk
 *.npy
+*.png
+*.jpg
+*.pkl

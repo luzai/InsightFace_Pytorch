@@ -14,8 +14,8 @@ if dist:
     num_devs = 1
 else:
     pass
-    # lz.init_dev((0, 1, 2, 3))
-    lz.init_dev(lz.get_dev(num_devs))
+    lz.init_dev((0, 1, 2, 3))
+    # lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
 conf.num_workers = ndevs * 3
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/mbfc.retina.cl.dim256.cotch.3')
+conf.work_path = Path('work_space/mbfc.retina.cl.dim256.mual.10')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -48,9 +48,9 @@ casia_folder = conf.data_path / 'casia'  # the cleaned one todo may need the oth
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = retina_folder
+conf.use_data_folder = dingyi_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
-conf.clean_ids = msgpack_load(root_path + 'train.configs/clean2.pk')
+conf.clean_ids =None# msgpack_load(root_path + 'train.configs/clean2.pk')  # None#
 if conf.use_data_folder == ms1m_folder:
     conf.cutoff = 0
 elif conf.use_data_folder == glint_folder:
@@ -106,7 +106,6 @@ conf.use_chkpnt = False
 conf.chs_first = True
 conf.prof = False
 conf.fast_load = False
-conf.fp16 = True
 conf.ipabn = False
 conf.cvt_ipabn = False
 conf.kd = False
@@ -118,17 +117,20 @@ conf.online_imp = False
 conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
+# torch.cuda.set_device(conf.model1_dev[0])
 conf.tau = 0.05
-conf.mutual_learning = 0  # 1e-1
+conf.mutual_learning = 0  # 1e-7
 
+conf.fp16 = True
+conf.opt_level = "O1"
 conf.batch_size = 85 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
-conf.log_interval = 150
-conf.need_tb = True  # False
+conf.log_interval = 30
+conf.need_tb = True
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 3
+conf.acc_grad = 2
 # --------------------Training Config ------------------------
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
 conf.use_opt = 'sgd'  # adabound
@@ -147,7 +149,7 @@ conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = .5
+conf.fill_cache = 0
 
 
 # todo may use kl_div to speed up
