@@ -282,7 +282,7 @@ class Backbone(Module):
 
     def forward(self, x, ):
         if conf.input_size != 112:
-            x = F.interpolate(x, size=conf.input_size, mode='bilinear') #bicubic
+            x = F.interpolate(x, size=conf.input_size, mode='bilinear')  # bicubic
 
         x = self.input_layer(x)
         x = self.body(x)
@@ -853,8 +853,8 @@ class Arcface(Module):
                     self.writer.add_scalar('theta/pos_med', torch.median(theta_pos).item(), self.step)
                     self.writer.add_scalar('theta/neg_med', torch.median(theta_neg).item(), self.step)
                 logging.info(f'pos_med: {torch.median(theta_pos).item():.2e} ' +
-                                 f'neg_med: {torch.median(theta_neg).item():.2e} '
-                                 )
+                             f'neg_med: {torch.median(theta_neg).item():.2e} '
+                             )
         output = cos_theta.clone()  # todo avoid copy ttl
         cos_theta_need = cos_theta[idx_, label]
         cos_theta_2 = torch.pow(cos_theta_need, 2)
@@ -900,8 +900,8 @@ class Arcface(Module):
                     self.writer.add_scalar('theta/pos_med', torch.median(theta_pos).item(), self.step)
                     self.writer.add_scalar('theta/neg_med', torch.median(theta_neg).item(), self.step)
                 logging.info(f'pos_med: {torch.median(theta_pos).item():.2e} ' +
-                                 f'neg_med: {torch.median(theta_neg).item():.2e} '
-                                 )
+                             f'neg_med: {torch.median(theta_neg).item():.2e} '
+                             )
         output = cos_theta
         cos_theta_need = cos_theta[idx_, label].clone()
         theta = torch.acos(cos_theta_need)
@@ -1092,14 +1092,14 @@ class ArcfaceNeg(Module):
                 one_hot = torch.zeros_like(cos_theta)
                 one_hot.scatter_(1, label.view(-1, 1).long(), 1)
                 theta = torch.acos(cos_theta)
-                theta_neg = theta[one_hot < 1].view(bs, self.classnum - 1)
-                theta_pos = theta[one_hot == 1].view(bs)
+                theta_neg = theta[one_hot < 1]
+                theta_pos = theta[idx_, label]
                 if self.writer:
                     self.writer.add_scalar('theta/pos_med', torch.median(theta_pos).item(), self.step)
                     self.writer.add_scalar('theta/neg_med', torch.median(theta_neg).item(), self.step)
                 logging.info(f'pos_med: {torch.median(theta_pos).item():.2e} ' +
-                                 f'neg_med: {torch.median(theta_neg).item():.2e} '
-                                 )
+                             f'neg_med: {torch.median(theta_neg).item():.2e} '
+                             )
         output = cos_theta
         if self.m != 0:
             cos_theta_need = cos_theta[idx_, label].clone()

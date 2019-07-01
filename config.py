@@ -9,7 +9,7 @@ from torchvision import transforms as trans
 # todo label smooth
 
 dist = False
-num_devs = 3
+num_devs = 4
 if dist:
     num_devs = 1
 else:
@@ -22,7 +22,7 @@ conf.num_workers = ndevs * 3
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
-conf.loss = 'arcfaceneg'  # adacos softmax arcface arcfaceneg cosface
+conf.loss = 'arcface'  # adacos softmax arcface arcfaceneg cosface
 
 conf.writer = None
 conf.local_rank = None
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/effnet.retina.cl.cut10.dim256.arcneg')
+conf.work_path = Path('work_space/effnet.retina.cl.cut10.dim256.arcneg.8')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -60,28 +60,28 @@ elif conf.use_data_folder == emore_folder:
 elif conf.use_data_folder == asia_emore:
     conf.cutoff = 10
 else:
-    conf.cutoff = 10
+    conf.cutoff = 0
 conf.mining = 'rand.id'  # todo balance opt # 'dop' 'imp' rand.img(slow) rand.id # todo imp.grad imp.loss
 conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
 conf.rand_ratio = 9 / 27
 
-conf.margin = .3  # todo do not forget if use adacos!
+conf.margin = .5  # todo do not forget if use adacos!
 conf.margin2 = .2
-conf.topk = 15
+conf.topk = 5
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
 conf.tri_wei = 0
-conf.scale = 32  # 48 64
+conf.scale = 48  # 48 64
 conf.instances = 4
 
 conf.phi = 1.9
 conf.input_rg_255 = False
-conf.input_size = 224  # 128 224 112
+conf.input_size = 112  # 128 224 112
 conf.embedding_size = 256
 conf.drop_ratio = .4
 conf.conv2dmask_drop_ratio = .2
 conf.lambda_runtime_reg = 10
-conf.net_mode = 'effnet'  # effnet mbfc sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
+conf.net_mode = 'mobilefacenet'  # effnet mbfc sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
 conf.net_depth = 100  # 100 121 169 201 264 50 20
 conf.mb_mode = 'face.large'
 conf.mb_mult = 1.285
@@ -119,15 +119,16 @@ conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
 conf.model1_dev = list(range(num_devs))
 conf.model2_dev = list(range(num_devs))
 conf.tau = 0.05
+conf.mutual_learning = False
 
 conf.batch_size = 128 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
-conf.log_interval = 30 # remenber -1 to speedup
+conf.log_interval = 30  # remenber -1 to speedup
 conf.need_tb = True
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 3
+conf.acc_grad = 2
 # --------------------Training Config ------------------------
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
 conf.use_opt = 'sgd'  # adabound
@@ -146,7 +147,7 @@ conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = .7
+conf.fill_cache = .3
 
 
 # todo may use kl_div to speed up
