@@ -15,6 +15,8 @@
 #    python train.py
 #done
 
-python train.cotching.py
-python train.cotching.2.py
-python train.cotching.py --tau 0
+for i in $(seq 64 -2 56)
+do
+    echo $i
+    python train.py --scale $i --epochs 1 --prof True --work_path work_space/bak.$i
+done

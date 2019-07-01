@@ -1372,7 +1372,7 @@ class face_learner(object):
                     self.save_state(conf, accuracy)
 
                 self.step += 1
-                if conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step % 1700 == 1699:
                     break
             if conf.prof and e > 5:
                 break
@@ -3460,6 +3460,13 @@ class face_cotching(face_learner):
                 ind2_update = ind2_sorted[:num_remember]
                 loss_xent_rmbr = loss_xent[ind2_update].mean()  # this is where exchange
                 loss_xent2_rmbr = loss_xent2[ind_update].mean()
+
+                if conf.mutual_learning:
+                    loss_xent_rmbr+= F.kl_div(F.softmax(thetas[disagree], dim=1),
+                             F.softmax(thetas2[disagree].detach(), dim=1)) # todo may [ind2_update]
+                    loss_xent2_rmbr += F.kl_div(F.softmax(thetas2[disagree], dim=1),
+                             F.softmax(thetas[disagree].detach(), dim=1))
+
                 if conf.fp16:
                     with amp.scale_loss(loss_xent2_rmbr, self.optimizer2) as scaled_loss:
                         scaled_loss.backward()

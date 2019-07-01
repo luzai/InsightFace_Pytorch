@@ -19,7 +19,9 @@ parser.add_argument('--local_rank', default=None, type=int, )
 parser.add_argument('--mbfc_wm', default=conf.mbfc_wm, type=float, )
 parser.add_argument('--mbfc_dm', default=conf.mbfc_dm, type=float, )
 parser.add_argument('--work_path', default=None, type=str, )
-parser.add_argument('--epochs', default=conf.epochs, type=int, )
+parser.add_argument('--epochs', default=conf.epochs, type=float, )
+parser.add_argument('--scale', default=conf.scale, type=int)
+parser.add_argument('--prof', default=conf.prof, type=bool)
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -114,8 +116,8 @@ if __name__ == '__main__':
     # learner.train_with_wei(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)
 
-    from tools.test_ijbc3 import test_ijbc3
-    res = test_ijbc3(conf, learner)
+    # from tools.test_ijbc3 import test_ijbc3
+    # res = test_ijbc3(conf, learner)
 
     #     steps = learner.list_steps(conf.model_path)
     #     for step in steps[::-1]:
