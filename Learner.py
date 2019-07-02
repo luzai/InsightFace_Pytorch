@@ -356,9 +356,7 @@ class TorchDataset(object):
             id2nimgs = collections.defaultdict(int)
             for id_ in conf.clean_ids:
                 id2nimgs[id_] += 1
-            abadon_ids_hand = [83192, 47005]
             abadon_ids = np.where(np.array(list(id2nimgs.values())) <= 10)[0]
-            abadon_ids = abadon_ids.tolist() + abadon_ids_hand
             ids_remap = {}
             new_id = -1
             for id_ in np.unique(conf.clean_ids):

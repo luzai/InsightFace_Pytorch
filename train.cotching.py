@@ -35,7 +35,7 @@ parser.add_argument('--margin2', default=conf.margin2, type=float)
 parser.add_argument('--net_mode', default=conf.net_mode, type=str)
 parser.add_argument('--input_size', default=conf.input_size, type=int)
 parser.add_argument('--tau', default=conf.tau, type=float)
-parser.add_argument('--mutual_learning', default=conf.mutual_learning, type = float)
+parser.add_argument('--mutual_learning', default=conf.mutual_learning, type=float)
 parser.add_argument('--train_mode', default='mual', type=str)
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -64,7 +64,7 @@ if __name__ == '__main__':
         learner.load_state(
             resume_path=Path(f'work_space/{p}/models/'),
             load_optimizer=False,
-            load_head=True, # todo note !!!
+            load_head=True,  # todo note !!!
             load_imp=False,
             latest=True,
             load_model2=True,
@@ -89,7 +89,7 @@ if __name__ == '__main__':
     # learner.train_simple(conf, conf.epochs)
     # learner.train_cotching(conf, conf.epochs)
     # learner.train_cotching_accbs(conf, conf.epochs)
-    if args.train_mode=='mual':
+    if args.train_mode == 'mual':
         learner.train_mual(conf, conf.epochs)
     else:
         learner.train_cotching_accbs_v2(conf, conf.epochs)
@@ -98,8 +98,9 @@ if __name__ == '__main__':
     # learner.train_use_test(conf, conf.epochs)
     # res = learner.validate_ori(conf)
 
-    # from tools.test_ijbc3 import test_ijbc3
-    # res = test_ijbc3(conf, learner)
+    from tools.test_ijbc3 import test_ijbc3
+
+    res = test_ijbc3(conf, learner)
 
     #     steps = learner.list_steps(conf.model_path)
     #     for step in steps[::-1]:

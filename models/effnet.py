@@ -12,7 +12,9 @@ from models.utils import (
     efficientnet_params,
     load_pretrained_weights,
 )
-PReLU = lambda x: None # todo
+
+PReLU = lambda x: None  # todo
+
 
 class MBConvBlock(nn.Module):
     """
@@ -40,7 +42,7 @@ class MBConvBlock(nn.Module):
         if self._block_args.expand_ratio != 1:
             self._expand_conv = Conv2dSamePadding(in_channels=inp, out_channels=oup, kernel_size=1, bias=False)
             self._bn0 = nn.BatchNorm2d(num_features=oup, momentum=self._bn_mom, eps=self._bn_eps)
-            self.prelu0=PReLU(oup)
+            self.prelu0 = PReLU(oup)
         # Depthwise convolution phase
         k = self._block_args.kernel_size
         s = self._block_args.stride
@@ -53,7 +55,7 @@ class MBConvBlock(nn.Module):
         if self.has_se:
             num_squeezed_channels = max(1, int(self._block_args.input_filters * self._block_args.se_ratio))
             self._se_reduce = Conv2dSamePadding(in_channels=oup, out_channels=num_squeezed_channels, kernel_size=1)
-            self.prelu_se= PReLU(num_squeezed_channels)
+            self.prelu_se = PReLU(num_squeezed_channels)
             self._se_expand = Conv2dSamePadding(in_channels=num_squeezed_channels, out_channels=oup, kernel_size=1)
 
         # Output phase
@@ -84,7 +86,7 @@ class MBConvBlock(nn.Module):
 
         # Skip connection and drop connect
         input_filters, output_filters = self._block_args.input_filters, self._block_args.output_filters
-        assert drop_connect_rate==0, drop_connect_rate# todo
+        assert drop_connect_rate == 0, drop_connect_rate  # todo
         if self.id_skip and self._block_args.stride == 1 and input_filters == output_filters:
             if drop_connect_rate:
                 x = drop_connect(x, p=drop_connect_rate, training=self.training)
@@ -168,11 +170,11 @@ class EfficientNet(nn.Module):
         # Final linear layer
         # self._dropout = self._global_params.dropout_rate
         # todo gdconv or gnap
-        out_resolution = conf.input_size //32
+        out_resolution = conf.input_size // 32
         self.pool = Linear_block(in_channels, in_channels,
-                     groups=in_channels, kernel=(out_resolution, out_resolution), stride=(1, 1),
-                     padding=(0, 0),
-                     )
+                                 groups=in_channels, kernel=(out_resolution, out_resolution), stride=(1, 1),
+                                 padding=(0, 0),
+                                 )
         self.new_fc = nn.Linear(in_channels, out_channels, bias=False)
         self.new_bn1 = nn.BatchNorm1d(out_channels)
 
@@ -197,8 +199,7 @@ class EfficientNet(nn.Module):
             inputs *= 127.5
             inputs += 127.5
         if inputs.shape[-1] != conf.input_size:
-            with torch.no_grad():
-                inputs = F.interpolate(inputs, size=conf.input_size, mode='bicubic', align_corners=True)
+            inputs = F.interpolate(inputs, size=conf.input_size, mode='bicubic', align_corners=True)
 
         # Convolution layers
         x = self.extract_features(inputs)
@@ -240,18 +241,21 @@ class EfficientNet(nn.Module):
         if model_name.replace('-', '_') not in valid_models:
             raise ValueError('model_name should be one of: ' + ', '.join(valid_models))
 
+
 if __name__ == '__main__':
     import lz
+
     lz.init_dev(3)
     name = 'efficientnet-b0'
     model = EfficientNet.from_name(name)
-    imgsize =EfficientNet.get_image_size(name)
+    imgsize = EfficientNet.get_image_size(name)
     conf.input_size = imgsize
     from thop import profile
+
     flops, params = profile(model, input_size=(1, 3, 128, 128),
                             # only_ops=(nn.Conv2d, nn.Linear),
                             device='cuda:0',
                             )
     flops /= 10 ** 9
     params /= 10 ** 6
-    print(flops, params,imgsize )
+    print(flops, params, imgsize)

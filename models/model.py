@@ -82,6 +82,24 @@ class SEModule(nn.Module):
 #         y = self.fc(y).view(b, c, 1, 1)
 #         return x * y.expand_as(x)
 
+# class SEBlock(nn.Module):
+#     def __init__(self, in_c, reduction=16):
+#         super(SEBlock, self).__init__()
+#         self.avgpool = nn.AdaptiveAvgPool2d(1)
+#         self.fc = nn.Sequential(
+#             nn.Linear(in_c, in_c // reduction, bias=False),
+#             nn.ReLU(inplace=True),
+#             nn.Linear(in_c // reduction, in_c, bias=False),
+#             nn.Sigmoid()
+#         )
+#
+#     def forward(self, x):
+#         b, c, _, _ = x.size()
+#         y = self.avgpool(x).view(b, c)
+#         y = self.fc(y).view(b, c, 1, 1)
+#
+#         return x * y.expand_as(x)
+
 
 from modules.bn import InPlaceABN, InPlaceABNSync
 
@@ -146,14 +164,11 @@ class bottleneck_IR(Module):
 
 
 class Identity(Module):
-    # class Identity(jit.ScriptModule):
-    #     @jit.script_method
     def forward(self, x):
         return x
 
 
-class bottleneck_IR_SE(Module):
-    # class bottleneck_IR_SE(jit.ScriptModule):
+class bottleneck_IR_SE(Module):  # this is basic block
     def __init__(self, in_channel, depth, stride):
         super(bottleneck_IR_SE, self).__init__()
         self.ipabn = int(bool(conf.ipabn))
@@ -185,14 +200,12 @@ class bottleneck_IR_SE(Module):
                 SEModule(depth, 16)
             )
 
-    # @jit.script_method
     def forward_ipabn(self, x):
         shortcut = self.shortcut_layer(x.clone())
         res = self.res_layer(x)
         res.add_(shortcut)
         return res
 
-    # @jit.script_method
     def forward_ori(self, x):
         shortcut = self.shortcut_layer(x)
         res = self.res_layer(x)
@@ -204,6 +217,8 @@ class bottleneck_IR_SE(Module):
     else:
         forward = forward_ori
 
+
+# todo true_bottleneck_IR_SE
 
 class Bottleneck(namedtuple('Block', ['in_channel', 'depth', 'stride'])):
     '''A named tuple describing a ResNet block.'''
@@ -228,19 +243,33 @@ def get_blocks(num_layers):
             get_block(in_channel=128, depth=256, num_units=30),
             get_block(in_channel=256, depth=512, num_units=3)
         ]
-    elif num_layers == 152:
+    elif num_layers == 152 or num_layers == 140:
         blocks = [
             get_block(in_channel=64, depth=64, num_units=3),
-            get_block(in_channel=64, depth=128, num_units=8),
-            get_block(in_channel=128, depth=256, num_units=36),
+            get_block(in_channel=64, depth=128, num_units=15),
+            get_block(in_channel=128, depth=256, num_units=48),
             get_block(in_channel=256, depth=512, num_units=3)
         ]
-    elif num_layers == 20:  # this is 26 in fact!
+    elif num_layers == 20 or num_layers == 26:  # this is 26 in fact!
         blocks = [
             get_block(in_channel=64, depth=64, num_units=2),
             get_block(in_channel=64, depth=128, num_units=3),
             get_block(in_channel=128, depth=256, num_units=5),
             get_block(in_channel=256, depth=512, num_units=2)
+        ]
+    elif num_layers == 18:
+        blocks = [
+            get_block(in_channel=64, depth=64, num_units=2),
+            get_block(in_channel=64, depth=128, num_units=2),
+            get_block(in_channel=128, depth=256, num_units=2),
+            get_block(in_channel=256, depth=512, num_units=2)
+        ]
+    elif num_layers == 34:
+        blocks = [
+            get_block(in_channel=64, depth=64, num_units=3),
+            get_block(in_channel=64, depth=128, num_units=4),
+            get_block(in_channel=128, depth=256, num_units=6),
+            get_block(in_channel=256, depth=512, num_units=3)
         ]
     return blocks
 
@@ -252,7 +281,7 @@ class Backbone(Module):
     def __init__(self, num_layers=conf.net_depth, drop_ratio=conf.drop_ratio, mode=conf.net_mode,
                  ebsize=conf.embedding_size):
         super(Backbone, self).__init__()
-        assert num_layers in [20, 50, 100, 152, ], 'num_layers should be 20, 50, 100, or 152'
+        assert num_layers in [18, 34, 20, 50, 100, 152, ], 'num_layers should be not defined'
         assert mode in ['ir', 'ir_se'], 'mode should be ir or ir_se'
         blocks = get_blocks(num_layers)
         if mode == 'ir':
@@ -263,12 +292,19 @@ class Backbone(Module):
                                       bn2d(64, conf.ipabn),
                                       PReLU(64))
         out_resolution = conf.input_size // 16
-        self.output_layer = Sequential(bn2d(512, conf.ipabn),
-                                       Dropout(drop_ratio),
-                                       Flatten(),
-                                       Linear(512 * out_resolution ** 2, ebsize,
-                                              bias=True if not conf.upgrade_bnneck else False),
-                                       BatchNorm1d(ebsize))
+        self.output_layer = Sequential(
+            bn2d(512, conf.ipabn),
+            Dropout(drop_ratio),
+            Flatten(),
+            Linear(512 * out_resolution ** 2, ebsize,
+                   bias=True if not conf.upgrade_bnneck else False),
+            BatchNorm1d(ebsize))
+        # self.output_layer = Sequential(
+        #     # bn2d(512, conf.ipabn),
+        #     Linear_block(512, 512, groups=512, kernel=(out_resolution, out_resolution), stride=(1, 1), padding=(0, 0)),
+        #     Flatten(),
+        #     Linear(512, ebsize, bias=False),
+        #     BatchNorm1d(ebsize))
 
         modules = []
         for block in blocks:
@@ -281,7 +317,7 @@ class Backbone(Module):
         self._initialize_weights()
 
     def forward(self, x, ):
-        if conf.input_size != 112:
+        if conf.input_size != x.shape[-1]:
             x = F.interpolate(x, size=conf.input_size, mode='bilinear')  # bicubic
 
         x = self.input_layer(x)
@@ -583,7 +619,6 @@ class Residual(Module):
                            ))
         self.model = Sequential(*modules)
 
-    # @jit.script_method
     def forward(self, x, ):
         return self.model(x)
 
@@ -670,9 +705,8 @@ class MobileFaceNet(Module):
 
     # @jit.script_method
     def forward(self, x, *args, **kwargs):
-        if conf.input_size != 112:
-            with torch.no_grad():
-                x = F.upsample_bilinear(x, size=conf.input_size)
+        if conf.input_size != x.shape[-1]:
+            x = F.upsample_bilinear(x, size=conf.input_size)
         out = self.conv1(x)
         out = self.conv2_dw(out)
         out = self.conv_23(out)
@@ -693,25 +727,6 @@ class MobileFaceNet(Module):
 class CSMobileFaceNet(nn.Module):
     def __init__(self):
         raise ValueError('deprecated')
-
-
-class SEBlock(nn.Module):
-    def __init__(self, in_c, reduction=16):
-        super(SEBlock, self).__init__()
-        self.avgpool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(
-            nn.Linear(in_c, in_c // reduction, bias=False),
-            nn.ReLU(inplace=True),
-            nn.Linear(in_c // reduction, in_c, bias=False),
-            nn.Sigmoid()
-        )
-
-    def forward(self, x):
-        b, c, _, _ = x.size()
-        y = self.avgpool(x).view(b, c)
-        y = self.fc(y).view(b, c, 1, 1)
-
-        return x * y.expand_as(x)
 
 
 ##################################  Arcface head #################
@@ -1311,9 +1326,9 @@ class TripletLoss(Module):
 if __name__ == '__main__':
     from lz import *
 
-    conf.input_size = 128
+    conf.input_size = 112
     init_dev(3)
-    model = Backbone(50, 0, 'ir_se').cuda()
+    model = Backbone(18, 0, 'ir_se')
     model.eval()
     # params = []
     # # wmdm = "1.0,2.25 1.1,1.86 1.2,1.56 1.3,1.33 1.4,1.15 1.5,1.0".split(' ') # 1,2 1.56,2  1.0,1.0
@@ -1347,39 +1362,14 @@ if __name__ == '__main__':
     #     print('Total params: %.2fM' % ttl_params)
     # plt.plot(dms, params2)
     # plt.show()
-    # embed()
-    # exit()
-
-    # model2 = torch.jit.trace(model, torch.rand(2, 3, 112, 112).cuda())
-    # model2.eval()
-    # # model.train(), model2.train()
-    #
-    # inp = torch.rand(32, 3, 112, 112).cuda()
-    # model(inp)
-    # diff = model(inp) - model2(inp)
-    # print(diff, diff.sum())
-    #
-    # timer.since_last_check('start')
-    # for _ in range(99):
-    #     f = model(torch.rand(32, 3, 112, 112).cuda())
-    #     f.mean().backward()
-    # torch.cuda.synchronize()
-    # timer.since_last_check('100 times')
-    #
-    # timer.since_last_check('start')
-    # for _ in range(99):
-    #     f = model2(torch.rand(32, 3, 112, 112).cuda())
-    #     f.mean().backward()
-    # torch.cuda.synchronize()
-    # timer.since_last_check('100 times')
 
     from thop import profile
     from lz import timer
 
-    flops, params = profile(model, input_size=(1, 3, 128, 128),
+    flops, params = profile(model, input_size=(1, 3, conf.input_size, conf.input_size),
                             custom_ops={DoubleConv: count_double_conv},
                             # only_ops=(nn.Conv2d, nn.Linear),
-                            device='cuda:0',
+                            device='cpu',
                             )
     flops /= 10 ** 9
     params /= 10 ** 6
