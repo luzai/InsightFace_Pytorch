@@ -349,8 +349,9 @@ class TorchDataset(object):
         logging.info(f'update num_clss {conf.num_clss} ')
         self.cur = 0
         lz.timer.since_last_check('finish cal dataset info')
-        if conf.kd and conf.sftlbl_from_file:  # todo deprecated
-            self.teacher_embedding_db = lz.Database('work_space/teacher_embedding.h5', 'r')
+        if conf.kd and conf.sftlbl_from_file:
+            self.teacher_embedding_db = lz.Database('work_space/r100.retina.2.h5', 'r')['feas'][...][:5179510,
+                                        ...].astype('float16')
         if conf.cutoff:
             assert conf.clean_ids is not None, 'not all option combination is implemented'
             id2nimgs = collections.defaultdict(int)
@@ -377,6 +378,15 @@ class TorchDataset(object):
         self.rec_cache = rec_cache
         if conf.fill_cache:
             self.fill_cache()
+
+        save_path = Path('work_space/r100.128.retina.clean.arc/save/')
+        fixed_str = [t.name for t in save_path.glob('model*_*.pth')][0]
+        if not conf.sftlbl_from_file and conf.teacher_head_in_dloader:
+            self.teacher_head = Arcface(embedding_size=512, classnum=conf.num_clss).to(
+                conf.teacher_head_dev)
+            self.teacher_head.update_mrg()
+            head_state_dict = torch.load(save_path / 'head_{}'.format(fixed_str.replace('model_', '')))
+            self.teacher_head.load_state_dict(head_state_dict)
 
     def fill_cache(self):
         start, stop = min(self.imgidx), max(self.imgidx) + 1
@@ -454,7 +464,34 @@ class TorchDataset(object):
         res = {'imgs': imgs, 'labels': label,
                'indexes': index, 'ind_inds': -1,
                }
+        if conf.kd and conf.sftlbl_from_file:
+            teachers_embedding = self.teacher_embedding_db[index]
+            if conf.teacher_head_in_dloader:
+                teachers_embedding = to_torch(teachers_embedding).to(conf.teacher_head_dev).float().unsqueeze(0)
+                labels = to_torch(np.array([label])).to(conf.teacher_head_dev)
+                teachers_embedding = self.teacher_head(teachers_embedding, labels).cuda()
+            res['teacher_embedding'] = teachers_embedding
         return res
+
+
+class MxnetDataset(object):
+    def __init__(self, path_ms1m):
+        path_imgrec = str(path_ms1m) + '/train.rec'
+        path_imgidx = path_imgrec[0:-4] + ".idx"
+        assert os.path.exists(path_imgidx), path_imgidx
+        from data.image_iter import FaceImageIter
+        train_dataiter = FaceImageIter(
+            batch_size=conf.batch_size,
+            data_shape=(3, 112, 112),
+            path_imgrec=path_imgrec,
+            shuffle=True,
+            rand_mirror=True,
+            mean=None,
+            cutoff=conf.cutoff,
+            color_jittering=0,
+            images_filter=0,
+        )
+        train_dataiter = mx.io.PrefetchingIter(train_dataiter)
 
 
 class Dataset_val(torch.utils.data.Dataset):
@@ -879,8 +916,8 @@ class face_learner(object):
             logging.info('{}_{} model generated'.format(conf.net_mode, conf.net_depth))
         else:
             raise ValueError(conf.net_mode)
-        if conf.kd:
-            save_path = Path('work_space/emore.r152.cont/save/')
+        if conf.kd and not conf.teacher_head_in_dloader:
+            save_path = Path('work_space/r100.128.retina.clean.arc/save/')
             fixed_str = [t.name for t in save_path.glob('model*_*.pth')][0]
             if not conf.sftlbl_from_file:
                 self.teacher_model = Backbone(152, conf.drop_ratio, 'ir_se')
@@ -893,7 +930,8 @@ class face_learner(object):
                 else:
                     self.teacher_model.module.load_state_dict(model_state_dict, strict=True)
                 self.teacher_model.eval()
-            self.teacher_head = Arcface(embedding_size=conf.embedding_size, classnum=self.class_num).cuda()
+            self.teacher_head = Arcface(embedding_size=512, classnum=self.class_num).to(conf.teacher_head_dev)
+            self.teacher_head.update_mrg()
             head_state_dict = torch.load(save_path / 'head_{}'.format(fixed_str.replace('model_', '')))
             self.teacher_head.load_state_dict(head_state_dict)
         if conf.loss == 'arcface':
@@ -1295,9 +1333,25 @@ class face_learner(object):
 
                 assert not torch.isnan(embeddings).any().item()
                 thetas = self.head(embeddings, labels)
-                # loss_xent_all = F.cross_entropy(thetas , labels , reduction='none')
-                # loss_xent = loss_xent_all.mean()
                 loss_xent = F.cross_entropy(thetas, labels, )
+                if conf.kd:
+                    alpha = conf.alpha
+                    T = conf.temperature
+                    with torch.no_grad():
+                        if not conf.sftlbl_from_file:
+                            teachers_embedding = self.teacher_model(imgs, )
+                        else:
+                            teachers_embedding = data['teacher_embedding'].to(conf.teacher_head_dev)
+                        if conf.teacher_head_in_dloader:
+                            teacher_outputs = teachers_embedding.cuda()
+                        else:
+                            teacher_outputs = self.teacher_head(teachers_embedding,
+                                                                labels.to(conf.teacher_head_dev)).to(thetas.device)
+                    distill_loss = F.kl_div(
+                        F.log_softmax(thetas / conf.scale / T, dim=1),
+                        F.softmax(teacher_outputs / conf.scale / T, dim=1), reduction='batchmean') * (T * T)
+                    loss_xent = (1. - alpha) * loss_xent + alpha * distill_loss
+
                 if conf.fp16:
                     with amp.scale_loss((loss_xent + runtime_regloss) / conf.acc_grad,
                                         self.optimizer) as scaled_loss:
@@ -1346,12 +1400,13 @@ class face_learner(object):
                         with torch.no_grad():
                             for depth, dec in enumerate(self.model.module.get_decisions()):
                                 d5x5, d100c, d50c, t5x5, t100c, t50c = dec
-                                self.writer.add_scalar(f'd5x5/{depth}', d5x5, global_step=self.step)
-                                self.writer.add_scalar(f'd50c/{depth}', d50c, global_step=self.step)
-                                self.writer.add_scalar(f'd100c/{depth}', d100c, global_step=self.step)
-                                self.writer.add_scalar(f't100c/{depth}', t100c, global_step=self.step)
-                                self.writer.add_scalar(f't50c/{depth}', t50c, global_step=self.step)
-
+                                self.writer.add_scalar(f'd5x5/{depth}', d5x5, self.step)
+                                self.writer.add_scalar(f'd50c/{depth}', d50c, self.step)
+                                self.writer.add_scalar(f'd100c/{depth}', d100c, self.step)
+                                self.writer.add_scalar(f't100c/{depth}', t100c, self.step)
+                                self.writer.add_scalar(f't50c/{depth}', t50c, self.step)
+                    if conf.kd:
+                        writer.add_scalar('loss/distill', distill_loss.item(), self.step)
                     dop = conf.dop
                     if dop is not None:
                         writer.add_histogram('top_imp', dop, self.step)
@@ -1874,22 +1929,8 @@ class face_learner(object):
                     writer.add_scalar('info/sampl', 0, self.step)
                     embeddings = self.model(imgs, mode=mode)
                     thetas = self.head(embeddings, labels)
-                    if not conf.kd:
-                        loss = conf.ce_loss(thetas, labels)
-                    else:
-                        alpha = conf.alpha
-                        T = conf.temperature
-                        outputs = thetas
-                        with torch.no_grad():
-                            if not conf.sftlbl_from_file:
-                                teachers_embedding = self.teacher_model(imgs, )
-                            else:
-                                teachers_embedding = data['teacher_embedding']
-                            teacher_outputs = self.teacher_head(teachers_embedding, labels)
-                        # loss = -(F.softmax(teacher_outputs / T, dim=1) * F.log_softmax(outputs / T, dim=1)).sum(     dim=1).mean() *alpha
-                        loss = F.kl_div(F.log_softmax(outputs / T, dim=1), F.softmax(teacher_outputs / T, dim=1)) * (
-                                alpha * T * T)  # todo batchmean
-                        loss += F.cross_entropy(outputs, labels) * (1. - alpha)
+                    loss = conf.ce_loss(thetas, labels)
+
                     if conf.tri_wei != 0:
                         loss_triplet, info = self.head_triplet(embeddings, labels, return_info=True)
                         grad_tri = torch.autograd.grad(loss_triplet, embeddings, retain_graph=True, create_graph=False,
@@ -3468,7 +3509,7 @@ class face_cotching(face_learner):
                     mual2 = F.kl_div(F.log_softmax(thetas2, dim=1),
                                      F.softmax(thetas.detach().to(conf.model2_dev[0]), dim=1),
                                      reduction='batchmean',
-                                     )  # todo temparature?
+                                     )  # todo temparature? # before we use temparature=1/64, we may try t=1
                     loss_xent2 = loss_xent2 + mual2 * conf.mutual_learning
                 if conf.fp16:
                     with amp.scale_loss(loss_xent2 / conf.acc_grad, self.optimizer2) as scaled_loss:
@@ -3535,7 +3576,7 @@ class face_cotching(face_learner):
                     self.save_state(conf, accuracy)
 
                 self.step += 1
-                if conf.prof and self.step >=len(loader)//2:
+                if conf.prof and self.step >= len(loader) // 2:
                     break
             if conf.prof and e > 1:
                 break
