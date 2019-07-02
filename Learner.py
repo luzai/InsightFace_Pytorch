@@ -1105,9 +1105,9 @@ class face_learner(object):
                     self.save_state(conf, accuracy)
 
                 self.step += 1
-                if conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step >= len(loader) // 2:
                     break
-            if conf.prof and e > 5:
+            if conf.prof and e > 1:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
@@ -1372,10 +1372,9 @@ class face_learner(object):
                     self.save_state(conf, accuracy)
 
                 self.step += 1
-                # if conf.prof and self.step % 1700 == 1699:
-                if conf.prof and self.step % 99 == 98:
+                if conf.prof and self.step >= len(loader) // 2:
                     break
-            if conf.prof and e > 5:
+            if conf.prof and e > 1:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
@@ -1501,9 +1500,9 @@ class face_learner(object):
                     self.save_state(conf, accuracy)
 
                 self.step += 1
-                if conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step >= len(loader) // 2:
                     break
-            if conf.prof and e > 5:
+            if conf.prof and e > 1:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
@@ -1616,9 +1615,9 @@ class face_learner(object):
                     self.save_state(conf, accuracy)
 
                 self.step += 1
-                if conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step >= len(loader) // 2:
                     break
-            if conf.prof and e > 5:
+            if conf.prof and e > 1:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
@@ -1755,9 +1754,9 @@ class face_learner(object):
                     self.save_state(conf, accuracy)
 
                 self.step += 1
-                if conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step >= len(loader) // 2:
                     break
-            if conf.prof and e > 5:
+            if conf.prof and e > 1:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
@@ -2001,9 +2000,9 @@ class face_learner(object):
                     self.save_state(conf, accuracy)
 
                 self.step += 1
-                if conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step >= len(loader) // 2:
                     break
-            if conf.prof and e > 5:
+            if conf.prof and e > 1:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
@@ -2135,9 +2134,9 @@ class face_learner(object):
                     self.save_state(conf, accuracy)
 
                 self.step += 1
-                if conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step >= len(loader) // 2:
                     break
-            if conf.prof and e > 5:
+            if conf.prof and e > 1:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
@@ -2796,7 +2795,7 @@ class face_cotching(face_learner):
         else:
             raise ValueError(f'{conf.use_opt}')
         if conf.fp16:
-            keep_batchnorm_fp32 = True if conf.opt_level=='O3' else None
+            keep_batchnorm_fp32 = True if conf.opt_level == 'O3' else None
             self.model, self.optimizer = amp.initialize(
                 self.model, self.optimizer, opt_level=conf.opt_level,
                 keep_batchnorm_fp32=keep_batchnorm_fp32)
@@ -3073,9 +3072,9 @@ class face_cotching(face_learner):
                     self.save_state(conf, accuracy)
 
                 self.step += 1
-                if conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step >= len(loader) // 2:
                     break
-            if conf.prof and e > 5:
+            if conf.prof and e > 1:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
@@ -3373,9 +3372,9 @@ class face_cotching(face_learner):
                     self.save_state(conf, accuracy)
 
                 self.step += 1
-                if conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step >= len(loader) // 2:
                     break
-            if conf.prof and e > 5:
+            if conf.prof and e > 1:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
@@ -3474,16 +3473,18 @@ class face_cotching(face_learner):
                                      )  # todo temparature?
                     loss_xent2 = loss_xent2 + mual2 * conf.mutual_learning
                 if conf.fp16:
-                    with amp.scale_loss(loss_xent2, self.optimizer2) as scaled_loss:
+                    with amp.scale_loss(loss_xent2 / conf.acc_grad, self.optimizer2) as scaled_loss:
                         scaled_loss.backward()
                 else:
-                    loss_xent2.backward()
+                    (loss_xent2 / conf.acc_grad).backward()
                 if conf.fp16:
-                    with amp.scale_loss(loss_xent, self.optimizer) as scaled_loss:
+                    with amp.scale_loss(loss_xent / conf.acc_grad, self.optimizer) as scaled_loss:
                         scaled_loss.backward()
                 else:
-                    loss_xent.backward()
-                embed()
+                    (loss_xent / conf.acc_grad).backward()
+                # lz.clip_grad_value_(self.model.parameters(), )
+                # lz.clip_grad_value_(self.model2.parameters(), )
+
                 now_bs += conf.batch_size
 
                 with torch.no_grad():
@@ -3536,9 +3537,9 @@ class face_cotching(face_learner):
                     self.save_state(conf, accuracy)
 
                 self.step += 1
-                if conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step >=len(loader)//2:
                     break
-            if conf.prof and e > 5:
+            if conf.prof and e > 1:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
@@ -3568,9 +3569,10 @@ class face_cotching(face_learner):
                 logging.info(f'validation accuracy on {ds} is {accuracy} ')
         for e in range(conf.start_epoch, epochs):
             lz.timer.since_last_check('epoch {} started'.format(e))
-            self.schedule_lr(e)
+            # self.schedule_lr(e)
             loader_enum = self.get_loader_enum()
             while True:
+                self.schedule_lr(step=self.step)
                 try:
                     ind_data, data = next(loader_enum)
                 except StopIteration as err:
@@ -3633,17 +3635,17 @@ class face_cotching(face_learner):
                                      reduction='batchmean',
                                      )  # todo batchmean or mean
                     loss_xent2_rmbr += mual2 * conf.mutual_learning
-
+                rmbr_rat = num_remember / conf.batch_size
                 if conf.fp16:
-                    with amp.scale_loss(loss_xent2_rmbr, self.optimizer2) as scaled_loss:
+                    with amp.scale_loss(loss_xent2_rmbr * rmbr_rat, self.optimizer2) as scaled_loss:
                         scaled_loss.backward()
                 else:
-                    loss_xent2_rmbr.backward()
+                    (loss_xent2_rmbr * rmbr_rat).backward()
                 if conf.fp16:
-                    with amp.scale_loss(loss_xent_rmbr, self.optimizer) as scaled_loss:
+                    with amp.scale_loss(loss_xent_rmbr * rmbr_rat, self.optimizer) as scaled_loss:
                         scaled_loss.backward()
                 else:
-                    loss_xent_rmbr.backward()
+                    (loss_xent_rmbr * rmbr_rat).backward()
                 now_bs += num_remember
 
                 with torch.no_grad():
@@ -3701,9 +3703,9 @@ class face_cotching(face_learner):
                     self.save_state(conf, accuracy)
 
                 self.step += 1
-                if conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step >= len(loader) // 2:
                     break
-            if conf.prof and e > 5:
+            if conf.prof and e > 1:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
@@ -4006,9 +4008,9 @@ class face_cotching_head(face_learner):
                     self.save_state(conf, accuracy)
 
                 self.step += 1
-                if conf.prof and self.step % 29 == 28:
+                if conf.prof and self.step >= len(loader) // 2:
                     break
-            if conf.prof and e > 5:
+            if conf.prof and e > 1:
                 break
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 

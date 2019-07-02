@@ -962,6 +962,31 @@ def yaml_dump(obj, file=None, **kwargs):
         raise TypeError('"file" must be a filename str or a file-object')
 
 
+# torch.nn.utils.clip_grad_value_(self.model.parameters(), 5)
+
+def clip_grad_value_(parameters, clip_value=5):
+    r"""Clips gradient of an iterable of parameters at specified value.
+
+    Gradients are modified in-place.
+
+    Arguments:
+        parameters (Iterable[Tensor] or Tensor): an iterable of Tensors or a
+            single Tensor that will have gradients normalized
+        clip_value (float or int): maximum allowed value of the gradients.
+            The gradients are clipped in the range
+            :math:`\left[\text{-clip\_value}, \text{clip\_value}\right]`
+    """
+    if isinstance(parameters, torch.Tensor):
+        parameters = [parameters]
+    clip_value = float(clip_value)
+    for p in filter(lambda p: p.grad is not None, parameters):
+        if torch.isnan(p.grad.data).any().item():
+            print('nan ', p.shape)
+        if torch.isinf(p.grad.data).any().item():
+            print('nan ', p.shape)
+        p.grad.data.clamp_(min=-clip_value, max=clip_value)
+
+
 def json_dump(obj, file, mode='a'):  # write not append!
     # import codecs
     import json
