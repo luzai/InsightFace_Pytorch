@@ -9,13 +9,13 @@ from torchvision import transforms as trans
 # todo label smooth
 
 dist = False
-num_devs = 3
+num_devs = 4
 if dist:
     num_devs = 1
 else:
     pass
-    # lz.init_dev((0, 1, 2, 3))
-    lz.init_dev(lz.get_dev(num_devs))
+    lz.init_dev((0, 1, 2, 3))
+    # lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
 conf.num_workers = ndevs * 3

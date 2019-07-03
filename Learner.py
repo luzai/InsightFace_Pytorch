@@ -379,9 +379,9 @@ class TorchDataset(object):
         if conf.fill_cache:
             self.fill_cache()
 
-        save_path = Path('work_space/r100.128.retina.clean.arc/save/')
-        fixed_str = [t.name for t in save_path.glob('model*_*.pth')][0]
         if not conf.sftlbl_from_file and conf.teacher_head_in_dloader:
+            save_path = Path('work_space/r100.128.retina.clean.arc/save/')
+            fixed_str = [t.name for t in save_path.glob('model*_*.pth')][0]
             self.teacher_head = Arcface(embedding_size=512, classnum=conf.num_clss).to(
                 conf.teacher_head_dev)
             self.teacher_head.update_mrg()
@@ -465,7 +465,7 @@ class TorchDataset(object):
                'indexes': index, 'ind_inds': -1,
                }
         if conf.kd and conf.sftlbl_from_file:
-            teachers_embedding = self.teacher_embedding_db[index]
+            teachers_embedding = self.teacher_embedding_db[index - 1]
             if conf.teacher_head_in_dloader:
                 teachers_embedding = to_torch(teachers_embedding).to(conf.teacher_head_dev).float().unsqueeze(0)
                 labels = to_torch(np.array([label])).to(conf.teacher_head_dev)
@@ -474,8 +474,10 @@ class TorchDataset(object):
         return res
 
 
-class MxnetDataset(object):
-    def __init__(self, path_ms1m):
+class MxnetLoader(object):
+    def __init__(self, path_ms1m, shuffle=True):
+        os.environ['MXNET_CPU_WORKER_NTHREADS'] = '32'
+        os.environ['MXNET_ENGINE_TYPE'] = 'ThreadedEnginePerDevice'
         path_imgrec = str(path_ms1m) + '/train.rec'
         path_imgidx = path_imgrec[0:-4] + ".idx"
         assert os.path.exists(path_imgidx), path_imgidx
@@ -484,14 +486,42 @@ class MxnetDataset(object):
             batch_size=conf.batch_size,
             data_shape=(3, 112, 112),
             path_imgrec=path_imgrec,
-            shuffle=True,
+            shuffle=shuffle,
             rand_mirror=True,
             mean=None,
             cutoff=conf.cutoff,
             color_jittering=0,
             images_filter=0,
         )
-        train_dataiter = mx.io.PrefetchingIter(train_dataiter)
+        self.train_dataiter_ori = train_dataiter
+        self.train_dataiter = mx.io.PrefetchingIter(train_dataiter)
+        if conf.kd and conf.sftlbl_from_file:
+            self.teacher_embedding_db = lz.Database(lz.root_path + 'work_space/r100.retina.2.h5', 'r')['feas'][...][
+                                        :5179510,
+                                        ...].astype('float16')
+        self.num_classes = self.train_dataiter_ori.num_classes
+
+    def __len__(self):
+        return len(self.train_dataiter_ori)
+
+    def __iter__(self):
+        diter = iter(self.train_dataiter)
+        for ind, batch in enumerate(diter):
+            data, label, index = batch.data[0], batch.label[0], batch.index
+            imgs = data.asnumpy()
+            imgs -= 127.5
+            imgs /= 127.5
+            imgs = to_torch(imgs)#.cuda()
+            label = label.asnumpy().astype(int)
+            label = to_torch(label)#.cuda()
+            index = index.asnumpy().astype(int)
+            res = {'imgs': imgs, 'labels': label, 'indexes': index, }
+            if conf.kd and conf.sftlbl_from_file:
+                teacher_embedding= self.teacher_embedding_db[index - 1]
+                teacher_embedding = to_torch(teacher_embedding).cuda()
+                res['teacher_embedding'] = teacher_embedding
+            yield res
+        self.train_dataiter.reset()
 
 
 class Dataset_val(torch.utils.data.Dataset):
@@ -4157,27 +4187,33 @@ class ReScale(torch.autograd.Function):
 rescale = ReScale.apply
 
 if __name__ == '__main__':
-    exit()
-    # ds = DatasetCfpFp()
-    # ds = DatasetCasia()
+    init_dev(3)
     conf.fill_cache = 0
-    ds = TorchDataset(conf.use_data_folder)
-    imgs = []
-    for i in np.random.randint(0, 100, (10,)):
-        img = ds[i]['imgs']
-    #     imgs.append(img)
-    # plt_imshow_tensor(imgs)
-    # plt.show()
+    conf.kd = False
 
+    ds = TorchDataset(conf.use_data_folder)
     loader = DataLoader(
         ds, batch_size=conf.batch_size,
         num_workers=conf.num_workers,
-        sampler=RandomIdSampler(ds.imgidx, ds.ids, ds.id2range),
-        # shuffle=True,
-        drop_last=True, pin_memory=True,
+        # sampler=RandomIdSampler(ds.imgidx, ds.ids, ds.id2range),
+        shuffle=False,
+        drop_last=True, pin_memory=False,
         collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
     )
-    for ind, data in enumerate(loader):
-        if ind >= 10: break
     class_num = ds.num_classes
     print(class_num)
+    lz.timer.start()
+    lz.timer.since_last_check()
+    meter = lz.AverageMeter()
+    for ind, batch in data_prefetcher(enumerate(loader)):
+        meter.update(lz.timer.since_last_check(verbose=False ))
+        if ind % 9 == 0:
+            print('ok', conf.batch_size / meter.avg)
+        break
+    ds2 = MxnetLoader(conf.use_data_folder, shuffle=False)
+    for ind, batch2 in data_prefetcher(enumerate(ds2)):
+        if ind % 9 == 0:
+            print('ok', conf.batch_size)
+        break
+
+    embed()

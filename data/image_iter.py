@@ -20,6 +20,8 @@ from mxnet import ndarray as nd
 from mxnet import io
 from mxnet import recordio
 from config import conf
+import lz
+
 logger = logging.getLogger()
 
 
@@ -33,6 +35,9 @@ class FaceImageIter(io.DataIter):
                  data_name='data', label_name='softmax_label', **kwargs):
         super(FaceImageIter, self).__init__()
         assert path_imgrec
+        self.batch_size = batch_size
+        self.data_shape = data_shape
+        self.shuffle = shuffle
         if path_imgrec:
             logging.info('loading recordio %s...',
                          path_imgrec)
@@ -61,13 +66,11 @@ class FaceImageIter(io.DataIter):
                 print('id2range', len(self.id2range))
             else:
                 self.imgidx = list(self.imgrec.keys)
+            self.seq = self.imgidx
+            self.oseq = self.imgidx
+            print('len seq', len(self.seq))
             if shuffle:
-                self.seq = self.imgidx
-                self.oseq = self.imgidx
-                print(len(self.seq))
-            else:
-                self.seq = None
-
+                self.reset()
         self.mean = mean
         self.nd_mean = None
         if self.mean:
@@ -76,9 +79,6 @@ class FaceImageIter(io.DataIter):
 
         self.check_data_shape(data_shape)
         self.provide_data = [(data_name, (batch_size,) + data_shape)]
-        self.batch_size = batch_size
-        self.data_shape = data_shape
-        self.shuffle = shuffle
         self.image_size = '%d,%d' % (data_shape[1], data_shape[2])
         self.rand_mirror = rand_mirror
         print('rand_mirror', rand_mirror)
@@ -86,11 +86,15 @@ class FaceImageIter(io.DataIter):
         self.color_jittering = color_jittering
         self.CJA = mx.image.ColorJitterAug(0.125, 0.125, 0.125)
         self.provide_label = [(label_name, (batch_size,))]
-        # print(self.provide_label[0][1])
+        print(self.provide_label[0][1])
         self.cur = 0
         self.nbatch = 0
         self.is_init = False
 
+        if conf.clean_ids is not None:
+            conf.num_clss = self.num_classes = np.unique(conf.clean_ids).shape[0] - 1
+        else:
+            conf.num_clss = self.num_classes = len(self.id2range)
 
     def reset(self):
         """Resets the iterator to the beginning of the data."""
@@ -103,6 +107,9 @@ class FaceImageIter(io.DataIter):
 
     def num_samples(self):
         return len(self.seq)
+
+    def __len__(self):
+        return self.num_samples() // self.batch_size
 
     def next_sample(self):
         """Helper function for reading in next sample."""
@@ -119,10 +126,12 @@ class FaceImageIter(io.DataIter):
                     label = header.label
                     if not isinstance(label, numbers.Number):
                         label = label[0]
+                    if conf.clean_ids is not None:
+                        label = conf.clean_ids[idx - 1]
                     return label, img, None, None, idx
                 else:
                     label, fname, bbox, landmark = self.imglist[idx]
-                    return label, self.read_image(fname), bbox, landmark,idx
+                    return label, self.read_image(fname), bbox, landmark, idx
         else:
             s = self.imgrec.read()
             if s is None:
@@ -193,9 +202,11 @@ class FaceImageIter(io.DataIter):
         if self.provide_label is not None:
             batch_label = nd.empty(self.provide_label[0][1])
         i = 0
+        idxs = nd.empty((batch_size,))
         try:
             while i < batch_size:
-                label, s, bbox, landmark = self.next_sample()
+                label, s, bbox, landmark, idx = self.next_sample()
+                idxs[i][:] = int(idx)
                 _data = self.imdecode(s)
                 if _data.shape[0] != self.data_shape[1]:
                     _data = mx.image.resize_short(_data, self.data_shape[1])
@@ -247,8 +258,7 @@ class FaceImageIter(io.DataIter):
         except StopIteration:
             if i < batch_size:
                 raise StopIteration
-
-        return io.DataBatch([batch_data], [batch_label], batch_size - i)
+        return io.DataBatch([batch_data], [batch_label], batch_size - i, index=idxs)
 
     def check_data_shape(self, data_shape):
         """Checks if the input data shape is valid"""
@@ -310,3 +320,44 @@ class FaceImageIterList(io.DataIter):
                 self.cur_iter.reset()
                 continue
             return ret
+
+
+if __name__ == '__main__':
+    import os
+
+    os.environ['MXNET_CPU_WORKER_NTHREADS'] = '32'
+    os.environ['MXNET_ENGINE_TYPE'] = 'ThreadedEnginePerDevice'
+
+    conf.kd = False
+    path_ms1m = conf.use_data_folder
+    path_imgrec = str(path_ms1m) + '/train.rec'
+    path_imgidx = path_imgrec[0:-4] + ".idx"
+    assert os.path.exists(path_imgidx), path_imgidx
+    train_dataiter = FaceImageIter(
+        batch_size=conf.batch_size,
+        data_shape=(3, 112, 112),
+        path_imgrec=path_imgrec,
+        shuffle=True,
+        rand_mirror=True,
+        mean=None,
+        cutoff=conf.cutoff,
+        color_jittering=0,
+        images_filter=0,
+    )
+    print(len(train_dataiter))
+
+    train_dataiter = mx.io.PrefetchingIter(train_dataiter)
+    lz.timer.start()
+    lz.timer.since_last_check()
+    meter = lz.AverageMeter()
+    while True:
+        diter = iter(train_dataiter)
+        print('next!!!')
+        for ind, batch in enumerate(diter):
+            meter.update(lz.timer.since_last_check())
+            if ind % 9 == 0:
+                print('ok', conf.batch_size / meter.avg)
+            # batch
+            break
+        lz.embed()
+        train_dataiter.reset()
