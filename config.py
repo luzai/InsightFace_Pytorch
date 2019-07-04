@@ -9,7 +9,7 @@ from torchvision import transforms as trans
 # todo label smooth
 
 dist = False
-num_devs = 3
+num_devs = 1
 if dist:
     num_devs = 1
 else:
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/mbfc.retina.cl.distill.cont2')
+conf.work_path = Path('work_space/mbfc.retina.cl4')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -50,7 +50,7 @@ dingyi_folder = conf.data_path / 'faces_casia'
 
 conf.use_data_folder = retina_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
-conf.clean_ids = msgpack_load(root_path + 'train.configs/clean2.pk')  # None#
+conf.clean_ids = msgpack_load(root_path + 'train.configs/clean4.pk')  # None#
 if conf.use_data_folder == ms1m_folder:
     conf.cutoff = 0
 elif conf.use_data_folder == glint_folder:
@@ -97,7 +97,7 @@ conf.test_transform = trans.Compose([
     trans.ToTensor(),
     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
-conf.use_loader = 'torch'
+conf.use_loader = 'torch' # todo mxent lack valds path and testing speed
 conf.flip = True
 
 conf.upgrade_irse = True
@@ -109,7 +109,7 @@ conf.prof = False
 conf.fast_load = False
 conf.ipabn = False
 conf.cvt_ipabn = False
-conf.kd = True
+conf.kd = False
 conf.sftlbl_from_file = True
 conf.alpha = .9
 conf.temperature = 1
@@ -132,7 +132,7 @@ conf.log_interval = 105
 conf.need_tb = True
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 2
+conf.acc_grad = 7
 # --------------------Training Config ------------------------
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
 conf.use_opt = 'sgd'  # adabound
@@ -141,7 +141,7 @@ conf.adam_betas2 = .999  # 0.999 0.99
 conf.final_lr = 1e-1
 conf.lr = 1e-1
 conf.lr_gamma = 0.1
-conf.start_epoch = 1
+conf.start_epoch = 0
 conf.start_step = 0
 # conf.epochs = 37
 # conf.milestones = (np.array([23, 32])).astype(int)
@@ -151,7 +151,7 @@ conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = .5
+conf.fill_cache = 0
 
 
 # todo may use kl_div to speed up

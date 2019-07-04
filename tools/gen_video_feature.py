@@ -24,7 +24,8 @@ import lz
 import lmdb, six
 from PIL import Image
 
-lz.init_dev(3)
+use_devs = (1, 2, 3,)
+lz.init_dev(use_devs)
 # os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 image_shape = (3, 112, 112)
 net = None
@@ -58,7 +59,7 @@ def get_feature(buffer):
         if env is None:
             img = cv2.imread(item)[:, :, ::-1]  # to rgb
         else:
-            item = item.replace(glargs.input, '')
+            item = '/' + item.replace(glargs.input, '').strip('/')
             with env.begin(write=False) as txn:
                 imgbuf = txn.get(str(item).encode())
             buf = six.BytesIO()
@@ -149,7 +150,7 @@ def main_allimg(args):
     else:
         # sys.path.insert(0, lz.home_path + 'prj/InsightFace_Pytorch/')
         from config import conf
-        lz.init_dev(3)
+        lz.init_dev(use_devs)
         conf.need_log = False
         conf.fp16 = True  # maybe faster ?
         conf.ipabn = False
@@ -181,14 +182,16 @@ def main_allimg(args):
     chunksize = 80 * 10 ** 3
     dst = f.create_dataset("feas", (chunksize, 512), maxshape=(None, emb_size), dtype='f2')
     ind_dst = 0
+    vdonm2imgs = lz.msgpack_load(args.input + '/../vdonm2imgs.pk')
     for line in lines:
         if row_idx % 1000 == 0:
-            print("processing ", row_idx, len(lines), row_idx / len(lines), )
+            logging.info(f"processing {(row_idx, len(lines), row_idx / len(lines), )}")
         row_idx += 1
         # print('stat', i, len(buffer_images), buffer_embedding.shape, aggr_nums, row_idx)
         videoname = line.strip().split()[0]
-        images = glob.glob("%s/%s/*.jpg" % (args.input, videoname))
-        images = np.sort(images).tolist()
+        # images2 = glob.glob("%s/%s/*.jpg" % (args.input, videoname))
+        # images2 = np.sort(images2).tolist()
+        images = vdonm2imgs[videoname]
         assert len(images) > 0
         for image_path in images:
             buffer_images.append(image_path)
@@ -204,6 +207,7 @@ def main_allimg(args):
     print(row_idx, features_all.shape)
     f.flush()
     f.close()
+
 
 def main(args):
     global image_shape
@@ -338,7 +342,7 @@ def main(args):
 def parse_arguments(argv):
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--batch_size', type=int, help='', default=128)
+    parser.add_argument('--batch_size', type=int, help='', default=128*len(use_devs))
     parser.add_argument('--image_size', type=str, help='', default='3,112,112')
     parser.add_argument('--input', type=str, help='', default='')
     parser.add_argument('--output', type=str, help='', default='')

@@ -3,7 +3,6 @@
 import torch
 from lz import *
 from config import conf
-import argparse
 from pathlib import Path
 
 torch.backends.cudnn.benchmark = True
@@ -13,27 +12,11 @@ def log_conf(conf):
     conf2 = {k: v for k, v in conf.items() if not isinstance(v, (dict, np.ndarray))}
     logging.info(f'training conf is {conf2}')
 
-
-parser = argparse.ArgumentParser(description='PyTorch Training')
-parser.add_argument('--local_rank', default=None, type=int, )
-parser.add_argument('--mbfc_wm', default=conf.mbfc_wm, type=float, )
-parser.add_argument('--mbfc_dm', default=conf.mbfc_dm, type=float, )
-parser.add_argument('--work_path', default=None, type=str, )
-parser.add_argument('--epochs', default=conf.epochs, type=int, )
-parser.add_argument('--scale', default=conf.scale, type=int)
-parser.add_argument('--prof', default=conf.prof, type=bool)
-parser.add_argument('--batch_size', default=conf.batch_size, type=int)
-parser.add_argument('--acc_grad', default=conf.acc_grad, type=int)
-parser.add_argument('--loss', default=conf.loss, type=str)
-parser.add_argument('--cutoff', default=conf.cutoff, type=int)
-parser.add_argument('--margin', default=conf.margin, type=float)
-parser.add_argument('--margin2', default=conf.margin2, type=float)
-parser.add_argument('--net_mode', default=conf.net_mode, type=str)
-parser.add_argument('--input_size', default=conf.input_size, type=int)
-parser.add_argument('--tau', default=conf.tau, type=float)
+from exargs import parser
 
 if __name__ == '__main__':
     args = parser.parse_args()
+    print(args)
     if args.work_path:
         conf.work_path = Path(args.work_path)
         conf.model_path = conf.work_path / 'models'
@@ -51,7 +34,6 @@ if __name__ == '__main__':
 
     from Learner import *
 
-    # exit()
     learner = face_learner(conf, )
     # learner = face_cotching(conf, )
     ress = {}
@@ -65,7 +47,7 @@ if __name__ == '__main__':
         # 'mbv3.retina.arc',
         # 'mbfc.lrg.retina.arc.s48',
         # 'effnet.casia.arc',
-        'mbfc.retina.cl.distill.cont',
+        # 'mbfc.retina.cl.distill.cont',
     ]:
         learner.load_state(
             # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
