@@ -28,7 +28,7 @@ lz.init_dev((3))
 image_shape = (3, 112, 112)
 net = None
 data_size = 1862120
-emb_size = 512
+emb_size = 0
 use_flip = True
 use_mxnet = False
 env = None

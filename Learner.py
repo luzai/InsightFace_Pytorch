@@ -1,6 +1,7 @@
 # -*- coding: future_fstrings -*-
 import lz
 from lz import *
+
 from models import Backbone, MobileFaceNet, CSMobileFaceNet, l2_norm, Arcface, MySoftmax, TripletLoss
 import models
 import numpy as np
@@ -476,8 +477,8 @@ class TorchDataset(object):
 
 class MxnetLoader(object):
     def __init__(self, path_ms1m, shuffle=True):
-        os.environ['MXNET_CPU_WORKER_NTHREADS'] = '32'
-        os.environ['MXNET_ENGINE_TYPE'] = 'ThreadedEnginePerDevice'
+        # os.environ['MXNET_CPU_WORKER_NTHREADS'] = '32'
+        # os.environ['MXNET_ENGINE_TYPE'] = 'ThreadedEnginePerDevice'
         path_imgrec = str(path_ms1m) + '/train.rec'
         path_imgidx = path_imgrec[0:-4] + ".idx"
         assert os.path.exists(path_imgidx), path_imgidx
@@ -506,21 +507,24 @@ class MxnetLoader(object):
 
     def __iter__(self):
         diter = iter(self.train_dataiter)
-        for ind, batch in enumerate(diter):
-            data, label, index = batch.data[0], batch.label[0], batch.index
-            imgs = data.asnumpy()
-            imgs -= 127.5
-            imgs /= 127.5
-            imgs = to_torch(imgs)#.cuda()
-            label = label.asnumpy().astype(int)
-            label = to_torch(label)#.cuda()
-            index = index.asnumpy().astype(int)
-            res = {'imgs': imgs, 'labels': label, 'indexes': index, }
-            if conf.kd and conf.sftlbl_from_file:
-                teacher_embedding= self.teacher_embedding_db[index - 1]
-                teacher_embedding = to_torch(teacher_embedding).cuda()
-                res['teacher_embedding'] = teacher_embedding
-            yield res
+        try:
+            for ind, batch in enumerate(diter):
+                data, label, index = batch.data[0], batch.label[0], batch.index
+                imgs = data.asnumpy()
+                imgs -= 127.5
+                imgs /= 127.5
+                imgs = to_torch(imgs).cuda()
+                label = label.asnumpy().astype(int)
+                label = to_torch(label).cuda()
+                index = index.asnumpy().astype(int)
+                res = {'imgs': imgs, 'labels': label, 'indexes': index, }
+                if conf.kd and conf.sftlbl_from_file:
+                    teacher_embedding= self.teacher_embedding_db[index - 1]
+                    teacher_embedding = to_torch(teacher_embedding).cuda()
+                    res['teacher_embedding'] = teacher_embedding
+                yield res
+        except Exception as e:
+            logging.info(f'!! chk er os {e}')
         self.train_dataiter.reset()
 
 
@@ -851,8 +855,10 @@ class face_learner(object):
     def __init__(self, conf=conf, ):
         self.milestones = conf.milestones
         self.val_loader_cache = {}
-        ## torch reader
-        if conf.dataset_name == 'webface' or conf.dataset_name == 'casia':
+        if conf.use_loader=='mxnet':
+            self.loader = MxnetLoader(conf.use_data_folder)
+            self.class_num = self.loader.num_classes
+        elif conf.dataset_name == 'webface' or conf.dataset_name == 'casia':
             file = '/data2/share/casia_landmark.txt'
             df = pd.read_csv(file, sep='\t', header=None)
             id2nimgs = {}
@@ -878,8 +884,6 @@ class face_learner(object):
                                      # todo whether rebalance
                                      drop_last=True, pin_memory=True, )
             self.class_num = conf.num_clss = self.dataset.num_classes
-            conf.explored = np.zeros(self.class_num, dtype=int)
-            conf.dop = np.ones(self.class_num, dtype=int) * conf.mining_init
         else:
             self.dataset = TorchDataset(conf.use_data_folder)
             self.loader = DataLoader(
@@ -893,6 +897,9 @@ class face_learner(object):
             )
             self.class_num = self.dataset.num_classes
         logging.info(f'{self.class_num} classes, load ok ')
+        if conf.dop is None:
+            conf.explored = np.zeros(self.class_num, dtype=int)
+            conf.dop = np.ones(self.class_num, dtype=int) * conf.mining_init
         if conf.need_log:
             if torch.distributed.is_initialized():
                 lz.set_file_logger(str(conf.log_path) + f'/proc{torch.distributed.get_rank()}')
@@ -4188,32 +4195,30 @@ rescale = ReScale.apply
 
 if __name__ == '__main__':
     init_dev(3)
-    conf.fill_cache = 0
+    conf.fill_cache = .1
     conf.kd = False
 
-    ds = TorchDataset(conf.use_data_folder)
-    loader = DataLoader(
-        ds, batch_size=conf.batch_size,
-        num_workers=conf.num_workers,
-        # sampler=RandomIdSampler(ds.imgidx, ds.ids, ds.id2range),
-        shuffle=False,
-        drop_last=True, pin_memory=False,
-        collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
-    )
-    class_num = ds.num_classes
-    print(class_num)
-    lz.timer.start()
-    lz.timer.since_last_check()
-    meter = lz.AverageMeter()
-    for ind, batch in data_prefetcher(enumerate(loader)):
-        meter.update(lz.timer.since_last_check(verbose=False ))
-        if ind % 9 == 0:
-            print('ok', conf.batch_size / meter.avg)
-        break
-    ds2 = MxnetLoader(conf.use_data_folder, shuffle=False)
+    # ds = TorchDataset(conf.use_data_folder)
+    # loader = DataLoader(
+    #     ds, batch_size=conf.batch_size,
+    #     num_workers=conf.num_workers,
+    #     # sampler=RandomIdSampler(ds.imgidx, ds.ids, ds.id2range),
+    #     shuffle=False,
+    #     drop_last=True, pin_memory=False,
+    #     collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
+    # )
+    # class_num = ds.num_classes
+    # print(class_num)
+    # lz.timer.start()
+    # lz.timer.since_last_check()
+    # meter = lz.AverageMeter()
+    # for ind, batch in data_prefetcher(enumerate(loader)):
+    #     meter.update(lz.timer.since_last_check(verbose=False ))
+    #     if ind % 9 == 0:
+    #         print('ok', conf.batch_size / meter.avg)
+    #     break
+    ds2 = MxnetLoader(conf.use_data_folder, shuffle=True)
     for ind, batch2 in data_prefetcher(enumerate(ds2)):
         if ind % 9 == 0:
-            print('ok', conf.batch_size)
-        break
-
-    embed()
+            print('ok',ind, len(ds2), conf.batch_size)
+        # break

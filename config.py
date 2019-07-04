@@ -9,16 +9,16 @@ from torchvision import transforms as trans
 # todo label smooth
 
 dist = False
-num_devs = 4
+num_devs = 3
 if dist:
     num_devs = 1
 else:
     pass
-    lz.init_dev((0, 1, 2, 3))
+    lz.init_dev((0, 1, 2,))
     # lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
-conf.num_workers = ndevs * 3
+conf.num_workers = ndevs * 4
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/mbfc.retina.cl.distill')
+conf.work_path = Path('work_space/mbfc.retina.cl.distill.cont2')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -97,8 +97,9 @@ conf.test_transform = trans.Compose([
     trans.ToTensor(),
     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
-
+conf.use_loader = 'torch'
 conf.flip = True
+
 conf.upgrade_irse = True
 conf.upgrade_bnneck = False  # todo may pretrain by imgnet
 conf.use_redis = False
@@ -112,8 +113,8 @@ conf.kd = True
 conf.sftlbl_from_file = True
 conf.alpha = .9
 conf.temperature = 1
-conf.teacher_head_dev = num_devs - 1  # -1 #
-conf.teacher_head_in_dloader = False # todo bug when True
+conf.teacher_head_dev = 0  # num_devs - 1  # -1 #
+conf.teacher_head_in_dloader = False  # todo bug when True
 
 conf.online_imp = False
 conf.use_test = False  # 'ijbc' 'glint' False 'cfp_fp'
@@ -124,7 +125,7 @@ conf.mutual_learning = 1e-3
 
 conf.fp16 = True
 conf.opt_level = "O1"
-conf.batch_size = 160 * num_devs
+conf.batch_size = 150 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
 conf.log_interval = 105
@@ -140,7 +141,7 @@ conf.adam_betas2 = .999  # 0.999 0.99
 conf.final_lr = 1e-1
 conf.lr = 1e-1
 conf.lr_gamma = 0.1
-conf.start_epoch = 0
+conf.start_epoch = 1
 conf.start_step = 0
 # conf.epochs = 37
 # conf.milestones = (np.array([23, 32])).astype(int)
@@ -150,7 +151,7 @@ conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = .1
+conf.fill_cache = .5
 
 
 # todo may use kl_div to speed up

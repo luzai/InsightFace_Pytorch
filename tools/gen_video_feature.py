@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
+from lz import *
 import os
 from datetime import datetime
 import os.path
@@ -29,12 +29,13 @@ lz.init_dev(3)
 image_shape = (3, 112, 112)
 net = None
 data_size = 203848
-emb_size = 256
+emb_size = 512
 use_flip = True
 ctx_num = 1
 xrange = range
 env = None
 glargs = None
+use_mxnet = False
 
 
 def do_flip(data):
@@ -74,11 +75,19 @@ def get_feature(buffer):
                 do_flip(_img)
             input_blob[idx] = _img
             idx += 1
-    data = mx.nd.array(input_blob)
-    db = mx.io.DataBatch(data=(data,))
-    net.model.forward(db, is_train=False)
-    _embedding = net.model.get_outputs()[0].asnumpy()
-    _embedding = _embedding[0:input_count]
+    if use_mxnet:
+        data = mx.nd.array(input_blob)
+        db = mx.io.DataBatch(data=(data,))
+        net.model.forward(db, is_train=False)
+        _embedding = net.model.get_outputs()[0].asnumpy()
+        _embedding = _embedding[0:input_count]
+    else:
+        data = input_blob - 127.5
+        data /= 127.5
+        data = to_torch(data)
+        with torch.no_grad():
+            _embedding = net.model(data).cpu().numpy()
+
     if emb_size == 0:
         emb_size = _embedding.shape[1]
         print('set emb_size to ', emb_size)
@@ -99,6 +108,102 @@ def write_bin(path, m):
         f.write(struct.pack('4i', rows, cols, cols * 4, 5))
         f.write(m.data)
 
+
+def main_allimg(args):
+    global image_shape
+    global net
+    global ctx_num, env, glargs
+    print(args)
+    glargs = args
+    env = lmdb.open(args.input + '/imgs_lmdb', readonly=True,
+                    # max_readers=1,  lock=False,
+                    # readahead=False, meminit=False
+                    )
+    ctx = []
+    cvd = os.environ['CUDA_VISIBLE_DEVICES'].strip()
+    if len(cvd) > 0:
+        for i in xrange(len(cvd.split(','))):
+            ctx.append(mx.gpu(i))
+    if len(ctx) == 0:
+        ctx = [mx.cpu()]
+        print('use cpu')
+    else:
+        print('gpu num:', len(ctx))
+    ctx_num = len(ctx)
+    image_shape = [int(x) for x in args.image_size.split(',')]
+    if use_mxnet:
+        vec = args.model.split(',')
+        assert len(vec) > 1
+        prefix = vec[0]
+        epoch = int(vec[1])
+        print('loading', prefix, epoch)
+        net = edict()
+        net.ctx = ctx
+        net.sym, net.arg_params, net.aux_params = mx.model.load_checkpoint(prefix, epoch)
+        # net.arg_params, net.aux_params = ch_dev(net.arg_params, net.aux_params, net.ctx)
+        all_layers = net.sym.get_internals()
+        net.sym = all_layers['fc1_output']
+        net.model = mx.mod.Module(symbol=net.sym, context=net.ctx, label_names=None)
+        net.model.bind(data_shapes=[('data', (args.batch_size, 3, image_shape[1], image_shape[2]))])
+        net.model.set_params(net.arg_params, net.aux_params)
+    else:
+        # sys.path.insert(0, lz.home_path + 'prj/InsightFace_Pytorch/')
+        from config import conf
+        lz.init_dev(3)
+        conf.need_log = False
+        conf.fp16 = True  # maybe faster ?
+        conf.ipabn = False
+        conf.cvt_ipabn = False
+        conf.use_chkpnt = False
+        conf.net_mode = 'ir_se'
+        conf.net_depth = 100
+        conf.input_size = 128
+        conf.embedding_size = 512
+        from Learner import FaceInfer
+
+        net = FaceInfer(conf,
+                        gpuid=(0,)  # range(conf.num_devs),
+                        )
+        net.load_state(
+            resume_path=args.model,
+            latest=True,
+        )
+        net.model.eval()
+    features_all = None
+
+    filelist = os.path.join(args.input, 'filelist.txt')
+    lines = open(filelist, 'r').readlines()
+    buffer_images = []
+    buffer_embedding = np.zeros((0, emb_size), dtype=np.float16)
+    row_idx = 0
+    import h5py
+    f = h5py.File(args.output, 'w')
+    chunksize = 80 * 10 ** 3
+    dst = f.create_dataset("feas", (chunksize, 512), maxshape=(None, emb_size), dtype='f2')
+    ind_dst = 0
+    for line in lines:
+        if row_idx % 1000 == 0:
+            print("processing ", row_idx, len(lines), row_idx / len(lines), )
+        row_idx += 1
+        # print('stat', i, len(buffer_images), buffer_embedding.shape, aggr_nums, row_idx)
+        videoname = line.strip().split()[0]
+        images = glob.glob("%s/%s/*.jpg" % (args.input, videoname))
+        images = np.sort(images).tolist()
+        assert len(images) > 0
+        for image_path in images:
+            buffer_images.append(image_path)
+        while len(buffer_images) >= args.batch_size:
+            embedding = get_feature(buffer_images[0:args.batch_size])
+            buffer_images = buffer_images[args.batch_size:]
+            if ind_dst + args.batch_size > dst.shape[0]:
+                dst.resize((dst.shape[0] + chunksize, emb_size), )
+            dst[ind_dst:ind_dst + args.batch_size, :] = embedding.astype('float16')
+            ind_dst += args.batch_size
+            # buffer_embedding = np.concatenate((buffer_embedding, embedding), axis=0).astype('float16')
+    # lz.save_mat(args.output, buffer_embedding)
+    print(row_idx, features_all.shape)
+    f.flush()
+    f.close()
 
 def main(args):
     global image_shape
@@ -122,21 +227,39 @@ def main(args):
         print('gpu num:', len(ctx))
     ctx_num = len(ctx)
     image_shape = [int(x) for x in args.image_size.split(',')]
-    vec = args.model.split(',')
-    assert len(vec) > 1
-    prefix = vec[0]
-    epoch = int(vec[1])
-    print('loading', prefix, epoch)
-    net = edict()
-    net.ctx = ctx
-    net.sym, net.arg_params, net.aux_params = mx.model.load_checkpoint(prefix, epoch)
-    # net.arg_params, net.aux_params = ch_dev(net.arg_params, net.aux_params, net.ctx)
-    all_layers = net.sym.get_internals()
-    net.sym = all_layers['fc1_output']
-    net.model = mx.mod.Module(symbol=net.sym, context=net.ctx, label_names=None)
-    net.model.bind(data_shapes=[('data', (args.batch_size, 3, image_shape[1], image_shape[2]))])
-    net.model.set_params(net.arg_params, net.aux_params)
+    if use_mxnet:
+        vec = args.model.split(',')
+        assert len(vec) > 1
+        prefix = vec[0]
+        epoch = int(vec[1])
+        print('loading', prefix, epoch)
+        net = edict()
+        net.ctx = ctx
+        net.sym, net.arg_params, net.aux_params = mx.model.load_checkpoint(prefix, epoch)
+        # net.arg_params, net.aux_params = ch_dev(net.arg_params, net.aux_params, net.ctx)
+        all_layers = net.sym.get_internals()
+        net.sym = all_layers['fc1_output']
+        net.model = mx.mod.Module(symbol=net.sym, context=net.ctx, label_names=None)
+        net.model.bind(data_shapes=[('data', (args.batch_size, 3, image_shape[1], image_shape[2]))])
+        net.model.set_params(net.arg_params, net.aux_params)
+    else:
+        # sys.path.insert(0, lz.home_path + 'prj/InsightFace_Pytorch/')
+        from config import conf
+        conf.need_log = False
+        conf.fp16 = True  # maybe faster ?
+        conf.ipabn = False
+        conf.cvt_ipabn = False
+        conf.use_chkpnt = False
+        conf.net_mode = 'ir_se'
+        conf.net_depth = 100
+        from Learner import FaceInfer
 
+        net = FaceInfer(conf, gpuid=range(conf.num_devs))
+        net.load_state(
+            resume_path=args.model,
+            latest=False,
+        )
+        net.model.eval()
     features_all = None
 
     i = 0
@@ -153,6 +276,7 @@ def main(args):
         # print('stat', i, len(buffer_images), buffer_embedding.shape, aggr_nums, row_idx)
         videoname = line.strip().split()[0]
         images = glob.glob("%s/%s/*.jpg" % (args.input, videoname))
+        # images = np.sort(images).tolist()
         assert len(images) > 0
         image_features = []
         for image_path in images:
@@ -214,18 +338,22 @@ def main(args):
 def parse_arguments(argv):
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--batch_size', type=int, help='', default=50)
+    parser.add_argument('--batch_size', type=int, help='', default=128)
     parser.add_argument('--image_size', type=str, help='', default='3,112,112')
-    parser.add_argument('--input', type=str, help='', default='./testdata-video')
+    parser.add_argument('--input', type=str, help='', default='')
     parser.add_argument('--output', type=str, help='', default='')
     parser.add_argument('--model', type=str, help='', default='')
     parser.set_defaults(
         input='/data/share/iccv19.lwface/iQIYI-VID-FACE',
-        output=lz.work_path + 'iccv.vdo.2nrm.bin',
-        model=lz.root_path + '../insightface/logs/r50-arcface-retina/model,16'
+        # output=lz.work_path + 'r100.2nrm.bin',
+        output=lz.work_path + 'r100.unrm.allimg.h5',
+        # model=lz.root_path + '../insightface/logs/r50-arcface-retina/model,16',
+        model=lz.root_path + './work_space/r100.128.retina.clean.arc/models',
     )
     return parser.parse_args(argv)
 
 
 if __name__ == '__main__':
-    main(parse_arguments(sys.argv[1:]))
+    # lz.get_dev(1,ok=(3,))
+    # main(parse_arguments(sys.argv[1:]))
+    main_allimg(parse_arguments(sys.argv[1:]))

@@ -65,6 +65,7 @@ if __name__ == '__main__':
         # 'mbv3.retina.arc',
         # 'mbfc.lrg.retina.arc.s48',
         # 'effnet.casia.arc',
+        'mbfc.retina.cl.distill.cont',
     ]:
         learner.load_state(
             # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
@@ -125,8 +126,8 @@ if __name__ == '__main__':
     # learner.train_with_wei(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)
 
-    # from tools.test_ijbc3 import test_ijbc3
-    # res = test_ijbc3(conf, learner)
+    from tools.test_ijbc3 import test_ijbc3
+    res = test_ijbc3(conf, learner)
 
     #     steps = learner.list_steps(conf.model_path)
     #     for step in steps[::-1]:

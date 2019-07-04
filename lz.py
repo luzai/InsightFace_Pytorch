@@ -48,8 +48,9 @@ os.environ.setdefault('log', '1')
 os.environ.setdefault('pytorch', '1')
 os.environ.setdefault('tensorflow', '0')
 os.environ.setdefault('chainer', '0')
+# os.environ['MXNET_CPU_WORKER_NTHREADS'] = '3'
+# os.environ['MXNET_ENGINE_TYPE'] = 'ThreadedEnginePerDevice'
 timer = cvb.Timer()
-
 stream_handler = None
 
 
@@ -106,8 +107,8 @@ if os.environ.get('chainer', "1") == "1":
 
 if os.environ.get('pytorch', "1") == "1":
     tic = time.time()
-    os.environ["MKL_NUM_THREADS"] = "4"
-    os.environ["OMP_NUM_THREADS"] = "4"
+    # os.environ["MKL_NUM_THREADS"] = "4"
+    # os.environ["OMP_NUM_THREADS"] = "4"
     os.environ["NCCL_DEBUG"] = "INFO"
     # os.environ["NCCL_DEBUG_SUBSYS"] = "ALL"
     import torch
@@ -892,7 +893,8 @@ def df_load(path, name='df'):
 import struct
 
 cv_type_to_dtype = {
-    5: np.dtype('float32')
+    5: np.dtype('float32'),
+    7: np.dtype('float16')
 }
 
 dtype_to_cv_type = {v: k for k, v in cv_type_to_dtype.items()}
@@ -1883,7 +1885,7 @@ class AverageMeter(object):
         self.avg = 0
         self.sum = 0
         self.count = 0
-        self.mem = collections.deque(maxlen=1)  # todo ?
+        self.mem = collections.deque(maxlen=3)  # todo ?
 
     def reset(self):
         self.val = 0
@@ -1892,14 +1894,14 @@ class AverageMeter(object):
         self.count = 0
 
     def update(self, val, n=1):
-        # val = float(val)
-        # self.mem.append(val)
-        # self.avg = np.mean(list(self.mem))
+        val = float(val)
+        self.mem.append(val)
+        self.avg = np.mean(list(self.mem))
         ## way 2
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
+        # self.val = val
+        # self.sum += val * n
+        # self.count += n
+        # self.avg = self.sum / self.count
 
 
 def extend_bbox(img_proc, bbox,

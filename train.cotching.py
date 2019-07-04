@@ -99,7 +99,6 @@ if __name__ == '__main__':
     # res = learner.validate_ori(conf)
 
     from tools.test_ijbc3 import test_ijbc3
-
     res = test_ijbc3(conf, learner)
 
     #     steps = learner.list_steps(conf.model_path)

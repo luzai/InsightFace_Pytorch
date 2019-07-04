@@ -318,7 +318,7 @@ class Backbone(Module):
 
     def forward(self, x, ):
         if conf.input_size != x.shape[-1]:
-            x = F.interpolate(x, size=conf.input_size, mode='bilinear')  # bicubic
+            x = F.interpolate(x, size=conf.input_size, mode='bilinear', align_corners=True)  # bicubic
 
         x = self.input_layer(x)
         x = self.body(x)
@@ -706,7 +706,7 @@ class MobileFaceNet(Module):
     # @jit.script_method
     def forward(self, x, *args, **kwargs):
         if conf.input_size != x.shape[-1]:
-            x = F.upsample_bilinear(x, size=conf.input_size)
+            x = F.interpolate(x, size=conf.input_size, mode='bicubic', align_corners=True )
         out = self.conv1(x)
         out = self.conv2_dw(out)
         out = self.conv_23(out)

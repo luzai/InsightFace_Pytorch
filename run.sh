@@ -25,7 +25,7 @@
 #python train.cotching.py --mutual_learning 0 --train_mode cotch --work_path work_space/mbfc.cotch.fx.acc_grad --prof True
 #python train.cotching.py --mutual_learning 1 --train_mode mual --work_path work_space/mbfc.mual.1.d256.new --prof True
 #python train.cotching.py --mutual_learning 0.001 --train_mode mual --work_path work_space/mbfc.mual.1e-3.new
-python train.cotching.py --mutual_learning 0.001 --train_mode cotch --work_path work_space/mbfc.cotch.mual.1e-3
+python train.cotching.py --batch_size 340 --mutual_learning 0.001 --train_mode cotch --work_path work_space/mbfc.cotch.mual.1e-3
 
 #python train.py --batch_size 512 --acc_grad 2 --work_path work_space/mbfc.d256
 #python train.py --batch_size 512 --acc_grad 2 --epochs 32 --work_path work_space/mbfc.d256.long

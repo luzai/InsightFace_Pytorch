@@ -24,6 +24,7 @@ import lz
 
 logger = logging.getLogger()
 
+rec_cache = {}
 
 class FaceImageIter(io.DataIter):
 
@@ -95,6 +96,20 @@ class FaceImageIter(io.DataIter):
             conf.num_clss = self.num_classes = np.unique(conf.clean_ids).shape[0] - 1
         else:
             conf.num_clss = self.num_classes = len(self.id2range)
+        global rec_cache
+        self.rec_cache = rec_cache
+        if conf.fill_cache:
+            self.fill_cache()
+
+    def fill_cache(self):
+        start, stop = min(self.seq), max(self.seq) + 1
+        if isinstance(conf.fill_cache, float):
+            stop = start + (stop - start) * conf.fill_cache
+            stop = int(stop)
+        for index in range(start, stop):
+            if index % 9999 == 1:
+                logging.info(f'loading {index} ')
+            self.rec_cache[index] = self.imgrec.read_idx(index)
 
     def reset(self):
         """Resets the iterator to the beginning of the data."""
@@ -121,14 +136,20 @@ class FaceImageIter(io.DataIter):
                 idx = self.seq[self.cur]
                 self.cur += 1
                 if self.imgrec is not None:
-                    s = self.imgrec.read_idx(idx)
+                    if idx in self.rec_cache:
+                        s = self.rec_cache[idx]
+                    else:
+                        s = self.imgrec.read_idx(idx)
                     header, img = recordio.unpack(s)
                     label = header.label
                     if not isinstance(label, numbers.Number):
                         label = label[0]
                     if conf.clean_ids is not None:
                         label = conf.clean_ids[idx - 1]
-                    return label, img, None, None, idx
+                    if label==-1:
+                        return self.next_sample()
+                    else:
+                        return label, img, None, None, idx
                 else:
                     label, fname, bbox, landmark = self.imglist[idx]
                     return label, self.read_image(fname), bbox, landmark, idx
@@ -345,7 +366,7 @@ if __name__ == '__main__':
         images_filter=0,
     )
     print(len(train_dataiter))
-
+    ttl = len(train_dataiter)
     train_dataiter = mx.io.PrefetchingIter(train_dataiter)
     lz.timer.start()
     lz.timer.since_last_check()
@@ -356,8 +377,8 @@ if __name__ == '__main__':
         for ind, batch in enumerate(diter):
             meter.update(lz.timer.since_last_check())
             if ind % 9 == 0:
-                print('ok', conf.batch_size / meter.avg)
+                print('ok', ind, ttl, conf.batch_size / meter.avg)
             # batch
-            break
-        lz.embed()
+            # break
+        # lz.embed()
         train_dataiter.reset()
