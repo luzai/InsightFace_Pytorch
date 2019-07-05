@@ -96,10 +96,10 @@ def get_feature(buffer):
     if use_flip:
         embedding1 = _embedding[0::2]
         embedding2 = _embedding[1::2]
-        embedding = embedding1 + embedding2
+        embedding = (embedding1 + embedding2)/2
     else:
         embedding = _embedding
-    embedding = sklearn.preprocessing.normalize(embedding)  # todo
+    # embedding = sklearn.preprocessing.normalize(embedding)  # todo
     return embedding
 
 
@@ -163,7 +163,7 @@ def main_allimg(args):
         from Learner import FaceInfer
 
         net = FaceInfer(conf,
-                        gpuid=(0,)  # range(conf.num_devs),
+                        gpuid=range(len(use_devs)),
                         )
         net.load_state(
             resume_path=args.model,
@@ -187,6 +187,7 @@ def main_allimg(args):
         if row_idx % 1000 == 0:
             logging.info(f"processing {(row_idx, len(lines), row_idx / len(lines), )}")
         row_idx += 1
+        # if row_idx<203000:continue
         # print('stat', i, len(buffer_images), buffer_embedding.shape, aggr_nums, row_idx)
         videoname = line.strip().split()[0]
         # images2 = glob.glob("%s/%s/*.jpg" % (args.input, videoname))
@@ -204,10 +205,8 @@ def main_allimg(args):
             ind_dst += args.batch_size
             # buffer_embedding = np.concatenate((buffer_embedding, embedding), axis=0).astype('float16')
     # lz.save_mat(args.output, buffer_embedding)
-    print(row_idx, features_all.shape)
     f.flush()
     f.close()
-
 
 def main(args):
     global image_shape
@@ -342,7 +341,7 @@ def main(args):
 def parse_arguments(argv):
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--batch_size', type=int, help='', default=128*len(use_devs))
+    parser.add_argument('--batch_size', type=int, help='', default=175*len(use_devs))
     parser.add_argument('--image_size', type=str, help='', default='3,112,112')
     parser.add_argument('--input', type=str, help='', default='')
     parser.add_argument('--output', type=str, help='', default='')
@@ -351,8 +350,10 @@ def parse_arguments(argv):
         input='/data/share/iccv19.lwface/iQIYI-VID-FACE',
         # output=lz.work_path + 'r100.2nrm.bin',
         output=lz.work_path + 'r100.unrm.allimg.h5',
+        # output=lz.work_path + 'mbfc.unrm.allimg.h5',
         # model=lz.root_path + '../insightface/logs/r50-arcface-retina/model,16',
         model=lz.root_path + './work_space/r100.128.retina.clean.arc/models',
+        # model=lz.root_path + './work_space/mbfc.lrg.retina.clean.arc/models',
     )
     return parser.parse_args(argv)
 
