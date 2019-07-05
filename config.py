@@ -9,12 +9,12 @@ from torchvision import transforms as trans
 # todo label smooth
 
 dist = False
-num_devs = 1
+num_devs = 4
 if dist:
     num_devs = 1
 else:
     pass
-    lz.init_dev((0, 1, 2,))
+    lz.init_dev((0, 1, 2,3))
     # lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
@@ -50,7 +50,7 @@ dingyi_folder = conf.data_path / 'faces_casia'
 
 conf.use_data_folder = retina_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
-conf.clean_ids = msgpack_load(root_path + 'train.configs/clean4.pk')  # None#
+conf.clean_ids = msgpack_load(root_path + 'train.configs/clean2.pk')  # None#
 if conf.use_data_folder == ms1m_folder:
     conf.cutoff = 0
 elif conf.use_data_folder == glint_folder:
@@ -132,7 +132,7 @@ conf.log_interval = 105
 conf.need_tb = True
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 7
+conf.acc_grad = 1
 # --------------------Training Config ------------------------
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
 conf.use_opt = 'sgd'  # adabound
@@ -151,7 +151,7 @@ conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = 0
+conf.fill_cache = .3
 
 
 # todo may use kl_div to speed up

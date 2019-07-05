@@ -38,7 +38,7 @@ if __name__ == '__main__':
     ress = {}
     for p in [
         # 'mbfc.retina.cl.arc.cotch.cont',
-        'mbfc.cotch.mual.1e-3',
+        # 'mbfc.cotch.mual.1e-3',
     ]:
         learner.load_state(
             resume_path=Path(f'work_space/{p}/models/'),

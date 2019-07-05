@@ -22,4 +22,4 @@ parser.add_argument('--train_mode', default='mual', type=str)
 parser.add_argument('--kd', default=conf.kd, type=bool)
 parser.add_argument('--start_epoch', default=conf.start_epoch, type=int)
 parser.add_argument('--start_step', default=conf.start_step, type=int)
-
+parser.add_argument('--fill_cache', default=conf.fill_cache, type = float)
