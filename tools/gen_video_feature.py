@@ -24,7 +24,7 @@ import lz
 import lmdb, six
 from PIL import Image
 
-use_devs = (1, 2, 3,)
+use_devs = (0, 1, 2, 3,)
 lz.init_dev(use_devs)
 # os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 image_shape = (3, 112, 112)
@@ -96,7 +96,7 @@ def get_feature(buffer):
     if use_flip:
         embedding1 = _embedding[0::2]
         embedding2 = _embedding[1::2]
-        embedding = (embedding1 + embedding2)/2
+        embedding = (embedding1 + embedding2) / 2
     else:
         embedding = _embedding
     # embedding = sklearn.preprocessing.normalize(embedding)  # todo
@@ -185,7 +185,7 @@ def main_allimg(args):
     vdonm2imgs = lz.msgpack_load(args.input + '/../vdonm2imgs.pk')
     for line in lines:
         if row_idx % 1000 == 0:
-            logging.info(f"processing {(row_idx, len(lines), row_idx / len(lines), )}")
+            logging.info(f"processing {(row_idx, len(lines), row_idx / len(lines),)}")
         row_idx += 1
         # if row_idx<203000:continue
         # print('stat', i, len(buffer_images), buffer_embedding.shape, aggr_nums, row_idx)
@@ -204,9 +204,15 @@ def main_allimg(args):
             dst[ind_dst:ind_dst + args.batch_size, :] = embedding.astype('float16')
             ind_dst += args.batch_size
             # buffer_embedding = np.concatenate((buffer_embedding, embedding), axis=0).astype('float16')
+    if len(buffer_images) != 0:
+        embedding = get_feature(buffer_images)
+        if ind_dst + args.batch_size > dst.shape[0]:
+            dst.resize((dst.shape[0] + chunksize, emb_size), )
+        dst[ind_dst:ind_dst + args.batch_size, :] = embedding.astype('float16')
     # lz.save_mat(args.output, buffer_embedding)
     f.flush()
     f.close()
+
 
 def main(args):
     global image_shape
@@ -341,7 +347,7 @@ def main(args):
 def parse_arguments(argv):
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--batch_size', type=int, help='', default=175*len(use_devs))
+    parser.add_argument('--batch_size', type=int, help='', default=175 * len(use_devs))
     parser.add_argument('--image_size', type=str, help='', default='3,112,112')
     parser.add_argument('--input', type=str, help='', default='')
     parser.add_argument('--output', type=str, help='', default='')

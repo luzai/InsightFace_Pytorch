@@ -47,12 +47,12 @@ if __name__ == '__main__':
         # 'mbv3.retina.arc',
         # 'mbfc.lrg.retina.arc.s48',
         # 'effnet.casia.arc',
-        # 'mbfc.retina.cl.distill.cont',
+        'mbfc.retina.cl.distill.cont2',
     ]:
         learner.load_state(
             # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
             resume_path=Path(f'work_space/{p}/models/'),
-            load_optimizer=True,
+            load_optimizer=False,
             load_head=True,  # todo note!
             load_imp=False,
             latest=True,

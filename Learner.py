@@ -519,7 +519,7 @@ class MxnetLoader(object):
                 index = index.asnumpy().astype(int)
                 res = {'imgs': imgs, 'labels': label, 'indexes': index, }
                 if conf.kd and conf.sftlbl_from_file:
-                    teacher_embedding= self.teacher_embedding_db[index - 1]
+                    teacher_embedding = self.teacher_embedding_db[index - 1]
                     teacher_embedding = to_torch(teacher_embedding).cuda()
                     res['teacher_embedding'] = teacher_embedding
                 yield res
@@ -855,7 +855,7 @@ class face_learner(object):
     def __init__(self, conf=conf, ):
         self.milestones = conf.milestones
         self.val_loader_cache = {}
-        if conf.use_loader=='mxnet':
+        if conf.use_loader == 'mxnet':
             self.loader = MxnetLoader(conf.use_data_folder)
             self.class_num = self.loader.num_classes
         elif conf.dataset_name == 'webface' or conf.dataset_name == 'casia':
@@ -1370,7 +1370,7 @@ class face_learner(object):
 
                 assert not torch.isnan(embeddings).any().item()
                 thetas = self.head(embeddings, labels)
-                loss_xent = F.cross_entropy(thetas, labels, )
+                loss_xent = F.cross_entropy(thetas, labels, ) / (conf.scale**2)
                 if conf.kd:
                     alpha = conf.alpha
                     T = conf.temperature
@@ -1385,9 +1385,18 @@ class face_learner(object):
                             teacher_outputs = self.teacher_head(teachers_embedding,
                                                                 labels.to(conf.teacher_head_dev)).to(thetas.device)
                     distill_loss = F.kl_div(
-                        F.log_softmax(thetas / conf.scale / T, dim=1),
-                        F.softmax(teacher_outputs / conf.scale / T, dim=1), reduction='batchmean') * (T * T)
+                        F.log_softmax(thetas / T, dim=1),
+                        F.softmax(teacher_outputs / T, dim=1), reduction='batchmean') * ((T/conf.scale)**2)
                     loss_xent = (1. - alpha) * loss_xent + alpha * distill_loss
+
+                # res = [embeddings, teacher_outputs, thetas, labels]
+                # def transs(x):
+                #     return to_numpy(x.detach().cpu())
+                # res = map(transs, res)
+                # res = list(res)
+                # lz.msgpack_dump(res, '/tmp/t.pk')
+                # msgpack_load('/tmp/t.pk')
+                # exit()
 
                 if conf.fp16:
                     with amp.scale_loss((loss_xent + runtime_regloss) / conf.acc_grad,
@@ -4220,5 +4229,5 @@ if __name__ == '__main__':
     ds2 = MxnetLoader(conf.use_data_folder, shuffle=True)
     for ind, batch2 in data_prefetcher(enumerate(ds2)):
         if ind % 9 == 0:
-            print('ok',ind, len(ds2), conf.batch_size)
+            print('ok', ind, len(ds2), conf.batch_size)
         # break

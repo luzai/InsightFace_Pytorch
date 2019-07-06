@@ -706,7 +706,7 @@ class MobileFaceNet(Module):
     # @jit.script_method
     def forward(self, x, *args, **kwargs):
         if conf.input_size != x.shape[-1]:
-            x = F.interpolate(x, size=conf.input_size, mode='bicubic', align_corners=True )
+            x = F.interpolate(x, size=conf.input_size, mode='bicubic', align_corners=True)
         out = self.conv1(x)
         out = self.conv2_dw(out)
         out = self.conv_23(out)
@@ -854,6 +854,12 @@ class Arcface(Module):
         assert not torch.isnan(embeddings).any().item()
         bs = embeddings.shape[0]
         idx_ = torch.arange(0, bs, dtype=torch.long)
+        if self.interval >= 1 and self.step % self.interval == 0:
+            with torch.no_grad():
+                norm_mean = torch.norm(embeddings, dim=1).mean()
+                if self.writer:
+                    self.writer.add_scalar('theta/norm_mean', norm_mean.item(), self.step)
+                logging.info(f'norm {norm_mean.item():.2e}')
         embeddings = F.normalize(embeddings, dim=1)
         kernel_norm = l2_norm(self.kernel, axis=0)  # 0 dim is emd dim
         cos_theta = torch.mm(embeddings, kernel_norm).clamp(-1, 1)
