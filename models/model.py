@@ -13,7 +13,7 @@ import numpy as np
 
 if conf.use_chkpnt:
     BatchNorm2d = functools.partial(BatchNorm2d, momentum=1 - np.sqrt(0.9))
-
+upgrade_mbfc=True
 
 class Flatten(Module):
     # class Flatten(jit.ScriptModule):
@@ -1331,11 +1331,26 @@ class TripletLoss(Module):
 
 if __name__ == '__main__':
     from lz import *
+    from pathlib import Path
 
     conf.input_size = 112
-    init_dev(3)
-    model = Backbone(18, 0, 'ir_se')
+    conf.embedding_size = 256
+
+    init_dev(2)
+    # model = Backbone(18, 0, 'ir_se')
+    # model.eval()
+    model = MobileFaceNet(conf.embedding_size,
+                          width_mult=1,
+                          depth_mult=2,
+                          )
     model.eval()
+    save_path = root_path + 'work_space/mbfc.retina.cl.distill.cont2/models'
+    save_path = Path(save_path)
+    fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
+    mp = str(save_path) + '/' + fixed_strs[0]
+    st = torch.load(mp, map_location=lambda storage, loc: storage)
+    model.load_state_dict(st, strict=True)
+
     # params = []
     # # wmdm = "1.0,2.25 1.1,1.86 1.2,1.56 1.3,1.33 1.4,1.15 1.5,1.0".split(' ') # 1,2 1.56,2  1.0,1.0
     # wmdm = "1.2,1.56".split(' ')

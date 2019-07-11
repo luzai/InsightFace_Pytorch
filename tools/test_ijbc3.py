@@ -15,10 +15,11 @@ import h5py, lmdb, six
 from PIL import Image
 
 from config import conf
+
 os.chdir(lz.root_path)
 bs = 128
 use_mxnet = False
-DIM = conf.embedding_size
+DIM = conf.embedding_size  # 512  #
 
 IJBC_path = '/data1/share/IJB_release/' if 'amax' in hostname() else '/home/zl/zl_data/IJB_release/'
 ijbcp = IJBC_path + 'ijbc.info.h5'
@@ -114,6 +115,7 @@ def test_ijbc3(conf, learner):
                                          num_workers=conf.num_workers,
                                          shuffle=False,
                                          pin_memory=False, )
+    len(loader) * bs
     for ind, data in enumerate(loader):
         (img, faceness_score, items, names) = data
         if ind % 9 == 0:
@@ -129,8 +131,15 @@ def test_ijbc3(conf, learner):
             img_feat = learner.gets(img)
             img_featf = learner.gets(img[:, :, :, ::-1].copy())
             fea = (img_feat + img_featf) / 2.
-        fea = fea * faceness_score.numpy().reshape(-1, 1)
-        img_feats[ind * bs: (ind + 1) * bs, :] = fea
+        # fea = fea * faceness_score.numpy().reshape(-1, 1) # todo need?
+        img_feats[ind * bs: min((ind + 1) * bs, ind * bs + fea.shape[0]), :] = fea
+    print('last fea shape', fea.shape, np.linalg.norm(fea, axis=-1), img_feats.shape)
+    # import h5py
+    # f = h5py.File(lz.work_path + '/r100.ijbc.h5')
+    # f['feas'] = img_feats
+    # f.flush()
+    # f.close()
+    # exit()
 
     templates, medias = df_tm.values[:, 1], df_tm.values[:, 2]
     p1, p2, label = df_pair.values[:, 0], df_pair.values[:, 1], df_pair.values[:, 2]
@@ -224,10 +233,12 @@ def test_ijbc3(conf, learner):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--modelp',
-                        default='effnet.retina.cl.cut10.dim256',  # 'mbfc.lrg.retina.arc.s48',
+                        default='mbfc.cotch.mual.1e-3.cont',
+                        # 'r100.128.retina.clean.arc',  # 'effnet.retina.cl.cut10.dim256',
                         type=str)
     args = parser.parse_args()
-    lz.init_dev(lz.get_dev())
+    # lz.init_dev(lz.get_dev())
+    lz.init_dev((0, 1, 2, 3))
     if use_mxnet:
         from recognition.embedding import Embedding
 
@@ -239,12 +250,15 @@ if __name__ == '__main__':
         from config import conf
 
         conf.need_log = False
-        bs *= 2 * conf.num_devs
-        conf.fp16 = False
+        # bs *= 2 * conf.num_devs
+        bs = 160
+        conf.fp16 = True
         conf.ipabn = False
         conf.cvt_ipabn = False
-        # conf.net_depth = 50
-        # conf.net_mode = 'mbv3'
+        conf.net_depth = 100
+        # conf.net_mode = 'ir_se'
+        # conf.embedding_size = 512
+        # conf.input_size = 128
         conf.use_chkpnt = False
         conf.fill_cache = False
         from Learner import FaceInfer, face_learner

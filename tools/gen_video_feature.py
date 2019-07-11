@@ -23,14 +23,14 @@ from mxnet import ndarray as nd
 import lz
 import lmdb, six
 from PIL import Image
+from config import conf
 
 use_devs = (0, 1, 2, 3,)
 lz.init_dev(use_devs)
-# os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 image_shape = (3, 112, 112)
 net = None
 data_size = 203848
-emb_size = 512
+emb_size = conf.embedding_size
 use_flip = True
 ctx_num = 1
 xrange = range
@@ -81,14 +81,14 @@ def get_feature(buffer):
         db = mx.io.DataBatch(data=(data,))
         net.model.forward(db, is_train=False)
         _embedding = net.model.get_outputs()[0].asnumpy()
-        _embedding = _embedding[0:input_count]
+        # _embedding = _embedding[0:input_count]
     else:
         data = input_blob - 127.5
         data /= 127.5
         data = to_torch(data)
         with torch.no_grad():
             _embedding = net.model(data).cpu().numpy()
-
+    _embedding = _embedding[0:input_count]
     if emb_size == 0:
         emb_size = _embedding.shape[1]
         print('set emb_size to ', emb_size)
@@ -99,7 +99,7 @@ def get_feature(buffer):
         embedding = (embedding1 + embedding2) / 2
     else:
         embedding = _embedding
-    # embedding = sklearn.preprocessing.normalize(embedding)  # todo
+    embedding = sklearn.preprocessing.normalize(embedding)  # todo
     return embedding
 
 
@@ -259,8 +259,8 @@ def main(args):
         conf.ipabn = False
         conf.cvt_ipabn = False
         conf.use_chkpnt = False
-        conf.net_mode = 'ir_se'
-        conf.net_depth = 100
+        # conf.net_mode = 'ir_se'
+        # conf.net_depth = 100
         from Learner import FaceInfer
 
         net = FaceInfer(conf, gpuid=range(conf.num_devs))
@@ -275,10 +275,14 @@ def main(args):
     filelist = os.path.join(args.input, 'filelist.txt')
     lines = open(filelist, 'r').readlines()
     buffer_images = []
-    buffer_embedding = np.zeros((0, emb_size), dtype=np.float32)
+    buffer_embedding = np.zeros((0, 0), dtype=np.float32)
     aggr_nums = []
     row_idx = 0
     for line in lines:
+        # if i < 203000:
+        #     i += 1
+        #     continue
+
         if i % 1000 == 0:
             print("processing ", i, len(lines), i / len(lines), )
         i += 1
@@ -295,7 +299,7 @@ def main(args):
             embedding = get_feature(buffer_images[0:args.batch_size])
             buffer_images = buffer_images[args.batch_size:]
             if buffer_embedding.shape[1] == 0:
-                buffer_embedding = embedding.copy()
+                buffer_embedding = embedding.copy().astype('float32')
             else:
                 buffer_embedding = np.concatenate((buffer_embedding, embedding), axis=0)
         buffer_idx = 0
@@ -336,6 +340,7 @@ def main(args):
 
     aggr_nums = aggr_nums[acount:]
     buffer_embedding = buffer_embedding[buffer_idx:]
+    # embed()
     assert len(aggr_nums) == 0
     assert buffer_embedding.shape[0] == 0
 
@@ -355,16 +360,18 @@ def parse_arguments(argv):
     parser.set_defaults(
         input='/data/share/iccv19.lwface/iQIYI-VID-FACE',
         # output=lz.work_path + 'r100.2nrm.bin',
-        output=lz.work_path + 'r100.unrm.allimg.h5',
+        # output=lz.work_path + 'r100.unrm.allimg.h5',
+        output=lz.work_path + 'vdo.mbfc.cotch.mual.1e-3.2nrm.bin',
         # output=lz.work_path + 'mbfc.unrm.allimg.h5',
         # model=lz.root_path + '../insightface/logs/r50-arcface-retina/model,16',
-        model=lz.root_path + './work_space/r100.128.retina.clean.arc/models',
+        # model=lz.root_path + './work_space/r100.128.retina.clean.arc/models',
         # model=lz.root_path + './work_space/mbfc.lrg.retina.clean.arc/models',
+        model=lz.root_path + 'work_space/mbfc.cotch.mual.1e-3.cont/models',
     )
     return parser.parse_args(argv)
 
 
 if __name__ == '__main__':
     # lz.get_dev(1,ok=(3,))
-    # main(parse_arguments(sys.argv[1:]))
-    main_allimg(parse_arguments(sys.argv[1:]))
+    main(parse_arguments(sys.argv[1:]))
+    # main_allimg(parse_arguments(sys.argv[1:]))

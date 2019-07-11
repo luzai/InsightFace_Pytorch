@@ -761,7 +761,7 @@ class FaceInfer():
             step = np.asarray(step, dtype=float)
             assert step.shape[0] > 0, f"{resume_path} chk!"
             step_ind = step.argmax()
-            fixed_str = fixed_strs[step_ind].replace('model_', '')
+            fixed_str = fixed_strs[step_ind].replace('model_', '').replace('model2_', '')
             modelp = save_path / 'model_{}'.format(fixed_str)
         logging.info(f'you are using gpu, load model, {modelp}')
         model_state_dict = torch.load(str(modelp), map_location=lambda storage, loc: storage)
@@ -1370,7 +1370,7 @@ class face_learner(object):
 
                 assert not torch.isnan(embeddings).any().item()
                 thetas = self.head(embeddings, labels)
-                loss_xent = F.cross_entropy(thetas, labels, ) / (conf.scale**2)
+                loss_xent = F.cross_entropy(thetas, labels, ) / (conf.scale ** 2)
                 if conf.kd:
                     alpha = conf.alpha
                     T = conf.temperature
@@ -1386,7 +1386,7 @@ class face_learner(object):
                                                                 labels.to(conf.teacher_head_dev)).to(thetas.device)
                     distill_loss = F.kl_div(
                         F.log_softmax(thetas / T, dim=1),
-                        F.softmax(teacher_outputs / T, dim=1), reduction='batchmean') * ((T/conf.scale)**2)
+                        F.softmax(teacher_outputs / T, dim=1), reduction='batchmean') * ((T / conf.scale) ** 2)
                     loss_xent = (1. - alpha) * loss_xent + alpha * distill_loss
 
                 # res = [embeddings, teacher_outputs, thetas, labels]
@@ -4207,15 +4207,16 @@ if __name__ == '__main__':
     conf.fill_cache = .1
     conf.kd = False
 
-    # ds = TorchDataset(conf.use_data_folder)
-    # loader = DataLoader(
-    #     ds, batch_size=conf.batch_size,
-    #     num_workers=conf.num_workers,
-    #     # sampler=RandomIdSampler(ds.imgidx, ds.ids, ds.id2range),
-    #     shuffle=False,
-    #     drop_last=True, pin_memory=False,
-    #     collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
-    # )
+    ds = TorchDataset(conf.use_data_folder)
+    loader = DataLoader(
+        ds, batch_size=conf.batch_size,
+        num_workers=conf.num_workers,
+        # sampler=RandomIdSampler(ds.imgidx, ds.ids, ds.id2range),
+        shuffle=False,
+        drop_last=True, pin_memory=False,
+        collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
+    )
+
     # class_num = ds.num_classes
     # print(class_num)
     # lz.timer.start()

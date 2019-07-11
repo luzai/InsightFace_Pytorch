@@ -24,7 +24,7 @@ from mxnet import ndarray as nd
 import lmdb, six
 from PIL import Image
 
-lz.init_dev((3))
+lz.init_dev((0, 1, 2, 3))
 image_shape = (3, 112, 112)
 net = None
 data_size = 1862120
@@ -75,15 +75,15 @@ def get_feature(buffer):
         db = mx.io.DataBatch(data=(data,))
         net.model.forward(db, is_train=False)
         _embedding = net.model.get_outputs()[0].asnumpy()
-        if emb_size == 0:
-            emb_size = _embedding.shape[1]
-            print('set emb_size to ', emb_size)
     else:
         data = input_blob - 127.5
         data /= 127.5
         data = to_torch(data)
         with torch.no_grad():
             _embedding = net.model(data).cpu().numpy()
+    if emb_size == 0:
+        emb_size = _embedding.shape[1]
+        print('set emb_size to ', emb_size)
     if use_flip:
         embedding1 = _embedding[0::2]
         embedding2 = _embedding[1::2]
@@ -91,7 +91,7 @@ def get_feature(buffer):
         embedding /= 2
     else:
         embedding = _embedding
-    embedding = sklearn.preprocessing.normalize(embedding) # todo
+    embedding = sklearn.preprocessing.normalize(embedding)  # todo
     # print('norm ', np.linalg.norm(embedding, axis=1))
     return embedding
 
@@ -143,9 +143,8 @@ def main(args):
         from Learner import FaceInfer
 
         conf.need_log = False
-        # conf.batch_size *= 4 * conf.num_devs
-        # args.batch_size = conf.batch_size
-        conf.fp16 = False
+        conf.batch_size = args.batch_size
+        conf.fp16 = True
         conf.ipabn = False
         conf.cvt_ipabn = False
         conf.use_chkpnt = False
@@ -190,16 +189,18 @@ def main(args):
 def parse_arguments(argv):
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--batch_size', type=int, help='', default=128)
+    parser.add_argument('--batch_size', type=int, help='', default=160 * 4)
     parser.add_argument('--image_size', type=str, help='', default='3,112,112')
     parser.add_argument('--input', type=str, help='', default='')
     parser.add_argument('--output', type=str, help='', default='')
     parser.add_argument('--model', type=str, help='', default='')
     parser.set_defaults(
         input='/data/share/iccv19.lwface/iccv19-challenge-data/',
-        output=lz.work_path + 'mbfc.retina.cl.arc.cotch.bin',
+        # output=lz.work_path + 'mbfc.retina.cl.arc.cotch.bin',
+        output=lz.work_path + 'mbfc.cotch.mual.1e-3.bin',
         # model=lz.root_path + '../insightface/logs/r50-arcface-retina/model,16',
-        model=lz.root_path + 'work_space/mbfc.retina.cl.arc.cotch.cont/models',
+        # model=lz.root_path + 'work_space/mbfc.retina.cl.arc.cotch.cont/models',
+        model=lz.root_path + 'work_space/mbfc.cotch.mual.1e-3.cont/models',
     )
     return parser.parse_args(argv)
 

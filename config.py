@@ -18,7 +18,7 @@ else:
     # lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
-conf.num_workers = ndevs * 4
+conf.num_workers = ndevs * 3
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
@@ -151,7 +151,7 @@ conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = .1
+conf.fill_cache = .3
 
 
 # todo may use kl_div to speed up

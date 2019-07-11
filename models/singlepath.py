@@ -76,7 +76,7 @@ class SEModule(nn.Module):
 
 
 class Identity(nn.Module):
-    def __init__(self, channel):
+    def __init__(self, channel=None):
         super(Identity, self).__init__()
 
     def forward(self, x):
@@ -97,7 +97,7 @@ def make_divisible(x, divisible_by=8):
 
 
 class MobileBottleneck(nn.Module):
-    def __init__(self, inp, oup, kernel, stride, exp, se=False, nl='RE'):
+    def __init__(self, inp, oup, kernel, stride, exp, se=False, nl='RE', skip_op=False):
         super(MobileBottleneck, self).__init__()
         assert stride in [1, 2]
         assert kernel in [3, 5]
@@ -122,10 +122,16 @@ class MobileBottleneck(nn.Module):
         self.pw_conv = conv_layer(inp, exp, 1, 1, 0, bias=False)
         self.pw_norm = norm_layer(exp)
         self.pw_nlin = nlin_layer(inplace=True)
-        self.dw_conv = conv_layer(exp, exp, kernel, stride, padding, groups=exp, bias=False)
-        self.dw_norm = norm_layer(exp)
-        self.dw_se = SELayer(exp)
-        self.dw_nlin = nlin_layer(inplace=True)
+        if not skip_op:
+            self.dw_conv = conv_layer(exp, exp, kernel, stride, padding, groups=exp, bias=False)
+            self.dw_norm = norm_layer(exp)
+            self.dw_se = SELayer(exp)
+            self.dw_nlin = nlin_layer(inplace=True)
+        else:
+            self.dw_conv = Identity()
+            self.dw_norm = Identity()
+            self.dw_se = Identity()
+            self.dw_nlin = Identity()
         self.pwl_conv = conv_layer(exp, oup, 1, 1, 0, bias=False)
         self.pwl_norm = norm_layer(oup)
 
@@ -181,8 +187,8 @@ class SuperKernel(nn.Module):
         self.t50c.data.fill_(0)
         self.t100c = nn.Parameter(torch.FloatTensor(1))
         self.t100c.data.fill_(0)
-        self.depthwise_kernel = nn.Parameter(torch.FloatTensor(exp, 1, 5, 5))  # out, in, k, k
-        nn.init.kaiming_normal_(self.depthwise_kernel, mode='fan_out')
+        self.weight = nn.Parameter(torch.FloatTensor(exp, 1, 5, 5))  # out, in, k, k
+        nn.init.kaiming_normal_(self.weight, mode='fan_out')
 
         mask3x3 = np.zeros((exp, 1, 5, 5), dtype='float32')
         mask3x3[:, :, 1:4, 1:4] = 1.
@@ -211,8 +217,8 @@ class SuperKernel(nn.Module):
 
     def get_decision(self):
         # with torch.no_grad():  # Todo whether
-        kernel_3x3 = self.depthwise_kernel * self.mask3x3
-        kernel_5x5 = self.depthwise_kernel * self.mask5x5
+        kernel_3x3 = self.weight * self.mask3x3
+        kernel_5x5 = self.weight * self.mask5x5
         norm5x5 = torch.norm(kernel_5x5)
         x5x5 = norm5x5 - self.t5x5
         d5x5 = Indicator(x5x5)
@@ -233,9 +239,9 @@ class SuperKernel(nn.Module):
 
     def build_kernel(self):
         dropout_rate = conf.conv2dmask_drop_ratio
-        device = self.depthwise_kernel.device
-        kernel_3x3 = self.depthwise_kernel * self.mask3x3.to(device)
-        kernel_5x5 = self.depthwise_kernel * self.mask5x5.to(device)
+        device = self.weight.device
+        kernel_3x3 = self.weight * self.mask3x3.to(device)
+        kernel_5x5 = self.weight * self.mask5x5.to(device)
         norm5x5 = torch.norm(kernel_5x5)
         x5x5 = norm5x5 - self.t5x5
         d5x5 = my_dropout(Indicator(x5x5), dropout_rate)
@@ -348,7 +354,10 @@ class Linear_block(nn.Module):
 class SinglePath(nn.Module):
     def __init__(self,
                  width_mult=conf.mbfc_wm,
-                 depth_mult=conf.mbfc_dm, use_superkernel=True):
+                 depth_mult=conf.mbfc_dm,
+                 use_superkernel=True,
+                 build_from_decs=(),
+                 ):
         super(SinglePath, self).__init__()
         input_channel = make_divisible(64 * width_mult)
         last_channel = 512
@@ -369,7 +378,20 @@ class SinglePath(nn.Module):
         self.head = conv_bn(3, input_channel, 2, nlin_layer=lambda inplace: nn.PReLU(input_channel))  # Hswish
         self.features = []
         # building mobile blocks
-        for k, exp, c, se, nl, s in mobile_setting:
+        for ind, (k, exp, c, se, nl, s) in enumerate(mobile_setting):
+            skip_op = False
+            if build_from_decs:
+                dec = build_from_decs[ind]
+                d5x5, d100c, d50c, t5x5, t100c, t50c = dec
+                use_superkernel = False
+                if d5x5:
+                    k = 5
+                else:
+                    k = 3
+                if d100c and d50c:
+                    exp = exp * 2
+                elif not d100c:
+                    skip_op = True
             if use_superkernel:
                 k = 5
                 exp = exp * 2
@@ -379,9 +401,9 @@ class SinglePath(nn.Module):
             exp_channel = make_divisible(exp * width_mult)
             if use_superkernel and k == 5:
                 mb5x5 = MobileBottleneck5x5(input_channel, output_channel, k, s, exp_channel, se, nl)
-                self.features.append(mb5x5)
             else:
-                self.features.append(MobileBottleneck(input_channel, output_channel, k, s, exp_channel, se, nl))
+                mb5x5 = MobileBottleneck(input_channel, output_channel, k, s, exp_channel, se, nl, skip_op)
+            self.features.append(mb5x5)
             input_channel = output_channel
 
         # building last several layers
@@ -447,15 +469,17 @@ class SinglePath(nn.Module):
             decs.append(dec)
         return decs
 
-    def get_weight_by_decisions(self, decisions=None):
-        if decisions is None:
-            decisions = self.get_decisions()
-        state_dict = self.state_dict()
-        state_dict = {k: v for k, v in state_dict.items() if 'num_batches_tracked' not in k}
-
-        for depth, dec in enumerate(decisions):
-            d5x5, d100c, d50c, t5x5, t100c, t50c = dec
-            state_dict[f'features.{depth}.dw_conv.depthwise_kernel']
+    # def get_weight_by_decisions(self, decisions=None):
+    #     if decisions is None:
+    #         decisions = self.get_decisions()
+    #     state_dict = self.state_dict()
+    #     state_dict = {k: v for k, v in state_dict.items() if 'num_batches_tracked' not in k}
+    #
+    #     for depth, dec in enumerate(decisions):
+    #         d5x5, d100c, d50c, t5x5, t100c, t50c = dec
+    #         state_dict[f'features.{depth}.pw_conv.weight']
+    #         state_dict[f'features.{depth}.pw_norm.weight']
+    #         state_dict[f'features.{depth}.dw_conv.depthwise_kernel']
 
 
 def singlepath(pretrained=False, **kwargs):
@@ -469,52 +493,44 @@ if __name__ == '__main__':
     from config import conf
 
     conf.conv2dmask_drop_ratio = 0
-    init_dev((0, 1))
-    net = singlepath(
-        use_superkernel=True,
-        # width_mult=1,
-    )
-    # state_dict = torch.load('mobilenetv3_small_67.218.pth.tar')
-    # net.load_state_dict(state_dict)
-    print('mobilenetv3:\n', net)
+    init_dev((3,))
+    net = singlepath()
+    print('net:\n', net)
     print('Total params: %.2fM' % (sum(p.numel() for p in net.parameters()) / 1000000.0))
-    net = nn.DataParallel(net).cuda()
+    net = nn.DataParallel(net)#.cuda()
     net.train()
-    classifier = nn.Linear(512, 10).cuda()
-    classifier.train()
-    opt = torch.optim.SGD(list(net.parameters()) + list(classifier.parameters()), lr=1e-1)
 
-    bs = 128
-    input_size = (bs, 3, 112, 112)
-    target = to_torch(np.random.randint(low=0, high=10, size=(bs,)), ).cuda()
-    x = torch.rand(input_size).cuda()
-    # net.module.get_weight_by_decisions()
-    for i in range(99):
-        print(' forward ----- ', i)
-        with torch.no_grad():
-            net.module.get_decisions()
-        opt.zero_grad()
-        ttl_runtime = 0.452 * 10 ** 6
-        target_runtime = 2.5 * 10 ** 6
-        out, runtime_ = net(x, need_runtime_reg=True)
-        logits = classifier(out)
-        loss = nn.CrossEntropyLoss()(logits, target)
-        ttl_runtime += runtime_.mean()
-        # runtime_reg_loss = 0.1 *10**3 * 10 ** 3 * torch.log(runtime_reg)
-        if ttl_runtime > target_runtime:
-            w_ = 1.03
-        else:
-            w_ = 0
-        runtime_regloss = 10 * (ttl_runtime / target_runtime) ** w_
-        (loss + runtime_regloss).backward()
-        opt.step()
-        print(' now loss: ', loss.item(), 'rt ', ttl_runtime.item(), 'rtloss ', runtime_regloss.item())
+    # classifier = nn.Linear(512, 10).cuda()
+    # classifier.train()
+    # opt = torch.optim.SGD(list(net.parameters()) + list(classifier.parameters()), lr=1e-1)
+    #
+    # bs = 128
+    # input_size = (bs, 3, 112, 112)
+    # target = to_torch(np.random.randint(low=0, high=10, size=(bs,)), ).cuda()
+    # x = torch.rand(input_size).cuda()
+    #
+    # for i in range(99):
+    #     print(' forward ----- ', i)
+    #     with torch.no_grad():
+    #         net.module.get_decisions()
+    #     opt.zero_grad()
+    #     ttl_runtime = 0.452 * 10 ** 6
+    #     target_runtime = 2.5 * 10 ** 6
+    #     out, runtime_ = net(x, need_runtime_reg=True)
+    #     logits = classifier(out)
+    #     loss = nn.CrossEntropyLoss()(logits, target)
+    #     ttl_runtime += runtime_.mean()
+    #     # runtime_reg_loss = 0.1 *10**3 * 10 ** 3 * torch.log(runtime_reg)
+    #     if ttl_runtime > target_runtime:
+    #         w_ = 1.03
+    #     else:
+    #         w_ = 0
+    #     runtime_regloss = 10 * (ttl_runtime / target_runtime) ** w_
+    #     (loss + runtime_regloss).backward()
+    #     opt.step()
+    #     print(' now loss: ', loss.item(), 'rt ', ttl_runtime.item(), 'rtloss ', runtime_regloss.item())
 
-    # from thop import profile
-    # model = net.to('cuda:0')
-    # flops, params = profile(model, input_size=(2, 3, 112, 112),
-    #                         device='cuda:0',
-    #                         )
-    # flops /= 10 ** 9
-    # params /= 10 ** 6
-    # print(flops, params)
+    # decs = (net.module.get_decisions())
+    decs = msgpack_load('/tmp/tmp.pk')
+    net2 = singlepath(build_from_decs=decs)
+    net2.load_state_dict(net.module.state_dict(), strict=False)

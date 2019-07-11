@@ -23,7 +23,9 @@ from os import path as osp
 from IPython import embed
 from easydict import EasyDict as edict
 import cv2, cvbase as cvb, copy, pandas as pd, math
-import collections
+import collections, h5py
+from sklearn.preprocessing import normalize
+from scipy.spatial.distance import cdist
 
 # import redis, networkx as nx, \
 #  yaml, subprocess, pprint, json, \
