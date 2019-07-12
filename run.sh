@@ -9,22 +9,10 @@
 #    python train.py --mbfc_wm $wm --mbfc_dm $dm --work_path work_space/mbfc.$wm.$dm.retina.arc --epochs 1
 #done
 
-#for i in 4 3 2 1
-#do
-#    cp config.$i.py config.py
-#    python train.py
-#done
-
-#for i in $(seq 64 -2 56)
-#do
-#    echo $i
-#    python train.py --scale $i --epochs 1 --prof True --work_path work_space/bak.$i
-#done
-
 # 85*4=340
 #python train.cotching.py --batch_size 340 --mutual_learning 0 --train_mode cotch --work_path work_space/mbfc.cotch.fx.acc_grad --acc_grad 2
 #python train.cotching.py --batch_size 340 --mutual_learning 0.001 --train_mode mual --work_path work_space/mbfc.mual.1e-3 --acc_grad 2
-python train.cotching.py --batch_size 340 --mutual_learning 0.001 --train_mode cotch --work_path work_space/mbfc.cotch.mual.1e-3.cont --acc_grad 2 --start_epoch 10 --start_step 157380
+#python train.cotching.py --batch_size 340 --mutual_learning 0.001 --train_mode cotch --work_path work_space/mbfc.cotch.mual.1e-3 --acc_grad 2
 
 #python train.cotching.py --batch_size 340 --mutual_learning 1 --train_mode mual --work_path work_space/mbfc.mual.1.d256.new
 
@@ -35,3 +23,8 @@ python train.cotching.py --batch_size 340 --mutual_learning 0.001 --train_mode c
 #python train.py --batch_size 512 --acc_grad 2 --cutoff 5 --work_path work_space/mbfc.d256.c5
 #python train.py --batch_size 512 --acc_grad 2 --cutoff 10 --work_path work_space/mbfc.d256.c10
 #python train.py --batch_size 512 --acc_grad 2 --net_mode effnet --input_size 224 --scale 32 --work_path work_space/effnet.d256
+
+python train.py --scale 32 --lambda_runtime_reg 5 --work_path work_space/sglpth2
+python train.2.py --scale 48 --conv2dmask_drop_ratio 0 --work_path work_space/sglpth2.2.48
+#python train.2.py --scale 32 --conv2dmask_drop_ratio 0 --work_path work_space/sglpth2.2.32
+#python train.3.py --scale 48 --conv2dmask_drop_ratio 0 --work_path work_space/sglpth2.3.48

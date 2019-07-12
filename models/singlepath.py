@@ -150,6 +150,9 @@ class MobileBottleneck(nn.Module):
             return x + xx
         else:
             return xx
+    
+    def get_decision(self):
+        return (0, 0, 0, 0, 0, 0)
 
 
 def judgenan(x):
@@ -189,7 +192,7 @@ class SuperKernel(nn.Module):
         self.t100c.data.fill_(0)
         self.weight = nn.Parameter(torch.FloatTensor(exp, 1, 5, 5))  # out, in, k, k
         nn.init.kaiming_normal_(self.weight, mode='fan_out')
-
+        
         mask3x3 = np.zeros((exp, 1, 5, 5), dtype='float32')
         mask3x3[:, :, 1:4, 1:4] = 1.
         mask5x5 = np.ones((exp, 1, 5, 5), dtype='float32') - mask3x3
@@ -423,8 +426,7 @@ class SinglePath(nn.Module):
 
     def forward(self, x, need_runtime_reg=False, *args, **kwargs):
         # bs, nc, nh, nw = x.shape
-        device = x.device
-        ttl_runtime_reg = 0
+        ttl_runtime_reg = torch.FloatTensor([0]).to(x.device)
         x = self.head(x)
         # x = self.features(x)
         for feature_op in self.features:
@@ -468,18 +470,30 @@ class SinglePath(nn.Module):
             dec = mb5x5.get_decision()
             decs.append(dec)
         return decs
+    
+    def load_state_dict_sglpth(self, state_dict):
+        my_state_dict = self.state_dict()
+        for key in my_state_dict.keys():
+            if 'num_batches_tracked' in key: continue
+            my_shape = my_state_dict[key].shape
+            you_shape = state_dict[key].shape
+            if my_shape == you_shape:
+                my_state_dict[key] = state_dict[key]
+            else:
+                if len(my_shape) == 1:
+                    my_state_dict[key] = state_dict[key][:my_shape[0]]
+                elif len(my_shape) == 4:
+                    if my_shape[0] != you_shape[0]:
+                        my_state_dict[key] = state_dict[key][:my_shape[0], ...]
+                    elif my_shape[1] != you_shape[1]:
+                        my_state_dict[key] = state_dict[key][:, :my_shape[1], ...]
+                    else:
+                        # print(key, my_shape, you_shape)
+                        raise ValueError()
+                else:
+                    # print(key, my_shape, you_shape)
+                    raise ValueError()
 
-    # def get_weight_by_decisions(self, decisions=None):
-    #     if decisions is None:
-    #         decisions = self.get_decisions()
-    #     state_dict = self.state_dict()
-    #     state_dict = {k: v for k, v in state_dict.items() if 'num_batches_tracked' not in k}
-    #
-    #     for depth, dec in enumerate(decisions):
-    #         d5x5, d100c, d50c, t5x5, t100c, t50c = dec
-    #         state_dict[f'features.{depth}.pw_conv.weight']
-    #         state_dict[f'features.{depth}.pw_norm.weight']
-    #         state_dict[f'features.{depth}.dw_conv.depthwise_kernel']
 
 
 def singlepath(pretrained=False, **kwargs):
@@ -497,14 +511,14 @@ if __name__ == '__main__':
     net = singlepath()
     print('net:\n', net)
     print('Total params: %.2fM' % (sum(p.numel() for p in net.parameters()) / 1000000.0))
-    net = nn.DataParallel(net)#.cuda()
+    net = nn.DataParallel(net).cuda()
     net.train()
-
+    
     # classifier = nn.Linear(512, 10).cuda()
     # classifier.train()
     # opt = torch.optim.SGD(list(net.parameters()) + list(classifier.parameters()), lr=1e-1)
     #
-    # bs = 128
+    # bs = 32
     # input_size = (bs, 3, 112, 112)
     # target = to_torch(np.random.randint(low=0, high=10, size=(bs,)), ).cuda()
     # x = torch.rand(input_size).cuda()
@@ -529,8 +543,10 @@ if __name__ == '__main__':
     #     (loss + runtime_regloss).backward()
     #     opt.step()
     #     print(' now loss: ', loss.item(), 'rt ', ttl_runtime.item(), 'rtloss ', runtime_regloss.item())
-
+    #
     # decs = (net.module.get_decisions())
     decs = msgpack_load('/tmp/tmp.pk')
+    # msgpack_dump(decs, '/tmp/tmp.pk')
     net2 = singlepath(build_from_decs=decs)
-    net2.load_state_dict(net.module.state_dict(), strict=False)
+    print(decs)
+    net2.load_state_dict_sglpth(net.module.state_dict(), )

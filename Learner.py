@@ -927,7 +927,7 @@ class face_learner(object):
         elif conf.net_mode == 'mbfc':
             self.model = models.mbfc()
         elif conf.net_mode == 'sglpth':
-            self.model = models.singlepath()
+            self.model = models.singlepath(build_from_decs=conf.decs)
         elif conf.net_mode == 'mbv3':
             self.model = models.mobilenetv3(mode=conf.mb_mode, width_mult=conf.mb_mult)
         elif conf.net_mode == 'hrnet':
@@ -1370,7 +1370,7 @@ class face_learner(object):
 
                 assert not torch.isnan(embeddings).any().item()
                 thetas = self.head(embeddings, labels)
-                loss_xent = F.cross_entropy(thetas, labels, ) / (conf.scale ** 2)
+                loss_xent = F.cross_entropy(thetas, labels, ) #/ (conf.scale ** 2)
                 if conf.kd:
                     alpha = conf.alpha
                     T = conf.temperature
@@ -1386,7 +1386,7 @@ class face_learner(object):
                                                                 labels.to(conf.teacher_head_dev)).to(thetas.device)
                     distill_loss = F.kl_div(
                         F.log_softmax(thetas / T, dim=1),
-                        F.softmax(teacher_outputs / T, dim=1), reduction='batchmean') * ((T / conf.scale) ** 2)
+                        F.softmax(teacher_outputs / T, dim=1), reduction='batchmean') * ((T / conf.scale) ** 2) # todo formula?
                     loss_xent = (1. - alpha) * loss_xent + alpha * distill_loss
 
                 # res = [embeddings, teacher_outputs, thetas, labels]
