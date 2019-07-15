@@ -12,7 +12,6 @@ def log_conf(conf):
     conf2 = {k: v for k, v in conf.items() if not isinstance(v, (dict, np.ndarray))}
     logging.info(f'training conf is {conf2}')
 
-
 from exargs import parser
 
 if __name__ == '__main__':
@@ -57,10 +56,9 @@ if __name__ == '__main__':
         # 'mbfc.lrg.retina.arc.s48',
         # 'effnet.casia.arc',
         # 'mbfc.retina.cl.distill.cont2',
-        # 'sglpth.casia'
+        'mbfc2',
     ]:
         learner.load_state(
-            # fixed_str='2019-04-06-20_accuracy:0.707857142857143_step:2268_None.pth',
             resume_path=Path(f'work_space/{p}/models/'),
             load_optimizer=False,
             load_head=True,  # todo note!
@@ -71,7 +69,7 @@ if __name__ == '__main__':
         # ress[p] = res
         # logging.warning(f'{p} res: {res}')
     print(ress)
-    
+
     # ttl_params = (sum(p.numel() for p in learner.model.parameters()) / 1000000.0)
     # from thop import profile
     #
@@ -85,12 +83,12 @@ if __name__ == '__main__':
     # print('Total params: %.2fM' % ttl_params, flops,'\n',
     #       conf.input_size, conf.mbfc_wm, conf.mbfc_dm)
     # exit()
-    
+
     # from tools.test_ijbc3 import test_ijbc3
     # res = test_ijbc3(conf, learner)
     # res = learner.validate_ori(conf, valds_names=('cfp_fp', ))
     # learner.calc_img_feas(out='work_space/r100.retina.2.h5')
-    
+
     # log_lrs, losses = learner.find_lr(
     #                                   num=999,
     #                                   bloding_scale=1000)
@@ -99,33 +97,33 @@ if __name__ == '__main__':
     # print('best lr is ', best_lr)
     # conf.lr = best_lr
     # exit(0)
-    
+
     # learner.init_lr()
     # conf.tri_wei = 0
     # log_conf(conf)
     # learner.train(conf, 1, name='xent')
-    
+
     learner.init_lr()
     log_conf(conf)
     if conf.warmup:
         learner.warmup(conf, conf.warmup)
     # learner.train(conf, conf.epochs)
     # learner.train_dist(conf, conf.epochs)
+
     learner.train_simple(conf, conf.epochs)
-    
-    decs = learner.model.module.get_decisions()
-    msgpack_dump(decs, 'decs.pk')
+    if conf.net_mode=='sglpth':
+        decs = learner.model.module.get_decisions()
+        msgpack_dump(decs, 'decs.pk')
     
     # learner.train_cotching(conf, conf.epochs)
     # learner.train_cotching_accbs(conf, conf.epochs)
     # learner.train_ghm(conf, conf.epochs)
     # learner.train_with_wei(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)
-    
+
     from tools.test_ijbc3 import test_ijbc3
-    
     res = test_ijbc3(conf, learner)
-    
+
     #     steps = learner.list_steps(conf.model_path)
     #     for step in steps[::-1]:
     #         # step = steps[3]
