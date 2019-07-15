@@ -24,7 +24,10 @@
 #python train.py --batch_size 512 --acc_grad 2 --cutoff 10 --work_path work_space/mbfc.d256.c10
 #python train.py --batch_size 512 --acc_grad 2 --net_mode effnet --input_size 224 --scale 32 --work_path work_space/effnet.d256
 
-python train.py --scale 32 --lambda_runtime_reg 5 --work_path work_space/sglpth2
-python train.2.py --scale 48 --conv2dmask_drop_ratio 0 --work_path work_space/sglpth2.2.48
-#python train.2.py --scale 32 --conv2dmask_drop_ratio 0 --work_path work_space/sglpth2.2.32
-#python train.3.py --scale 48 --conv2dmask_drop_ratio 0 --work_path work_space/sglpth2.3.48
+#python train.py --scale 32 --net_mode mobilefacenet --work_path work_space/mbfc2 --epochs 38 --fill_cache 0
+
+#python train.py --scale 32 --net_mode sglpth --lambda_runtime_reg 5 --work_path work_space/sglpth3 --epochs 38
+python train.2.py --scale 32  --net_mode sglpth --conv2dmask_drop_ratio 0 --work_path work_space/sglpth3.2.32 --epochs 38
+
+#python train.2.py --scale 48 --net_mode sglpth  --conv2dmask_drop_ratio 0 --work_path work_space/sglpth2.2.48
+#python train.3.py --scale 48 --net_mode sglpth  --conv2dmask_drop_ratio 0 --work_path work_space/sglpth2.3.48

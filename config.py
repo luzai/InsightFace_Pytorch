@@ -13,9 +13,9 @@ num_devs = 2
 if dist:
     num_devs = 1
 else:
-    pass
-    # lz.init_dev((0, 1, 2, 3))
-    lz.init_dev(lz.get_dev(num_devs))
+    lz.init_dev(lz.get_dev(num_devs, ok=(2,3)))
+    # lz.init_dev(lz.get_dev(2))
+    # lz.init_dev((0,1))
 
 conf = edict()
 conf.num_workers = ndevs * 4
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/sglpth2')
+conf.work_path = Path('work_space/mbfc2')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -48,9 +48,9 @@ casia_folder = conf.data_path / 'casia'  # the cleaned one todo may need the oth
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = retina_folder
+conf.use_data_folder = dingyi_folder#retina_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
-conf.clean_ids =msgpack_load(root_path + 'train.configs/clean2.pk')
+conf.clean_ids = None#msgpack_load(root_path + 'train.configs/clean2.pk')
 if conf.use_data_folder == ms1m_folder:
     conf.cutoff = 0
 elif conf.use_data_folder == glint_folder:
@@ -81,7 +81,7 @@ conf.embedding_size = 512
 conf.drop_ratio = .4
 conf.conv2dmask_drop_ratio = .2
 conf.lambda_runtime_reg = 5
-conf.net_mode = 'sglpth'  # effnet mbfc sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
+conf.net_mode = 'mobilefacenet'  # effnet mbfc sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
 conf.decs = None
 conf.net_depth = 100  # 100 121 169 201 264 50 20
 conf.mb_mode = 'face.large'

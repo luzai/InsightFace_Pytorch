@@ -192,7 +192,7 @@ class SuperKernel(nn.Module):
         self.t100c.data.fill_(0)
         self.weight = nn.Parameter(torch.FloatTensor(exp, 1, 5, 5))  # out, in, k, k
         nn.init.kaiming_normal_(self.weight, mode='fan_out')
-        
+
         mask3x3 = np.zeros((exp, 1, 5, 5), dtype='float32')
         mask3x3[:, :, 1:4, 1:4] = 1.
         mask5x5 = np.ones((exp, 1, 5, 5), dtype='float32') - mask3x3
@@ -487,11 +487,13 @@ class SinglePath(nn.Module):
                         my_state_dict[key] = state_dict[key][:my_shape[0], ...]
                     elif my_shape[1] != you_shape[1]:
                         my_state_dict[key] = state_dict[key][:, :my_shape[1], ...]
+                    elif my_shape[2]!=you_shape[2]:
+                        my_state_dict[key] = state_dict[key][:, :, :you_shape[2], :you_shape[3]]
                     else:
-                        # print(key, my_shape, you_shape)
+                        print(key, my_shape, you_shape)
                         raise ValueError()
                 else:
-                    # print(key, my_shape, you_shape)
+                    print(key, my_shape, you_shape)
                     raise ValueError()
 
 
@@ -511,14 +513,14 @@ if __name__ == '__main__':
     net = singlepath()
     print('net:\n', net)
     print('Total params: %.2fM' % (sum(p.numel() for p in net.parameters()) / 1000000.0))
-    net = nn.DataParallel(net).cuda()
+    net = nn.DataParallel(net)#.cuda()
     net.train()
-    
+
     # classifier = nn.Linear(512, 10).cuda()
     # classifier.train()
     # opt = torch.optim.SGD(list(net.parameters()) + list(classifier.parameters()), lr=1e-1)
     #
-    # bs = 32
+    # bs = 128
     # input_size = (bs, 3, 112, 112)
     # target = to_torch(np.random.randint(low=0, high=10, size=(bs,)), ).cuda()
     # x = torch.rand(input_size).cuda()
@@ -543,10 +545,8 @@ if __name__ == '__main__':
     #     (loss + runtime_regloss).backward()
     #     opt.step()
     #     print(' now loss: ', loss.item(), 'rt ', ttl_runtime.item(), 'rtloss ', runtime_regloss.item())
-    #
+
     # decs = (net.module.get_decisions())
     decs = msgpack_load('/tmp/tmp.pk')
-    # msgpack_dump(decs, '/tmp/tmp.pk')
     net2 = singlepath(build_from_decs=decs)
-    print(decs)
-    net2.load_state_dict_sglpth(net.module.state_dict(), )
+    net2.load_state_dict(net.module.state_dict(), strict=False)
