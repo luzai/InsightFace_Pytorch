@@ -14,8 +14,8 @@ if dist:
     num_devs = 1
 else:
     pass
-    # lz.init_dev((0, 1, 2, 3))
-    lz.init_dev(lz.get_dev(num_devs))
+    lz.init_dev((0, 1, 2, 3))
+    # lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
 conf.num_workers = ndevs * 4
@@ -48,9 +48,10 @@ casia_folder = conf.data_path / 'casia'  # the cleaned one todo may need the oth
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = retina_folder
+conf.use_data_folder = dingyi_folder#retina_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
-conf.clean_ids =msgpack_load(root_path + 'train.configs/clean2.pk')
+conf.clean_ids = np.asarray(msgpack_load(root_path + 'train.configs/noise.40.pk', allow_np= False))
+
 if conf.use_data_folder == ms1m_folder:
     conf.cutoff = 0
 elif conf.use_data_folder == glint_folder:

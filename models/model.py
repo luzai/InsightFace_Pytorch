@@ -13,7 +13,7 @@ import numpy as np
 
 if conf.use_chkpnt:
     BatchNorm2d = functools.partial(BatchNorm2d, momentum=1 - np.sqrt(0.9))
-upgrade_mbfc=True
+
 
 class Flatten(Module):
     # class Flatten(jit.ScriptModule):

@@ -373,8 +373,10 @@ class TorchDataset(object):
             new_ids = np.array(new_ids)
             conf.clean_ids = new_ids
         if conf.clean_ids is not None:
-            conf.num_clss = self.num_classes = np.unique(conf.clean_ids).shape[0] - 1
-
+            try:
+                conf.num_clss = self.num_classes = np.unique(conf.clean_ids).shape[0] - 1
+            except:
+                pass
         global rec_cache
         self.rec_cache = rec_cache
         if conf.fill_cache:
@@ -420,6 +422,8 @@ class TorchDataset(object):
         return nd.transpose(datum, axes=(2, 0, 1))
 
     def preprocess_img(self, imgs):
+        if isinstance(imgs, np.ndarray):
+            imgs = mx.nd.array(imgs)
         if self.flip and random.randint(0, 1) == 1:
             imgs = mx.ndarray.flip(data=imgs, axis=1)
         imgs = imgs.asnumpy()
@@ -439,7 +443,13 @@ class TorchDataset(object):
             index -= 1
         if conf.clean_ids is not None:
             lbl = conf.clean_ids[index]
-            if lbl == -1: return self._get_single_item(np.random.randint(low=0, high=len(self)))
+            if isinstance(lbl, tuple):
+                imgp, lbl_t = lbl
+                imgs_t = cvb.read_img(imgp)
+                imgs_t = cvb.bgr2rgb(imgs_t)
+                imgs_t = self.preprocess_img(imgs_t)
+            elif lbl == -1:
+                return self._get_single_item(np.random.randint(low=0, high=len(self)))
         index += 1  # 1 based!
         if index in self.rec_cache:
             s = self.rec_cache[index]
@@ -461,7 +471,11 @@ class TorchDataset(object):
         label = self.ids_map[label]
         label = int(label)
         if conf.clean_ids is not None:
-            label = lbl
+            if isinstance(lbl, tuple):
+                imgs = imgs_t
+                label = lbl_t
+            else:
+                label = lbl
         res = {'imgs': imgs, 'labels': label,
                'indexes': index, 'ind_inds': -1,
                }
@@ -1370,7 +1384,7 @@ class face_learner(object):
 
                 assert not torch.isnan(embeddings).any().item()
                 thetas = self.head(embeddings, labels)
-                loss_xent = F.cross_entropy(thetas, labels, ) #/ (conf.scale ** 2)
+                loss_xent = F.cross_entropy(thetas, labels, )  # / (conf.scale ** 2)
                 if conf.kd:
                     alpha = conf.alpha
                     T = conf.temperature
@@ -1386,7 +1400,8 @@ class face_learner(object):
                                                                 labels.to(conf.teacher_head_dev)).to(thetas.device)
                     distill_loss = F.kl_div(
                         F.log_softmax(thetas / T, dim=1),
-                        F.softmax(teacher_outputs / T, dim=1), reduction='batchmean') * ((T / conf.scale) ** 2) # todo formula?
+                        F.softmax(teacher_outputs / T, dim=1), reduction='batchmean') * (
+                                           (T / conf.scale) ** 2)  # todo formula?
                     loss_xent = (1. - alpha) * loss_xent + alpha * distill_loss
 
                 # res = [embeddings, teacher_outputs, thetas, labels]
@@ -4204,10 +4219,16 @@ rescale = ReScale.apply
 
 if __name__ == '__main__':
     init_dev(3)
-    conf.fill_cache = .1
+    conf.fill_cache = 0
     conf.kd = False
 
     ds = TorchDataset(conf.use_data_folder)
+
+    for i in range(10):
+        print(ds[i]['indexes'], ds[i]['labels'])
+        plt_imshow(ds[i]['imgs'])
+        plt.show()
+
     loader = DataLoader(
         ds, batch_size=conf.batch_size,
         num_workers=conf.num_workers,
@@ -4217,18 +4238,18 @@ if __name__ == '__main__':
         collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
     )
 
-    # class_num = ds.num_classes
-    # print(class_num)
-    # lz.timer.start()
-    # lz.timer.since_last_check()
-    # meter = lz.AverageMeter()
-    # for ind, batch in data_prefetcher(enumerate(loader)):
-    #     meter.update(lz.timer.since_last_check(verbose=False ))
-    #     if ind % 9 == 0:
-    #         print('ok', conf.batch_size / meter.avg)
-    #     break
-    ds2 = MxnetLoader(conf.use_data_folder, shuffle=True)
-    for ind, batch2 in data_prefetcher(enumerate(ds2)):
+    class_num = ds.num_classes
+    print(class_num)
+    lz.timer.start()
+    lz.timer.since_last_check()
+    meter = lz.AverageMeter()
+    for ind, batch in data_prefetcher(enumerate(loader)):
+        meter.update(lz.timer.since_last_check(verbose=False))
         if ind % 9 == 0:
-            print('ok', ind, len(ds2), conf.batch_size)
-        # break
+            print('ok', conf.batch_size / meter.avg)
+        break
+    # ds2 = MxnetLoader(conf.use_data_folder, shuffle=True)
+    # for ind, batch2 in data_prefetcher(enumerate(ds2)):
+    #     if ind % 9 == 0:
+    #         print('ok', ind, len(ds2), conf.batch_size)
+    # break

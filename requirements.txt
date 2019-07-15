@@ -27,3 +27,5 @@ Pillow
 scipy
 trash-cli
 tensorboardX
+git+https://github.com/Lyken17/pytorch-OpCounter.git
+
