@@ -11,3 +11,6 @@ __pycache__
 *.pyc
 arc
 train.configs
+*.jpg
+*.png
+*.ipynb

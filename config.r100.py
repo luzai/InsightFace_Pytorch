@@ -6,23 +6,21 @@ from torch.nn import CrossEntropyLoss
 from tools.vat import VATLoss
 from torchvision import transforms as trans
 
-# todo label smooth
-
 dist = False
-num_devs = 2
+num_devs =4
 if dist:
     num_devs = 1
 else:
-    # lz.init_dev(lz.get_dev(num_devs, ok=(2, 3)))
-    lz.init_dev(lz.get_dev(num_devs))
-    # lz.init_dev((0,1))
+    pass
+    lz.init_dev((0, 1, 2, 3))
+    # lz.init_dev(lz.get_dev(num_devs))
 
 conf = edict()
-conf.num_workers = ndevs * 6
+conf.num_workers = ndevs * 4
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
-conf.loss = 'adamrg'  # adacos softmax arcface arcfaceneg cosface
+conf.loss = 'arcface'  # adacos softmax arcface arcfaceneg cosface
 
 conf.writer = None
 conf.local_rank = None
@@ -32,7 +30,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/r18.adacos')
+conf.work_path = Path('work_space/r100.128.retina.clean.arc')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -48,10 +46,9 @@ casia_folder = conf.data_path / 'casia'  # the cleaned one todo may need the oth
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = dingyi_folder  # retina_folder
+conf.use_data_folder = dingyi_folder#retina_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
-conf.clean_ids = None  # np.asarray(msgpack_load(root_path + 'train.configs/noise.20.pk', allow_np=False))
-
+conf.clean_ids = msgpack_load(root_path + 'train.configs/noise.40.pk')
 if conf.use_data_folder == ms1m_folder:
     conf.cutoff = 0
 elif conf.use_data_folder == glint_folder:
@@ -77,14 +74,14 @@ conf.instances = 4
 
 conf.phi = 1.9
 conf.input_rg_255 = False
-conf.input_size = 112  # 128 224 112
+conf.input_size = 128  # 128 224 112
 conf.embedding_size = 512
 conf.drop_ratio = .4
 conf.conv2dmask_drop_ratio = .2
 conf.lambda_runtime_reg = 5
 conf.net_mode = 'ir_se'  # effnet mbfc sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
 conf.decs = None
-conf.net_depth = 18  # 100 121 169 201 264 50 20
+conf.net_depth = 100  # 100 121 169 201 264 50 20
 conf.mb_mode = 'face.large'
 conf.mb_mult = 1.285
 # conf.mb_mode = 'face.small'
@@ -127,7 +124,7 @@ conf.mutual_learning = 0
 
 conf.fp16 = True
 conf.opt_level = "O1"
-conf.batch_size = 256 * num_devs
+conf.batch_size = 140 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
 conf.log_interval = 105
@@ -147,13 +144,13 @@ conf.start_epoch = 0
 conf.start_step = 0
 # conf.epochs = 37
 # conf.milestones = (np.array([23, 32])).astype(int)
-conf.epochs = 16
+conf.epochs = 76
 conf.milestones = (np.array([9, 13])).astype(int)
 conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = 0
+conf.fill_cache = .7
 
 
 # todo may use kl_div to speed up

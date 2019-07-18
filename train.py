@@ -12,6 +12,7 @@ def log_conf(conf):
     conf2 = {k: v for k, v in conf.items() if not isinstance(v, (dict, np.ndarray))}
     logging.info(f'training conf is {conf2}')
 
+
 from exargs import parser
 
 if __name__ == '__main__':
@@ -31,9 +32,9 @@ if __name__ == '__main__':
                                              init_method="env://")
         if torch.distributed.get_rank() != 0:
             set_stream_logger(logging.WARNING)
-    
+
     from Learner import *
-    
+
     # decs = msgpack_load('decs.pk')
     # conf.decs = decs
     learner = face_learner(conf, )
@@ -43,20 +44,17 @@ if __name__ == '__main__':
     # stt_dct = torch.load('work_space/sglpth.casia/models/model_' + fstr)
     # learner.model.module.load_state_dict_sglpth(stt_dct)
     # print(fstrs, stps, fstr, )
-    
+
     ress = {}
     for p in [
-        # 'emore.r50.dop',
-        # 'emore.r152.ada.chkpnt',
-        # 'emore.r152.ada.chkpnt.2',
-        # 'emore.r152.ada.chkpnt.3',
         # 'r100.128.retina.clean.arc',
         # 'hrnet.retina.arc.3',
         # 'mbv3.retina.arc',
         # 'mbfc.lrg.retina.arc.s48',
         # 'effnet.casia.arc',
         # 'mbfc.retina.cl.distill.cont2',
-        'mbfc2',
+        # 'mbfc2',
+        'r18.l2sft',
     ]:
         learner.load_state(
             resume_path=Path(f'work_space/{p}/models/'),
@@ -70,22 +68,6 @@ if __name__ == '__main__':
         # logging.warning(f'{p} res: {res}')
     print(ress)
 
-    # ttl_params = (sum(p.numel() for p in learner.model.parameters()) / 1000000.0)
-    # from thop import profile
-    #
-    # flops, params = profile(learner.model.module,
-    #                         input_size=(1, 3, conf.input_size, conf.input_size),
-    #                         only_ops=(nn.Conv2d, nn.Linear),
-    #                         device='cuda:0',
-    #                         )
-    # flops /= 10 ** 9
-    # params /= 10 ** 6
-    # print('Total params: %.2fM' % ttl_params, flops,'\n',
-    #       conf.input_size, conf.mbfc_wm, conf.mbfc_dm)
-    # exit()
-
-    # from tools.test_ijbc3 import test_ijbc3
-    # res = test_ijbc3(conf, learner)
     # res = learner.validate_ori(conf, valds_names=('cfp_fp', ))
     # learner.calc_img_feas(out='work_space/r100.retina.2.h5')
 
@@ -111,10 +93,10 @@ if __name__ == '__main__':
     # learner.train_dist(conf, conf.epochs)
 
     learner.train_simple(conf, conf.epochs)
-    if conf.net_mode=='sglpth':
+    if conf.net_mode == 'sglpth':
         decs = learner.model.module.get_decisions()
         msgpack_dump(decs, 'decs.pk')
-    
+
     # learner.train_cotching(conf, conf.epochs)
     # learner.train_cotching_accbs(conf, conf.epochs)
     # learner.train_ghm(conf, conf.epochs)
@@ -122,15 +104,5 @@ if __name__ == '__main__':
     # learner.train_use_test(conf, conf.epochs)
 
     from tools.test_ijbc3 import test_ijbc3
-    res = test_ijbc3(conf, learner)
 
-    #     steps = learner.list_steps(conf.model_path)
-    #     for step in steps[::-1]:
-    #         # step = steps[3]
-    #         print('step', step, steps)
-    #         learner.load_state_by_step(
-    #             resume_path=conf.model_path,
-    #             step=step,
-    #             load_head=True,
-    #         )
-    #         learner.calc_importance(f'{conf.work_path}/{step}.pk')
+    res = test_ijbc3(conf, learner)

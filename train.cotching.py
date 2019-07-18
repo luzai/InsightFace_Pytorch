@@ -38,7 +38,7 @@ if __name__ == '__main__':
     ress = {}
     for p in [
         # 'mbfc.retina.cl.arc.cotch.cont',
-        'mbfc.cotch.mual.1e-3',
+        # 'mbfc.cotch.mual.1e-3',
     ]:
         learner.load_state(
             resume_path=Path(f'work_space/{p}/models/'),
@@ -80,17 +80,6 @@ if __name__ == '__main__':
     from tools.test_ijbc3 import test_ijbc3
 
     res = test_ijbc3(conf, learner)
-
-    #     steps = learner.list_steps(conf.model_path)
-    #     for step in steps[::-1]:
-    #         # step = steps[3]
-    #         print('step', step, steps)
-    #         learner.load_state_by_step(
-    #             resume_path=conf.model_path,
-    #             step=step,
-    #             load_head=True,
-    #         )
-    #         learner.calc_importance(f'{conf.work_path}/{step}.pk')
 
     # log_lrs, losses = learner.find_lr(conf,
     #                                   # final_value=100,

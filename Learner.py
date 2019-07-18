@@ -1001,6 +1001,9 @@ class face_learner(object):
         elif conf.loss == 'adacos':
             from models.model import AdaCos
             self.head = AdaCos(num_classes=self.class_num)
+        elif conf.loss == 'adamrg':
+            from models.model import AdaMrg
+            self.head = AdaMrg(num_classes=self.class_num)
         else:
             raise ValueError(f'{conf.loss}')
         self.model.cuda()
@@ -3562,16 +3565,19 @@ class face_cotching(face_learner):
                 loss_xent2 = F.cross_entropy(thetas2, labels2)
 
                 if conf.mutual_learning:
-                    mual1 = F.kl_div(F.log_softmax(thetas, dim=1),
-                                     F.softmax(thetas2.detach().to(conf.model1_dev[0]), dim=1),
-                                     reduction='batchmean',
-                                     )
-                    loss_xent = loss_xent + mual1 * conf.mutual_learning
-                    mual2 = F.kl_div(F.log_softmax(thetas2, dim=1),
-                                     F.softmax(thetas.detach().to(conf.model2_dev[0]), dim=1),
-                                     reduction='batchmean',
-                                     )  # todo temparature? # before we use temparature=1/64, we may try t=1
-                    loss_xent2 = loss_xent2 + mual2 * conf.mutual_learning
+                    T = conf.mutual_learning
+                    mual1 = F.kl_div(
+                        F.log_softmax(thetas / T, dim=1),
+                        F.softmax(thetas2.detach().to(conf.model1_dev[0]) / T, dim=1),
+                        reduction='batchmean',
+                    ) * T ** 2
+                    loss_xent = loss_xent + mual1
+                    mual2 = F.kl_div(
+                        F.log_softmax(thetas2 / T, dim=1),
+                        F.softmax(thetas.detach().to(conf.model2_dev[0]), dim=1) / T,
+                        reduction='batchmean',
+                    ) * T ** 2
+                    loss_xent2 = loss_xent2 + mual2
                 if conf.fp16:
                     with amp.scale_loss(loss_xent2 / conf.acc_grad, self.optimizer2) as scaled_loss:
                         scaled_loss.backward()
@@ -3733,7 +3739,7 @@ class face_cotching(face_learner):
                     mual2 = F.kl_div(F.log_softmax(thetas2[disagree], dim=1),
                                      F.softmax(thetas[disagree].detach(), dim=1),
                                      reduction='batchmean',
-                                     )  # todo batchmean or mean
+                                     )
                     loss_xent2_rmbr += mual2 * conf.mutual_learning
                 rmbr_rat = num_remember / conf.batch_size
                 if conf.fp16:

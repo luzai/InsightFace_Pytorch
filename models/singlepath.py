@@ -150,7 +150,7 @@ class MobileBottleneck(nn.Module):
             return x + xx
         else:
             return xx
-    
+
     def get_decision(self):
         return (0, 0, 0, 0, 0, 0)
 
@@ -470,7 +470,7 @@ class SinglePath(nn.Module):
             dec = mb5x5.get_decision()
             decs.append(dec)
         return decs
-    
+
     def load_state_dict_sglpth(self, state_dict):
         my_state_dict = self.state_dict()
         for key in my_state_dict.keys():
@@ -487,7 +487,7 @@ class SinglePath(nn.Module):
                         my_state_dict[key] = state_dict[key][:my_shape[0], ...]
                     elif my_shape[1] != you_shape[1]:
                         my_state_dict[key] = state_dict[key][:, :my_shape[1], ...]
-                    elif my_shape[2]!=you_shape[2]:
+                    elif my_shape[2] != you_shape[2]:
                         my_state_dict[key] = state_dict[key][:, :, :you_shape[2], :you_shape[3]]
                     else:
                         print(key, my_shape, you_shape)
@@ -495,7 +495,6 @@ class SinglePath(nn.Module):
                 else:
                     print(key, my_shape, you_shape)
                     raise ValueError()
-
 
 
 def singlepath(pretrained=False, **kwargs):
@@ -513,7 +512,7 @@ if __name__ == '__main__':
     net = singlepath()
     print('net:\n', net)
     print('Total params: %.2fM' % (sum(p.numel() for p in net.parameters()) / 1000000.0))
-    net = nn.DataParallel(net)#.cuda()
+    net = nn.DataParallel(net)  # .cuda()
     net.train()
 
     # classifier = nn.Linear(512, 10).cuda()

@@ -741,19 +741,25 @@ class AdaCos(nn.Module):
         self.n_classes = num_classes
         self.s = math.sqrt(2) * math.log(num_classes - 1)  # todo maybe scale
         self.m = m
-        self.W = nn.Parameter(torch.FloatTensor(num_classes, num_features))
-        nn.init.xavier_uniform_(self.W)
+        self.kernel = nn.Parameter(torch.FloatTensor(num_features, num_classes))
+        nn.init.xavier_uniform_(self.kernel)
         self.device_id = list(range(conf.num_devs))
         self.step = 0
         self.writer = conf.writer
         self.interval = conf.log_interval
+        self.k = 0.5
         assert self.writer is not None
+
+    def update_mrg(self, m=conf.margin, s=conf.scale):
+        self.m = m
+        self.s = s
 
     def forward(self, input, label=None):
         bs = input.shape[0]
         x = F.normalize(input, dim=1)
-        W = F.normalize(self.W, dim=1)
-        logits = F.linear(x, W)
+        W = F.normalize(self.kernel, dim=0)
+        # logits = F.linear(x, W)
+        logits = torch.mm(x, W).clamp(-1, 1)
         logits = logits.float()
         if label is None:
             return logits
@@ -769,6 +775,8 @@ class AdaCos(nn.Module):
         # feature re-scale
         with torch.no_grad():
             B_avg = torch.logsumexp((self.s * logits)[one_hot < 1], dim=0) - np.log(input.shape[0])
+            B_avg = B_avg + np.log(self.k / (1 - self.k))
+            # print(B_avg, self.s)
             theta_neg = theta[one_hot < 1].view(bs, self.n_classes - 1)
             theta_pos = theta[one_hot == 1]
             theta_med = torch.median(theta_pos + self.m)
@@ -778,7 +786,6 @@ class AdaCos(nn.Module):
             # self.s = self.s * 0.9 + s_now * 0.1
             self.s = s_now
             if self.step % self.interval == 0:
-                # print(B_avg, self.s)
                 self.writer.add_scalar('theta/pos_med', theta_med.item(), self.step)
                 self.writer.add_scalar('theta/pos_mean', theta_pos.mean().item(), self.step)
                 self.writer.add_scalar('theta/neg_med', torch.median(theta_neg).item(), self.step)
@@ -790,6 +797,73 @@ class AdaCos(nn.Module):
                 self.writer.add_histogram('theta/pos_neg', theta_neg, self.step)
             self.step += 1
 
+        output *= self.s
+        return output
+
+
+class AdaMrg(nn.Module):
+    def __init__(self, num_classes=None, m=conf.margin, num_features=conf.embedding_size):
+        super(AdaMrg, self).__init__()
+        self.num_features = num_features
+        self.n_classes = num_classes
+        self.s = conf.scale
+        self.m = m
+        self.kernel = nn.Parameter(torch.FloatTensor(num_features, num_classes))
+        nn.init.xavier_uniform_(self.kernel)
+        self.device_id = list(range(conf.num_devs))
+        self.step = 0
+        self.writer = conf.writer
+        self.interval = conf.log_interval
+        self.k = 0.5
+        assert self.writer is not None
+
+    def update_mrg(self, m=conf.margin, s=conf.scale):
+        self.m = m
+        self.s = s
+
+    def forward(self, input, label=None):
+        bs = input.shape[0]
+        x = F.normalize(input, dim=1)
+        W = F.normalize(self.kernel, dim=0)
+        logits = torch.mm(x, W).clamp(-1, 1)
+        logits = logits.float()
+        if label is None:
+            return logits
+        # add margin
+        one_hot = torch.zeros_like(logits)
+        one_hot.scatter_(1, label.view(-1, 1).long(), 1)
+        theta = torch.acos(torch.clamp(logits, -1.0 + 1e-7, 1.0 - 1e-7))
+
+        # calc margin
+        with torch.no_grad():
+            B_avg = torch.logsumexp(self.s * logits[one_hot < 1], dim=0) - np.log(input.shape[0])
+            # B_avg = torch.log(1 / input.shape[0] *
+            #                   torch.sum(torch.exp((self.s * logits[one_hot < 1]))))
+            B_avg = B_avg + np.log(self.k / (1 - self.k))
+            theta_neg = theta[one_hot < 1].view(bs, self.n_classes - 1)
+            theta_pos = theta[one_hot == 1]
+            theta_med = torch.median(theta_pos)
+            m_now = torch.acos(B_avg / self.s) - (theta_med)
+            # print(m_now.item())
+            m_now = m_now.clamp(0.1, 0.5)
+            m_now = m_now.item()
+            self.m = m_now
+            if self.step % self.interval == 0:
+                self.writer.add_scalar('theta/pos_med', theta_med.item(), self.step)
+                self.writer.add_scalar('theta/pos_mean', theta_pos.mean().item(), self.step)
+                self.writer.add_scalar('theta/neg_med', torch.median(theta_neg).item(), self.step)
+                self.writer.add_scalar('theta/neg_mean', theta_neg.mean().item(), self.step)
+                self.writer.add_scalar('theta/bavg', B_avg.item(), self.step)
+                self.writer.add_scalar('theta/scale', self.s, self.step)
+            if self.step % 9999 == 0:
+                self.writer.add_histogram('theta/pos_th', theta_pos, self.step)
+                self.writer.add_histogram('theta/pos_neg', theta_neg, self.step)
+            self.step += 1
+        if self.m != 0:
+            target_logits = torch.cos(theta + self.m)
+            output = logits * (1 - one_hot) + target_logits * one_hot
+        else:
+            output = logits
         output *= self.s
         return output
 
@@ -907,6 +981,12 @@ class Arcface(Module):
         assert not torch.isnan(embeddings).any().item()
         bs = embeddings.shape[0]
         idx_ = torch.arange(0, bs, dtype=torch.long)
+        if self.interval >= 1 and self.step % self.interval == 0:
+            with torch.no_grad():
+                norm_mean = torch.norm(embeddings, dim=1).mean()
+                if self.writer:
+                    self.writer.add_scalar('theta/norm_mean', norm_mean.item(), self.step)
+                logging.info(f'norm {norm_mean.item():.2e}')
         embeddings = F.normalize(embeddings, dim=1)
         kernel_norm = l2_norm(self.kernel, axis=0)  # 0 dim is emd dim
         cos_theta = torch.mm(embeddings, kernel_norm).clamp(-1, 1)
@@ -1016,7 +1096,8 @@ class Arcface(Module):
         output *= self.s  # scale up in order to make softmax work, first introduced in normface
         return output
 
-    forward = forward_eff_v2
+    # forward = forward_eff_v2
+    forward = forward_eff_v1
     # forward = forward_neff
 
 
