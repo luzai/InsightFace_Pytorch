@@ -23,3 +23,5 @@ clean.pk
 *.png
 *.jpg
 *.pkl
+*.pk
+*pth.tar

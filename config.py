@@ -7,22 +7,22 @@ from tools.vat import VATLoss
 from torchvision import transforms as trans
 
 # todo label smooth
-
+# print = lambda x: logging.info(f'do not prt {x}')
 dist = False
 num_devs = 2
 if dist:
     num_devs = 1
 else:
     # lz.init_dev(lz.get_dev(num_devs, ok=(2, 3)))
-    lz.init_dev(lz.get_dev(num_devs))
-    # lz.init_dev((0,1))
+    # lz.init_dev(lz.get_dev(num_devs))
+    lz.init_dev((2,3))
 
 conf = edict()
 conf.num_workers = ndevs * 6
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
-conf.loss = 'adamrg'  # adacos softmax arcface arcfaceneg cosface
+conf.loss = 'arcface'  # adamrg adacos softmax arcface arcfaceneg cosface
 
 conf.writer = None
 conf.local_rank = None
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/r18.adacos')
+conf.work_path = Path('work_space/mbfc.nose.fwdv1.280.bak')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -82,7 +82,7 @@ conf.embedding_size = 512
 conf.drop_ratio = .4
 conf.conv2dmask_drop_ratio = .2
 conf.lambda_runtime_reg = 5
-conf.net_mode = 'ir_se'  # effnet mbfc sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
+conf.net_mode = 'mobilefacenet'  # effnet mbfc sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
 conf.decs = None
 conf.net_depth = 18  # 100 121 169 201 264 50 20
 conf.mb_mode = 'face.large'
@@ -127,14 +127,14 @@ conf.mutual_learning = 0
 
 conf.fp16 = True
 conf.opt_level = "O1"
-conf.batch_size = 256 * num_devs
+conf.batch_size = 140 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
 conf.log_interval = 105
 conf.need_tb = True
 conf.other_every = None if not conf.prof else 51
 conf.num_recs = 1
-conf.acc_grad = 2
+conf.acc_grad = 4
 # --------------------Training Config ------------------------
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
 conf.use_opt = 'sgd'  # adabound
@@ -147,7 +147,7 @@ conf.start_epoch = 0
 conf.start_step = 0
 # conf.epochs = 37
 # conf.milestones = (np.array([23, 32])).astype(int)
-conf.epochs = 16
+conf.epochs = 38
 conf.milestones = (np.array([9, 13])).astype(int)
 conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1

@@ -38,6 +38,7 @@ if __name__ == '__main__':
     # decs = msgpack_load('decs.pk')
     # conf.decs = decs
     learner = face_learner(conf, )
+
     # fstrs = learner.list_fixed_strs('work_space/sglpth.casia/models')
     # stps = learner.list_steps('work_space/sglpth.casia/models')
     # fstr = fstrs[np.argmax(stps)]
@@ -54,7 +55,9 @@ if __name__ == '__main__':
         # 'effnet.casia.arc',
         # 'mbfc.retina.cl.distill.cont2',
         # 'mbfc2',
-        'r18.l2sft',
+        # 'r18.l2sft',
+        # 'r18.adamrg',
+        # 'mbfc.nose',
     ]:
         learner.load_state(
             resume_path=Path(f'work_space/{p}/models/'),
@@ -66,7 +69,7 @@ if __name__ == '__main__':
         # res = learner.validate_ori(conf)
         # ress[p] = res
         # logging.warning(f'{p} res: {res}')
-    print(ress)
+    logging.info(f'ress is {ress}')
 
     # res = learner.validate_ori(conf, valds_names=('cfp_fp', ))
     # learner.calc_img_feas(out='work_space/r100.retina.2.h5')
@@ -91,7 +94,6 @@ if __name__ == '__main__':
         learner.warmup(conf, conf.warmup)
     # learner.train(conf, conf.epochs)
     # learner.train_dist(conf, conf.epochs)
-
     learner.train_simple(conf, conf.epochs)
     if conf.net_mode == 'sglpth':
         decs = learner.model.module.get_decisions()

@@ -931,8 +931,8 @@ class face_learner(object):
             self.writer = None
         self.step = 0
         if conf.net_mode == 'mobilefacenet':
+            logging.info('MobileFaceNet model generating ... ')
             self.model = MobileFaceNet(conf.embedding_size)
-            logging.info('MobileFaceNet model generated')
         elif conf.net_mode == 'effnet':
             name = conf.eff_name
             self.model = models.EfficientNet.from_name(name)
@@ -1007,7 +1007,6 @@ class face_learner(object):
         else:
             raise ValueError(f'{conf.loss}')
         self.model.cuda()
-
         if conf.head_init:
             kernel = lz.msgpack_load(conf.head_init).astype(np.float32).transpose()
             kernel = torch.from_numpy(kernel)
@@ -1017,7 +1016,7 @@ class face_learner(object):
             self.head = self.head.cuda()
         if conf.tri_wei != 0:
             self.head_triplet = TripletLoss().cuda()
-        logging.info(' model heads generated')
+        logging.info('model heads generated')
 
         paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
         if conf.use_opt == 'adam':  # todo deprecated
@@ -1052,7 +1051,7 @@ class face_learner(object):
             self.optimizer = optim.SGD([
                 {'params': paras_wo_bn, 'weight_decay': conf.weight_decay},
                 {'params': [*self.head.parameters()], 'weight_decay': conf.weight_decay, 'lr_mult': 10},
-                {'params': paras_only_bn, },
+                {'params': paras_only_bn},
             ], lr=conf.lr, momentum=conf.momentum, )
 
         elif conf.use_opt == 'adabound':
@@ -1067,13 +1066,8 @@ class face_learner(object):
         else:
             raise ValueError(f'{conf.use_opt}')
         if conf.fp16:
-            if conf.use_test:
-                nloss = 2  # todo
-            else:
-                nloss = 1
             self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O1")
         logging.info(f'optimizers generated {self.optimizer}')
-
         if conf.local_rank is None:
             self.model = torch.nn.DataParallel(self.model)
             self.model = self.model.cuda()
@@ -4254,8 +4248,8 @@ if __name__ == '__main__':
         if ind % 9 == 0:
             print('ok', conf.batch_size / meter.avg)
         break
-    # ds2 = MxnetLoader(conf.use_data_folder, shuffle=True)
-    # for ind, batch2 in data_prefetcher(enumerate(ds2)):
-    #     if ind % 9 == 0:
-    #         print('ok', ind, len(ds2), conf.batch_size)
-    # break
+    ds2 = MxnetLoader(conf.use_data_folder, shuffle=True)
+    for ind, batch2 in data_prefetcher(enumerate(ds2)):
+        if ind % 9 == 0:
+            print('ok', ind, len(ds2), conf.batch_size)
+        break

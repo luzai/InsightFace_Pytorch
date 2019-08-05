@@ -33,7 +33,8 @@ from scipy.spatial.distance import cdist
 # shutil, itertools,pathlib,
 # from IPython import embed
 # from tensorboardX import SummaryWriter
-dbg = False
+
+glvars = {}
 
 root_path = osp.normpath(
     osp.join(osp.abspath(osp.dirname(__file__)), )
@@ -386,9 +387,10 @@ class Logger(object):
 
 
 def set_file_logger_prt(path=root_path):
+    # todo
     path = str(path) + '/'
-    sys.stdout = Logger(path + 'log-prt')
-    sys.stderr = Logger(path + 'log-prt-err')
+    # sys.stdout = Logger(path + 'log-prt')
+    # sys.stderr = Logger(path + 'log-prt-err')
 
 
 if os.environ.get('log', '0') == '1':
@@ -1290,21 +1292,30 @@ def plt2tensor():
     return roc_curve_tensor
 
 
-def to_img(img, ):
+def to_img(img, target_shape=None):
+    from PIL import Image
     img = np.asarray(img)
     img = img.copy()
     shape = img.shape
+    if len(shape) == 3 and shape[-1] == 4:
+        img = img[..., :3]
     if len(shape) == 3 and shape[0] == 3:
         img = img.transpose(1, 2, 0)
         img = np.array(img, order='C')
     # if img.dtype == np.float32 or img.dtype == np.float64:
-    if img.max() < 1.1:
-        img -= img.min()
-        img = img / (img.max() + 1e-6)
-        img *= 255
+    img -= img.min()
+    img = img / (img.max() + 1e-6)
+    img *= 255
     img = np.array(img, dtype=np.uint8)
     if len(shape) == 3 and shape[-1] == 1:
         img = img[..., 0]
+    if target_shape:
+        # img = np.uint8(Image.fromarray(img).resize(target_shape, Image.ANTIALIAS)) # 128,256
+        img = img.astype('float32')
+        img = to_torch(img).unsqueeze(0).unsqueeze(0)
+        img = F.interpolate(img, size=(256, 128), mode='bilinear', align_corners=True)
+        img = img.squeeze(0).squeeze(0)
+        img = to_numpy(img).astype('uint8')
     return img.copy()
 
 
@@ -1317,6 +1328,35 @@ def plt_matshow(mat, figsize=(6, 6)):
     # plt.matshow(mat, fignum=1)
     # plt.axis('off')
     # plt.colorbar()
+
+
+def apply_colormap_on_image(org_im, activation, colormap_name='viridis', alpha=.4):
+    """
+        Apply heatmap on image
+    Args:
+        org_img (PIL img): Original image
+        activation_map (numpy arr): Activation map (grayscale) 0-255
+        colormap_name (str): Name of the colormap
+    """
+    import matplotlib.cm as mpl_color_map
+    from PIL import Image
+    org_im = Image.fromarray(to_img(org_im))
+    # Get colormap
+    color_map = mpl_color_map.get_cmap(colormap_name)
+    no_trans_heatmap = color_map(activation)
+    # Change alpha channel in colormap to make sure original image is displayed
+    heatmap = copy.copy(no_trans_heatmap)
+    heatmap[:, :, 3] = alpha
+    heatmap = Image.fromarray((heatmap * 255).astype(np.uint8))
+    no_trans_heatmap = Image.fromarray((no_trans_heatmap * 255).astype(np.uint8))
+
+    # Apply heatmap on iamge
+    heatmap_on_image = Image.new("RGBA", org_im.size)
+    heatmap_on_image = Image.alpha_composite(heatmap_on_image, org_im.convert('RGBA'))
+    heatmap_on_image = Image.alpha_composite(heatmap_on_image, heatmap)
+    no_trans_heatmap = to_img(no_trans_heatmap)
+    heatmap_on_image = to_img(heatmap_on_image)
+    return no_trans_heatmap, heatmap_on_image
 
 
 def show_pdf(path):

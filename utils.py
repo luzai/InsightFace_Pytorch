@@ -12,8 +12,7 @@ from models.model import l2_norm
 import cv2
 
 known_bottom = ['SuperKernel', 'batchnorm', 'conv', 'activation', 'linear',
-                'Conv2dSamePadding',
-                ]
+                'Conv2dSamePadding', ]
 
 
 def separate_bn_paras(modules):
@@ -24,19 +23,20 @@ def separate_bn_paras(modules):
     if not isinstance(modules, list):
         modules = [*modules.modules()]
     # [layer.__class__ for layer in modules]
-    should_cont = False
+    should_skip = False
     for layer in modules:
-        if 'model' in str(layer.__class__): # model defeind in models and mode
-            should_cont = True
+        if 'model' in str(layer.__class__): # model defeind in models and model.py
+            should_skip = True
         if 'torch.nn.modules.container' in str(layer.__class__):
-            should_cont = True
+            should_skip = True
         for kb_ in known_bottom:
             if kb_ in str(layer.__class__):
-                should_cont = False
-        if should_cont:
+                should_skip = False
+        if should_skip:
             logging.info(f'ignore {layer.__class__}')
             continue
-        if 'batchnorm' in str(layer.__class__).lower() or 'inplaceabn' in str(layer.__class__).lower():
+        cls_nm = str(layer.__class__).lower()
+        if 'batchnorm' in cls_nm or 'inplaceabn' in cls_nm or 'prelu' in cls_nm:
             paras_only_bn.extend([*layer.parameters()])
         else:
             paras_wo_bn.extend([*layer.parameters()])

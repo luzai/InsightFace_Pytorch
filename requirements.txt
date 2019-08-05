@@ -13,8 +13,8 @@ future-fstrings
 # torch
 # mxnet-cu90
 # faiss-cpu
-# conda create -n th42 python pytorch=0.4.1 anaconda tensorflow-gpu torchvision tensorboard scikit-learn scikit-image opencv bcolz
-# conda install anaconda pytorch faiss-cpu tensorflow-gpu torchvision tensorboard trash-cli scikit-learn scikit-image opencv trash-cli easydict gpustat tensorboardX
+# conda create -n py37 python=3.7 pytorch=1.1 anaconda tensorflow-gpu torchvision tensorboard scikit-learn scikit-image opencv bcolz
+# conda install python=3.7 anaconda pytorch=1.1 faiss-cpu tensorflow-gpu torchvision tensorboard scikit-learn scikit-image opencv bcolz
 gpustat
 easydict
 msgpack
@@ -27,5 +27,5 @@ Pillow
 scipy
 trash-cli
 tensorboardX
-git+https://github.com/Lyken17/pytorch-OpCounter.git
+thop
 

@@ -21,17 +21,18 @@ bs = 128
 use_mxnet = False
 DIM = conf.embedding_size  # 512  #
 
+use_ijbx = 'IJBB'
 IJBC_path = '/data1/share/IJB_release/' if 'amax' in hostname() else '/home/zl/zl_data/IJB_release/'
-ijbcp = IJBC_path + 'ijbc.info.h5'
+# ijbcp = IJBC_path + 'ijbc.info.h5'
 # if osp.exists(ijbcp):
 # if False:
 #     df_tm, df_pair, df_name = df_load(ijbcp, 'tm'), df_load(ijbcp, 'pair'), df_load(ijbcp, 'name')
 # else:
-fn = (os.path.join(IJBC_path + 'IJBC/meta', 'ijbc_face_tid_mid.txt'))
+fn = (os.path.join(IJBC_path + f'{use_ijbx}/meta', f'{use_ijbx.lower()}_face_tid_mid.txt'))
 df_tm = pd.read_csv(fn, sep=' ', header=None)
-fn = (os.path.join(IJBC_path + 'IJBC/meta', 'ijbc_template_pair_label.txt'))
+fn = (os.path.join(IJBC_path + f'{use_ijbx}/meta', f'{use_ijbx.lower()}_template_pair_label.txt'))
 df_pair = pd.read_csv(fn, sep=' ', header=None)
-fn = os.path.join(IJBC_path + 'IJBC/meta', 'ijbc_name_5pts_score.txt')
+fn = os.path.join(IJBC_path + f'{use_ijbx}/meta', f'{use_ijbx.lower()}_name_5pts_score.txt')
 df_name = pd.read_csv(fn, sep=' ', header=None)
 # df_dump(df_tm, ijbcp, 'tm')
 # df_dump(df_pair, ijbcp, 'pair')
@@ -39,10 +40,10 @@ df_name = pd.read_csv(fn, sep=' ', header=None)
 
 unique_tid = np.unique(df_pair.iloc[:, :2].values.flatten())
 refrence = get_reference_facial_points(default_square=True)
-img_list_path = IJBC_path + './IJBC/meta/ijbc_name_5pts_score.txt'
+img_list_path = IJBC_path + f'{use_ijbx}/meta/{use_ijbx.lower()}_name_5pts_score.txt'
 img_path = '/share/data/loose_crop'
 if not osp.exists(img_path):
-    img_path = IJBC_path + './IJBC/loose_crop'
+    img_path = IJBC_path + f'{use_ijbx}/loose_crop'
 img_list = open(img_list_path)
 files = img_list.readlines()
 num_imgs = len(files)
@@ -233,12 +234,11 @@ def test_ijbc3(conf, learner):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--modelp',
-                        default='mbfc.cotch.mual.1e-3.cont',
-                        # 'r100.128.retina.clean.arc',  # 'effnet.retina.cl.cut10.dim256',
+                        default='mbfc.se.tanh.ep76.1',  # 'r100.128.retina.clean.arc',
                         type=str)
     args = parser.parse_args()
-    # lz.init_dev(lz.get_dev())
-    lz.init_dev((0, 1, 2, 3))
+    # lz.init_dev(lz.get_dev(2))
+    # lz.init_dev((0, 1, ))
     if use_mxnet:
         from recognition.embedding import Embedding
 
@@ -250,8 +250,7 @@ if __name__ == '__main__':
         from config import conf
 
         conf.need_log = False
-        # bs *= 2 * conf.num_devs
-        bs = 160
+        bs *= 2 * conf.num_devs
         conf.fp16 = True
         conf.ipabn = False
         conf.cvt_ipabn = False
@@ -267,7 +266,7 @@ if __name__ == '__main__':
                             list(map(int, os.environ['CUDA_VISIBLE_DEVICES'].split(',')))
                             )
         learner.load_state(
-            resume_path=f'work_space/{args.modelp}/models/',
+            resume_path=f'work_space/{args.modelp}/save/',
             latest=True,
         )
         learner.model.eval()

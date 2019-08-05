@@ -515,37 +515,37 @@ if __name__ == '__main__':
     net = nn.DataParallel(net)  # .cuda()
     net.train()
 
-    # classifier = nn.Linear(512, 10).cuda()
-    # classifier.train()
-    # opt = torch.optim.SGD(list(net.parameters()) + list(classifier.parameters()), lr=1e-1)
-    #
-    # bs = 128
-    # input_size = (bs, 3, 112, 112)
-    # target = to_torch(np.random.randint(low=0, high=10, size=(bs,)), ).cuda()
-    # x = torch.rand(input_size).cuda()
-    #
-    # for i in range(99):
-    #     print(' forward ----- ', i)
-    #     with torch.no_grad():
-    #         net.module.get_decisions()
-    #     opt.zero_grad()
-    #     ttl_runtime = 0.452 * 10 ** 6
-    #     target_runtime = 2.5 * 10 ** 6
-    #     out, runtime_ = net(x, need_runtime_reg=True)
-    #     logits = classifier(out)
-    #     loss = nn.CrossEntropyLoss()(logits, target)
-    #     ttl_runtime += runtime_.mean()
-    #     # runtime_reg_loss = 0.1 *10**3 * 10 ** 3 * torch.log(runtime_reg)
-    #     if ttl_runtime > target_runtime:
-    #         w_ = 1.03
-    #     else:
-    #         w_ = 0
-    #     runtime_regloss = 10 * (ttl_runtime / target_runtime) ** w_
-    #     (loss + runtime_regloss).backward()
-    #     opt.step()
-    #     print(' now loss: ', loss.item(), 'rt ', ttl_runtime.item(), 'rtloss ', runtime_regloss.item())
+    classifier = nn.Linear(512, 10).cuda()
+    classifier.train()
+    opt = torch.optim.SGD(list(net.parameters()) + list(classifier.parameters()), lr=1e-1)
 
-    # decs = (net.module.get_decisions())
+    bs = 128
+    input_size = (bs, 3, 112, 112)
+    target = to_torch(np.random.randint(low=0, high=10, size=(bs,)), ).cuda()
+    x = torch.rand(input_size).cuda()
+
+    for i in range(99):
+        print(' forward ----- ', i)
+        with torch.no_grad():
+            net.module.get_decisions()
+        opt.zero_grad()
+        ttl_runtime = 0.452 * 10 ** 6
+        target_runtime = 2.5 * 10 ** 6
+        out, runtime_ = net(x, need_runtime_reg=True)
+        logits = classifier(out)
+        loss = nn.CrossEntropyLoss()(logits, target)
+        ttl_runtime += runtime_.mean()
+        # runtime_reg_loss = 0.1 *10**3 * 10 ** 3 * torch.log(runtime_reg)
+        if ttl_runtime > target_runtime:
+            w_ = 1.03
+        else:
+            w_ = 0
+        runtime_regloss = 10 * (ttl_runtime / target_runtime) ** w_
+        (loss + runtime_regloss).backward()
+        opt.step()
+        print(' now loss: ', loss.item(), 'rt ', ttl_runtime.item(), 'rtloss ', runtime_regloss.item())
+
+    decs = (net.module.get_decisions())
     decs = msgpack_load('/tmp/tmp.pk')
     net2 = singlepath(build_from_decs=decs)
     net2.load_state_dict(net.module.state_dict(), strict=False)

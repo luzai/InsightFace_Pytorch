@@ -168,3 +168,12 @@ for name, params in _NETS.items():
 
 if __name__ == '__main__':
     print(__all__)
+    from thop import profile
+    model = net_resnext101()
+    flops, params = profile(model, input_size=(1, 3, conf.input_size, conf.input_size),
+                            only_ops=(nn.Conv2d, nn.Linear),
+                            device='cpu',
+                            )
+    flops /= 10 ** 9
+    params /= 10 ** 6
+    print(flops, params, )

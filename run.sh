@@ -33,7 +33,19 @@
 #python train.py --epochs 16 --work_path work_space/r18.ep16
 #python train.cotching.py --batch_size 256 --mutual_learning 0 --train_mode cotch --work_path work_space/r18.cotch.tau.1.38 --acc_grad 4 --tau 0.1 --epochs 38
 
-for mualt in 64 48 100 10 32
+#for mualt in 64 48 100 10 32
+#do
+#    python train.cotching.py --batch_size 256 --mutual_learning $mualt --train_mode mual --work_path work_space/r18.mual.again3.$mualt --acc_grad 4 --tau 0 --epochs 16
+#done
+
+#for times in 1 2 3
+#do
+#    python train.py --epochs 38 --work_path work_space/mbfc.fwdv2.$times --batch_size 400 --acc_grad 3
+#done
+
+for times in 1
 do
-    python train.cotching.py --batch_size 256 --mutual_learning $mualt --train_mode mual --work_path work_space/r18.mual.again3.$mualt --acc_grad 4 --tau 0 --epochs 16
+    python train.py --epochs 76 --work_path work_space/mbfc.se.swish.ep76.$times --batch_size 400 --acc_grad 3 --fill_cache .7
 done
+
+

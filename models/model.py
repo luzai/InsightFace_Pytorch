@@ -1,25 +1,15 @@
 # -*- coding: future_fstrings -*-
-
-from torch.nn import Linear, Conv2d, BatchNorm1d, BatchNorm2d, PReLU, ReLU, Sigmoid, Dropout2d, Dropout, AvgPool2d, \
+from lz import *
+from torch.nn import Linear, Conv2d, BatchNorm1d, BatchNorm2d, Dropout, \
     MaxPool2d, AdaptiveAvgPool2d, Sequential, Module, Parameter
-import torch.nn.functional as F
-import torch
 from collections import namedtuple
-import math
 from config import conf
 import functools, logging
-from torch import nn, jit
+from torch import nn
 import numpy as np
 
 if conf.use_chkpnt:
     BatchNorm2d = functools.partial(BatchNorm2d, momentum=1 - np.sqrt(0.9))
-
-
-class Flatten(Module):
-    # class Flatten(jit.ScriptModule):
-    #     @jit.script_method
-    def forward(self, input):
-        return input.view(input.size(0), -1)
 
 
 def l2_norm(input, axis=1, need_norm=False, ):
@@ -31,18 +21,37 @@ def l2_norm(input, axis=1, need_norm=False, ):
         return output
 
 
-# todo which better?
+class Flatten(Module):
+    def forward(self, input):
+        return input.view(input.size(0), -1)
+
+
+class Swish(nn.Module):
+    def __init__(self, *args):
+        super(Swish, self).__init__()
+
+    def forward(self, x):
+        res = x * torch.sigmoid(x)
+        assert not torch.isnan(res).any().item()
+        return res
+
+
+NoneLin = nn.PReLU  #  Swish
+
+
 class SEModule(nn.Module):
-    def __init__(self, channels, reduction=4):
+    def __init__(self, channels, reduction=4, mult=2):
         super(SEModule, self).__init__()
         self.avg_pool = AdaptiveAvgPool2d(1)
         self.fc1 = Conv2d(
             channels, channels // reduction, kernel_size=1, padding=0, bias=False)
-        nn.init.xavier_uniform_(self.fc1.weight.data)
-        self.relu = PReLU(channels // reduction) if conf.upgrade_irse else ReLU(inplace=True)
+        self.relu = NoneLin(channels // reduction) if conf.upgrade_irse else nn.ReLU(inplace=True)
         self.fc2 = Conv2d(
             channels // reduction, channels, kernel_size=1, padding=0, bias=False)
-        self.sigmoid = Sigmoid()
+        self.sigmoid = nn.Sigmoid()  # nn.Tanh() #
+        self.mult = mult
+        nn.init.xavier_uniform_(self.fc1.weight.data)
+        nn.init.xavier_uniform_(self.fc2.weight.data)
 
     def forward(self, x):
         module_input = x
@@ -50,55 +59,11 @@ class SEModule(nn.Module):
         x = self.fc1(x)
         x = self.relu(x)
         x = self.fc2(x)
-        x = self.sigmoid(x)
-        return module_input * x
-
-
-# class Hsigmoid(nn.Module):
-#     def __init__(self, inplace=True):
-#         super(Hsigmoid, self).__init__()
-#         self.inplace = inplace
-#
-#     def forward(self, x):
-#         res = F.relu6(x + 3., inplace=self.inplace) / 6.
-#         assert not torch.isnan(res).any().item()
-#         return res
-#
-#
-# class SEModule(nn.Module):
-#     def __init__(self, channel, reduction=4):
-#         super(SEModule, self).__init__()
-#         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-#         self.fc = nn.Sequential(
-#             nn.Linear(channel, channel // reduction, bias=False),
-#             nn.ReLU(inplace=True),
-#             nn.Linear(channel // reduction, channel, bias=False),
-#             Hsigmoid()
-#         )
-#
-#     def forward(self, x):
-#         b, c, _, _ = x.size()
-#         y = self.avg_pool(x).view(b, c)
-#         y = self.fc(y).view(b, c, 1, 1)
-#         return x * y.expand_as(x)
-
-# class SEBlock(nn.Module):
-#     def __init__(self, in_c, reduction=16):
-#         super(SEBlock, self).__init__()
-#         self.avgpool = nn.AdaptiveAvgPool2d(1)
-#         self.fc = nn.Sequential(
-#             nn.Linear(in_c, in_c // reduction, bias=False),
-#             nn.ReLU(inplace=True),
-#             nn.Linear(in_c // reduction, in_c, bias=False),
-#             nn.Sigmoid()
-#         )
-#
-#     def forward(self, x):
-#         b, c, _, _ = x.size()
-#         y = self.avgpool(x).view(b, c)
-#         y = self.fc(y).view(b, c, 1, 1)
-#
-#         return x * y.expand_as(x)
+        x = self.sigmoid(x)  # +1
+        # def norm(x):
+        #     return torch.norm(x[1])
+        # norm(module_input), norm(module_input*x), norm(module_input * x * self.mult)
+        return module_input * x * self.mult
 
 
 from modules.bn import InPlaceABN, InPlaceABNSync
@@ -109,15 +74,15 @@ def bn_act(depth, with_act, ipabn=None):
         if with_act:
             if ipabn == 'sync':
                 return [InPlaceABNSync(depth, activation='none'),
-                        PReLU(depth, ), ]
+                        NoneLin(depth, ), ]
             else:
                 return [InPlaceABN(depth, activation='none'),
-                        PReLU(depth, ), ]
+                        NoneLin(depth, ), ]
         else:
             return [InPlaceABN(depth, activation='none')]
     else:
         if with_act:
-            return [BatchNorm2d(depth), PReLU(depth, ), ]
+            return [BatchNorm2d(depth), NoneLin(depth, ), ]
         else:
             return [BatchNorm2d(depth)]
 
@@ -153,7 +118,7 @@ class bottleneck_IR(Module):
         else:
             self.res_layer = Sequential(
                 BatchNorm2d(in_channel),
-                Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False), PReLU(depth),
+                Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False), NoneLin(depth),
                 Conv2d(depth, depth, (3, 3), stride, 1, bias=False), BatchNorm2d(depth))
 
     # @jit.script_method
@@ -194,7 +159,7 @@ class bottleneck_IR_SE(Module):  # this is basic block
             self.res_layer = Sequential(
                 BatchNorm2d(in_channel),
                 Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
-                PReLU(depth),
+                NoneLin(depth),
                 Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
                 BatchNorm2d(depth),
                 SEModule(depth, 16)
@@ -290,7 +255,7 @@ class Backbone(Module):
             unit_module = bottleneck_IR_SE
         self.input_layer = Sequential(Conv2d(3, 64, (3, 3), 1, 1, bias=False),
                                       bn2d(64, conf.ipabn),
-                                      PReLU(64))
+                                      NoneLin(64))
         out_resolution = conf.input_size // 16
         self.output_layer = Sequential(
             bn2d(512, conf.ipabn),
@@ -548,13 +513,13 @@ class Conv_block(Module):
         self.conv = Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding,
                            bias=False)
         self.bn = bn2d(out_c, conf.ipabn)
-        self.prelu = PReLU(out_c)
+        self.PReLU = NoneLin(out_c)
 
     # @jit.script_method
     def forward(self, x):
         x = self.conv(x)
         x = self.bn(x)
-        x = self.prelu(x)
+        x = self.PReLU(x)
         return x
 
 
@@ -587,7 +552,7 @@ class Depth_Wise(Module):
             self.se = SEModule(groups)
         else:
             self.se = Identity()
-        self.conv_dw_nlin = nn.PReLU(groups)
+        self.conv_dw_nlin = NoneLin(groups)
         if conf.lpf and stride[0] == 2:
             self.dnsmpl = Downsample(channels=groups, filt_size=5, stride=2)
         else:
@@ -822,10 +787,10 @@ class AdaMrg(nn.Module):
         self.s = s
 
     def forward(self, input, label=None):
-        bs = input.shape[0]
-        x = F.normalize(input, dim=1)
-        W = F.normalize(self.kernel, dim=0)
-        logits = torch.mm(x, W).clamp(-1, 1)
+        bs = input.shape[0]  # (bs, fdim)
+        x = F.normalize(input, dim=1)  # (bs, fdim)
+        W = F.normalize(self.kernel, dim=0)  # (fdim, ncls)
+        logits = torch.mm(x, W).clamp(-1, 1)  # (bs, ncls)
         logits = logits.float()
         if label is None:
             return logits
@@ -836,26 +801,28 @@ class AdaMrg(nn.Module):
 
         # calc margin
         with torch.no_grad():
-            B_avg = torch.logsumexp(self.s * logits[one_hot < 1], dim=0) - np.log(input.shape[0])
-            # B_avg = torch.log(1 / input.shape[0] *
-            #                   torch.sum(torch.exp((self.s * logits[one_hot < 1]))))
+            B_avg = torch.logsumexp(self.s * logits[one_hot < 1], dim=0) - np.log(bs)
+            # B_avg = torch.FloatTensor([np.log(logits.shape[1] - 1)])
             B_avg = B_avg + np.log(self.k / (1 - self.k))
             theta_neg = theta[one_hot < 1].view(bs, self.n_classes - 1)
             theta_pos = theta[one_hot == 1]
             theta_med = torch.median(theta_pos)
-            m_now = torch.acos(B_avg / self.s) - (theta_med)
-            # print(m_now.item())
-            m_now = m_now.clamp(0.1, 0.5)
+            m_now = torch.acos(B_avg / self.s) - min(theta_med.item(),
+                                                     self.k * np.pi / 2
+                                                     )
+            # m_now = m_now.clamp(0.1, 0.5)
             m_now = m_now.item()
             self.m = m_now
             if self.step % self.interval == 0:
+                print('margin ', m_now, theta_med.item(), torch.acos(B_avg / self.s).item(), )
+                self.writer.add_scalar('theta/mrg', m_now, self.step)
                 self.writer.add_scalar('theta/pos_med', theta_med.item(), self.step)
                 self.writer.add_scalar('theta/pos_mean', theta_pos.mean().item(), self.step)
                 self.writer.add_scalar('theta/neg_med', torch.median(theta_neg).item(), self.step)
                 self.writer.add_scalar('theta/neg_mean', theta_neg.mean().item(), self.step)
                 self.writer.add_scalar('theta/bavg', B_avg.item(), self.step)
                 self.writer.add_scalar('theta/scale', self.s, self.step)
-            if self.step % 9999 == 0:
+            if self.step % 999 == 0:
                 self.writer.add_histogram('theta/pos_th', theta_pos, self.step)
                 self.writer.add_histogram('theta/pos_neg', theta_neg, self.step)
             self.step += 1
@@ -866,6 +833,96 @@ class AdaMrg(nn.Module):
             output = logits
         output *= self.s
         return output
+
+
+class AdaMArcface(Module):
+    # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599
+    def __init__(self, embedding_size=conf.embedding_size, classnum=None, s=conf.scale, m=conf.margin):
+        super(AdaMArcface, self).__init__()
+        self.classnum = classnum
+        kernel = Parameter(torch.FloatTensor(embedding_size, classnum))
+        kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
+        self.kernel = kernel
+        self.update_mrg()
+        self.easy_margin = False
+        self.step = 0
+        self.writer = conf.writer
+        self.interval = conf.log_interval
+        m = Parameter(torch.Tensor(self.classnum))
+        m.data.fill_(0.4)
+        self.m = m
+        self.update_mrg()
+
+    def update_mrg(self, m=conf.margin, s=conf.scale):
+        self.s = s
+
+    def forward_eff_v1(self, embeddings, label=None):
+        assert not torch.isnan(embeddings).any().item()
+        dev = self.m.get_device()
+        if dev == -1:
+            dev = 0
+        cos_m = (torch.cos(self.m)).to(dev)
+        sin_m = (torch.sin(self.m)).to(dev)
+        mm = (torch.sin(self.m) * (self.m)).to(dev)
+        threshold = (torch.cos(np.pi - self.m)).to(dev)
+
+        bs = embeddings.shape[0]
+        idx_ = torch.arange(0, bs, dtype=torch.long)
+        # self.m = self.m.clamp(min=0)
+        m_mean = torch.mean(self.m).cuda()
+        if self.interval >= 1 and self.step % self.interval == 0:
+            with torch.no_grad():
+                norm_mean = torch.norm(embeddings, dim=1).mean()
+                m_mean = torch.mean(self.m).cuda()
+                if self.writer:
+                    self.writer.add_scalar('theta/norm_mean', norm_mean.item(), self.step)
+                    self.writer.add_scalar('theta/self.m_mean', m_mean.item(), self.step)
+                logging.info(f'norm {norm_mean.item():.2e}')
+                logging.info(f'm_mean {m_mean.item():.2e}')
+        embeddings = F.normalize(embeddings, dim=1)
+        kernel_norm = l2_norm(self.kernel, axis=0)  # 0 dim is emd dim
+        cos_theta = torch.mm(embeddings, kernel_norm).clamp(-1, 1)
+        if label is None:
+            return cos_theta
+        with torch.no_grad():
+            if self.interval >= 1 and self.step % self.interval == 0:
+                one_hot = torch.zeros_like(cos_theta)
+                one_hot.scatter_(1, label.view(-1, 1).long(), 1)
+                theta = torch.acos(cos_theta)
+                theta_neg = theta[one_hot < 1].view(bs, self.classnum - 1)
+                theta_pos = theta[one_hot == 1].view(bs)
+                if self.writer:
+                    self.writer.add_scalar('theta/pos_med', torch.median(theta_pos).item(), self.step)
+                    self.writer.add_scalar('theta/neg_med', torch.median(theta_neg).item(), self.step)
+                logging.info(f'pos_med: {torch.median(theta_pos).item():.2e} ' +
+                             f'neg_med: {torch.median(theta_neg).item():.2e} '
+                             )
+        output = cos_theta.clone()  # todo avoid copy ttl
+        cos_theta_need = cos_theta[idx_, label]
+        cos_theta_2 = torch.pow(cos_theta_need, 2)
+        sin_theta_2 = 1 - cos_theta_2
+        sin_theta = torch.sqrt(sin_theta_2)
+
+        cos_theta_m = (cos_theta_need * cos_m[label] - sin_theta * sin_m[label])
+        cond_mask = (cos_theta_need - threshold[label]) <= 0
+
+        if torch.any(cond_mask).item():
+            logging.info(f'this concatins a difficult sample, {cond_mask.sum().item()}')
+        if self.easy_margin:
+            keep_val = cos_theta_need
+        else:
+            keep_val = (cos_theta_need - mm[label])  # when theta not in [0,pi], use cosface instead
+        cos_theta_m[cond_mask] = keep_val[cond_mask].type_as(cos_theta_m)
+        if self.writer and self.step % self.interval == 0:
+            # self.writer.add_scalar('theta/cos_th_m_mean', torch.median(cos_theta_m).item(), self.step)
+            self.writer.add_scalar('theta/cos_th_m_median', cos_theta_m.mean().item(), self.step)
+        output[idx_, label] = cos_theta_m.type_as(output)
+        output *= self.s
+        self.step += 1
+
+        return output, m_mean
+
+    forward = forward_eff_v1
 
 
 class MySoftmax(Module):
@@ -1096,8 +1153,8 @@ class Arcface(Module):
         output *= self.s  # scale up in order to make softmax work, first introduced in normface
         return output
 
-    # forward = forward_eff_v2
-    forward = forward_eff_v1
+    forward = forward_eff_v2
+    # forward = forward_eff_v1
     # forward = forward_neff
 
 
@@ -1414,10 +1471,10 @@ if __name__ == '__main__':
     from lz import *
     from pathlib import Path
 
+    init_dev(3)
     conf.input_size = 112
-    conf.embedding_size = 256
+    # conf.embedding_size = 256
 
-    init_dev(2)
     # model = Backbone(18, 0, 'ir_se')
     # model.eval()
     model = MobileFaceNet(conf.embedding_size,
@@ -1425,13 +1482,7 @@ if __name__ == '__main__':
                           depth_mult=2,
                           )
     model.eval()
-    save_path = root_path + 'work_space/mbfc.retina.cl.distill.cont2/models'
-    save_path = Path(save_path)
-    fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
-    mp = str(save_path) + '/' + fixed_strs[0]
-    st = torch.load(mp, map_location=lambda storage, loc: storage)
-    model.load_state_dict(st, strict=True)
-
+    model.cuda()
     # params = []
     # # wmdm = "1.0,2.25 1.1,1.86 1.2,1.56 1.3,1.33 1.4,1.15 1.5,1.0".split(' ') # 1,2 1.56,2  1.0,1.0
     # wmdm = "1.2,1.56".split(' ')
@@ -1468,25 +1519,25 @@ if __name__ == '__main__':
     from thop import profile
     from lz import timer
 
-    flops, params = profile(model, input_size=(1, 3, conf.input_size, conf.input_size),
-                            custom_ops={DoubleConv: count_double_conv},
+    input = torch.randn(1, 3, conf.input_size, conf.input_size).cuda()
+    flops, params = profile(model, inputs=(input,),
                             # only_ops=(nn.Conv2d, nn.Linear),
-                            device='cpu',
+                            # device='cpu',
                             )
     flops /= 10 ** 9
     params /= 10 ** 6
     print(flops, params, )
-    exit()
-    for i in range(5):
-        img = torch.rand(1, 3, 112, 112).cuda()
-        f = model(img)
-        f.mean().backward()
 
-    timer.since_last_check()
-    for i in range(100):
-        img = torch.rand(1, 3, 112, 112).cuda()
-        f = model(img)
-        f.mean().backward()
-    interval = timer.since_last_check('finish')
-    interval /= 100
-    print(flops, params, interval)
+    classifier = AdaMArcface(classnum=10).cuda()
+    classifier.train()
+    model.train()
+    bs = 32
+    input_size = (bs, 3, 112, 112)
+    target = to_torch(np.random.randint(low=0, high=10, size=(bs,)), ).cuda()
+    x = torch.rand(input_size).cuda()
+
+    out = model(x, )
+    logits, mrg_mn = classifier(out, target)
+    loss = nn.CrossEntropyLoss()(logits, target)
+    (loss - 10 * mrg_mn).backward()
+    print(loss, classifier.m.grad)
