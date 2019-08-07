@@ -45,7 +45,7 @@
 
 for times in 1
 do
-    python train.py --epochs 76 --work_path work_space/mbfc.se.swish.ep76.$times --batch_size 400 --acc_grad 3 --fill_cache .7
+    python train.py --epochs 76 --work_path work_space/mbfc.se.prelu.adamarcface.ep76.$times --batch_size 400 --acc_grad 3 --fill_cache .7
 done
 
 

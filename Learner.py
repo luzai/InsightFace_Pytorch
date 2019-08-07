@@ -995,15 +995,15 @@ class face_learner(object):
         elif conf.loss == 'cosface':
             from models.model import CosFace
             self.head = CosFace(conf.embedding_size, self.class_num)
-        elif conf.loss == 'arcface2':
-            from models.model import Arcface2
-            self.head = Arcface2(conf.embedding_size, self.class_num)
         elif conf.loss == 'adacos':
             from models.model import AdaCos
             self.head = AdaCos(num_classes=self.class_num)
         elif conf.loss == 'adamrg':
             from models.model import AdaMrg
             self.head = AdaMrg(num_classes=self.class_num)
+        elif conf.loss == 'adamarcface':
+            from models.model import AdaMArcface
+            self.head = AdaMArcface(classnum=self.class_num)
         else:
             raise ValueError(f'{conf.loss}')
         self.model.cuda()
@@ -1028,11 +1028,18 @@ class face_learner(object):
                                         )
         elif conf.use_opt == 'sgd':
             ## wdecay
-            # self.optimizer = optim.SGD([
-            #     {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},  # this is mobilenet wdecay
-            #     {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
-            #     {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
-
+            # for adamarcface
+            if conf.loss =='adamarcface':
+                self.optimizer = optim.SGD([
+                {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},  # this is mobilenet wdecay
+                {'params': [paras_wo_bn[-1]] + list(self.head.parameters())[0:1], 'weight_decay': 4e-4},
+                {'params': list(self.head.parameters())[1:2], 'weight_decay': 0, 'lr_mult': .1},
+                {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
+            else:
+                self.optimizer = optim.SGD([
+                    {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},  # this is mobilenet wdecay
+                    {'params': [paras_wo_bn[-1]] + list(self.head.parameters()), 'weight_decay': 4e-4},
+                    {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
             ## normal
             # self.optimizer = optim.SGD([
             #     {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': conf.weight_decay},
@@ -1048,11 +1055,11 @@ class face_learner(object):
             # ], lr=conf.lr, momentum=conf.momentum, )
 
             ## fastfc: only head mult 10
-            self.optimizer = optim.SGD([
-                {'params': paras_wo_bn, 'weight_decay': conf.weight_decay},
-                {'params': [*self.head.parameters()], 'weight_decay': conf.weight_decay, 'lr_mult': 10},
-                {'params': paras_only_bn},
-            ], lr=conf.lr, momentum=conf.momentum, )
+            # self.optimizer = optim.SGD([
+            #     {'params': paras_wo_bn, 'weight_decay': conf.weight_decay},
+            #     {'params': [*self.head.parameters()], 'weight_decay': conf.weight_decay, 'lr_mult': 10},
+            #     {'params': paras_only_bn},
+            # ], lr=conf.lr, momentum=conf.momentum, )
 
         elif conf.use_opt == 'adabound':
             from tools.adabound import AdaBound
@@ -1136,6 +1143,7 @@ class face_learner(object):
                 embeddings = self.model(imgs, mode='train')
                 thetas = self.head(embeddings, labels)
                 loss_xent = conf.ce_loss(thetas, labels)
+
                 if conf.fp16:
                     with self.optimizer.scale_loss(loss_xent) as scaled_loss:
                         scaled_loss.backward()
@@ -1380,8 +1388,13 @@ class face_learner(object):
                     ttl_runtime = runtime_regloss = torch.FloatTensor([0]).cuda()
 
                 assert not torch.isnan(embeddings).any().item()
-                thetas = self.head(embeddings, labels)
-                loss_xent = F.cross_entropy(thetas, labels, )  # / (conf.scale ** 2)
+                if conf.loss == 'adamarcface':
+                    self.head.clamp_m()
+                    thetas, m_mean = self.head(embeddings, labels)
+                    loss_xent = conf.ce_loss(thetas, labels) - 50 * m_mean
+                else:
+                    thetas = self.head(embeddings, labels)
+                    loss_xent = F.cross_entropy(thetas, labels, )
                 if conf.kd:
                     alpha = conf.alpha
                     T = conf.temperature
@@ -1479,6 +1492,15 @@ class face_learner(object):
                             ds)
                         self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
+                    if conf.val_ijbx:
+                        from tools.test_ijbc3 import test_ijbc3
+                        res = test_ijbc3(conf, self)
+                        res6 = res[0][-1]
+                        res4 = res[1][-1]
+                        res3 = res[2][-1]
+                        self.writer.add_scalar(f'ijbx/6', res6, self.step)
+                        self.writer.add_scalar(f'ijbx/4', res4, self.step)
+                        self.writer.add_scalar(f'ijbx/3', res3, self.step)
                 if self.step % self.save_every == 0 and self.step != 0:
                     self.save_state(conf, accuracy)
 

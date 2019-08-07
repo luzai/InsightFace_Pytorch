@@ -17,7 +17,7 @@ from PIL import Image
 from config import conf
 
 os.chdir(lz.root_path)
-bs = 128
+bs = conf.batch_size *2
 use_mxnet = False
 DIM = conf.embedding_size  # 512  #
 
@@ -228,6 +228,8 @@ def test_ijbc3(conf, learner):
     roc_auc = auc(fpr, tpr)
     print('roc aux', roc_auc)
     logging.info(f'perf {res}')
+    if not use_mxnet:
+        learner.model.train()
     return res
 
 
@@ -250,7 +252,7 @@ if __name__ == '__main__':
         from config import conf
 
         conf.need_log = False
-        bs *= 2 * conf.num_devs
+        bs = conf.batch_size *2
         conf.fp16 = True
         conf.ipabn = False
         conf.cvt_ipabn = False

@@ -15,14 +15,14 @@ if dist:
 else:
     # lz.init_dev(lz.get_dev(num_devs, ok=(2, 3)))
     # lz.init_dev(lz.get_dev(num_devs))
-    lz.init_dev((2,3))
+    lz.init_dev((2, 3))
 
 conf = edict()
 conf.num_workers = ndevs * 6
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
-conf.loss = 'arcface'  # adamrg adacos softmax arcface arcfaceneg cosface
+conf.loss = 'adamarcface'  # adamarcface adamrg adacos softmax arcface arcfaceneg cosface
 
 conf.writer = None
 conf.local_rank = None
@@ -132,7 +132,7 @@ conf.ftbs_mult = 2
 conf.board_loss_every = 15
 conf.log_interval = 105
 conf.need_tb = True
-conf.other_every = None if not conf.prof else 51
+conf.other_every = None  # 11
 conf.num_recs = 1
 conf.acc_grad = 4
 # --------------------Training Config ------------------------
@@ -154,6 +154,7 @@ conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
 conf.fill_cache = 0
+conf.val_ijbx = False
 
 
 # todo may use kl_div to speed up

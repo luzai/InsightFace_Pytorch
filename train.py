@@ -106,5 +106,4 @@ if __name__ == '__main__':
     # learner.train_use_test(conf, conf.epochs)
 
     from tools.test_ijbc3 import test_ijbc3
-
     res = test_ijbc3(conf, learner)

@@ -849,34 +849,38 @@ class AdaMArcface(Module):
         self.writer = conf.writer
         self.interval = conf.log_interval
         m = Parameter(torch.Tensor(self.classnum))
-        m.data.fill_(0.4)
+        m.data.fill_(0.5)
         self.m = m
         self.update_mrg()
 
     def update_mrg(self, m=conf.margin, s=conf.scale):
         self.s = s
 
+    def clamp_m(self):
+        self.m.data.clamp_(0, 0.8)
+
     def forward_eff_v1(self, embeddings, label=None):
         assert not torch.isnan(embeddings).any().item()
         dev = self.m.get_device()
         if dev == -1:
             dev = 0
-        cos_m = (torch.cos(self.m)).to(dev)
-        sin_m = (torch.sin(self.m)).to(dev)
-        mm = (torch.sin(self.m) * (self.m)).to(dev)
-        threshold = (torch.cos(np.pi - self.m)).to(dev)
+        cos_m = (torch.cos(self.m))
+        sin_m = (torch.sin(self.m))
+        mm = (torch.sin(self.m) * (self.m))
+        threshold = (torch.cos(np.pi - self.m))
 
         bs = embeddings.shape[0]
         idx_ = torch.arange(0, bs, dtype=torch.long)
         # self.m = self.m.clamp(min=0)
-        m_mean = torch.mean(self.m).cuda()
+        m_mean = torch.mean(self.m)
         if self.interval >= 1 and self.step % self.interval == 0:
             with torch.no_grad():
                 norm_mean = torch.norm(embeddings, dim=1).mean()
                 m_mean = torch.mean(self.m).cuda()
                 if self.writer:
                     self.writer.add_scalar('theta/norm_mean', norm_mean.item(), self.step)
-                    self.writer.add_scalar('theta/self.m_mean', m_mean.item(), self.step)
+                    self.writer.add_scalar('theta/m_mean', m_mean.item(), self.step)
+                    self.writer.add_histogram('ms', to_numpy(self.m),  self.step)
                 logging.info(f'norm {norm_mean.item():.2e}')
                 logging.info(f'm_mean {m_mean.item():.2e}')
         embeddings = F.normalize(embeddings, dim=1)
