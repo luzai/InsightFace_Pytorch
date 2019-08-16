@@ -36,7 +36,7 @@ class Swish(nn.Module):
         return res
 
 
-NoneLin = nn.PReLU  #  Swish
+NoneLin = nn.PReLU  # Swish
 
 
 class SEModule(nn.Module):
@@ -334,7 +334,6 @@ class Backbone(Module):
                     m.bias.data.zero_()
 
 
-##################################  MobileFaceNet
 
 class DoubleConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=1, stride=1,
@@ -510,8 +509,11 @@ def get_controller(
 class Conv_block(Module):
     def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1, ):
         super(Conv_block, self).__init__()
-        self.conv = Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding,
+        self.conv = Conv2d(in_c, out_channels=out_c,
+                           kernel_size=kernel, groups=groups, stride=stride, padding=padding,
                            bias=False)
+        if conf.spec_norm:
+            self.conv = nn.utils.spectral_norm(self.conv)
         self.bn = bn2d(out_c, conf.ipabn)
         self.PReLU = NoneLin(out_c)
 
@@ -526,8 +528,11 @@ class Conv_block(Module):
 class Linear_block(Module):
     def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1, ):
         super(Linear_block, self).__init__()
-        self.conv = Conv2d(in_c, out_channels=out_c, kernel_size=kernel, groups=groups, stride=stride, padding=padding,
+        self.conv = Conv2d(in_c, out_channels=out_c,
+                           kernel_size=kernel, groups=groups, stride=stride, padding=padding,
                            bias=False)
+        if conf.spec_norm:
+            self.conv = nn.utils.spectral_norm(self.conv)
         self.bn = bn2d(out_c, conf.ipabn)
 
     # @jit.script_method
@@ -646,6 +651,7 @@ class MobileFaceNet(Module):
                                       )
         # Conv2d = nn.Conv2d
         self.conv_6_flatten = Flatten()
+        # todo
         self.linear = Linear(make_divisible(512 * width_mult), embedding_size, bias=False, )
         self.bn = BatchNorm1d(embedding_size)
 
@@ -694,8 +700,7 @@ class CSMobileFaceNet(nn.Module):
         raise ValueError('deprecated')
 
 
-##################################  Arcface head #################
-# from torch.nn.utils import weight_norm
+# nB = gl_conf.batch_size
 # nB = gl_conf.batch_size
 # idx_ = torch.arange(0, nB, dtype=torch.long)
 
@@ -880,7 +885,7 @@ class AdaMArcface(Module):
                 if self.writer:
                     self.writer.add_scalar('theta/norm_mean', norm_mean.item(), self.step)
                     self.writer.add_scalar('theta/m_mean', m_mean.item(), self.step)
-                    self.writer.add_histogram('ms', to_numpy(self.m),  self.step)
+                    self.writer.add_histogram('ms', to_numpy(self.m), self.step)
                 logging.info(f'norm {norm_mean.item():.2e}')
                 logging.info(f'm_mean {m_mean.item():.2e}')
         embeddings = F.normalize(embeddings, dim=1)
@@ -963,8 +968,11 @@ class Arcface(Module):
     def __init__(self, embedding_size=conf.embedding_size, classnum=None, s=conf.scale, m=conf.margin):
         super(Arcface, self).__init__()
         self.classnum = classnum
-        kernel = Parameter(torch.Tensor(embedding_size, classnum))
-        kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
+        kernel = nn.Linear(embedding_size, classnum, bias=False)
+        # kernel = Parameter(torch.Tensor(embedding_size, classnum))
+        kernel.weight.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
+        if conf.spec_norm:
+            kernel = nn.utils.spectral_norm(kernel)
         self.kernel = kernel
         self.update_mrg()
         self.easy_margin = False
@@ -975,7 +983,7 @@ class Arcface(Module):
     def update_mrg(self, m=conf.margin, s=conf.scale):
         m = np.float32(m)
         pi = np.float32(np.pi)
-        dev = self.kernel.get_device()
+        dev = conf.model1_dev[0]
         if dev == -1:
             dev = 0
         self.m = m  # the margin value, default is 0.5
@@ -997,6 +1005,7 @@ class Arcface(Module):
                 logging.info(f'norm {norm_mean.item():.2e}')
         embeddings = F.normalize(embeddings, dim=1)
         kernel_norm = l2_norm(self.kernel, axis=0)  # 0 dim is emd dim
+
         cos_theta = torch.mm(embeddings, kernel_norm).clamp(-1, 1)
         if label is None:
             # cos_theta *= self.s # todo whether?
@@ -1049,8 +1058,12 @@ class Arcface(Module):
                     self.writer.add_scalar('theta/norm_mean', norm_mean.item(), self.step)
                 logging.info(f'norm {norm_mean.item():.2e}')
         embeddings = F.normalize(embeddings, dim=1)
-        kernel_norm = l2_norm(self.kernel, axis=0)  # 0 dim is emd dim
-        cos_theta = torch.mm(embeddings, kernel_norm).clamp(-1, 1)
+        # kernel_norm = l2_norm(self.kernel, axis=0)  # 0 dim is emd dim
+        # cos_theta = torch.mm(embeddings, kernel_norm).clamp(-1, 1)
+        cos_theta = self.kernel(embeddings)
+        cos_theta = cos_theta/ torch.norm(self.kernel.weight,   dim= 1)
+        # torch.norm(cos_theta, dim=1)
+        # stat(cos_theta)
         if label is None:
             cos_theta *= self.s
             return cos_theta
@@ -1063,7 +1076,12 @@ class Arcface(Module):
                 theta_pos = theta[one_hot == 1].view(bs)
                 if self.writer:
                     self.writer.add_scalar('theta/pos_med', torch.median(theta_pos).item(), self.step)
+                    self.writer.add_scalar('theta/pos_min', torch.min(theta_pos).item(), self.step)
+                    self.writer.add_scalar('theta/pos_max', torch.max(theta_pos).item(), self.step)
+                    self.writer.add_histogram('theta/pos', theta_pos, self.step)
+                    self.writer.add_histogram('theta/neg', theta_neg, self.step)
                     self.writer.add_scalar('theta/neg_med', torch.median(theta_neg).item(), self.step)
+
                 logging.info(f'pos_med: {torch.median(theta_pos).item():.2e} ' +
                              f'neg_med: {torch.median(theta_neg).item():.2e} '
                              )
@@ -1530,8 +1548,8 @@ if __name__ == '__main__':
                             )
     flops /= 10 ** 9
     params /= 10 ** 6
-    print(flops, params, )
-
+    print(params, flops, )
+    exit(0)
     classifier = AdaMArcface(classnum=10).cuda()
     classifier.train()
     model.train()
