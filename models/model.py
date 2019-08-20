@@ -334,7 +334,6 @@ class Backbone(Module):
                     m.bias.data.zero_()
 
 
-
 class DoubleConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=1, stride=1,
                  padding=0, dilation=1, groups=1, bias=False,
@@ -963,6 +962,84 @@ class MySoftmax(Module):
         return logits
 
 
+class ArcSinMrg(nn.Module):
+    def __init__(self, embedding_size=conf.embedding_size, classnum=None, s=conf.scale, m=conf.margin):
+        super(ArcSinMrg, self).__init__()
+        self.classnum = classnum
+        kernel = nn.Linear(embedding_size, classnum, bias=False)
+        # kernel = Parameter(torch.Tensor(embedding_size, classnum))
+        kernel.weight.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
+        # todo
+        if conf.spec_norm:
+            kernel = nn.utils.spectral_norm(kernel)
+        self.kernel = kernel
+        self.update_mrg()
+        self.easy_margin = False
+        self.step = 0
+        self.writer = conf.writer
+        self.interval = conf.log_interval
+
+    def update_mrg(self, m=conf.margin, s=conf.scale):
+        m = np.float32(m)
+        pi = np.float32(np.pi)
+        dev = conf.model1_dev[0]
+        if dev == -1:
+            dev = 0
+        self.m = m  # the margin value, default is 0.5
+        self.s = s  # scalar value default is 64, see normface https://arxiv.org/abs/1704.06369
+        self.threshold = torch.FloatTensor([math.cos(pi - m)]).to(dev)
+
+    def forward(self, embeddings, label):
+        assert not torch.isnan(embeddings).any().item()
+        bs = embeddings.shape[0]
+        idx_ = torch.arange(0, bs, dtype=torch.long)
+        if self.interval >= 1 and self.step % self.interval == 0:
+            with torch.no_grad():
+                norm_mean = torch.norm(embeddings, dim=1).mean()
+                if self.writer:
+                    self.writer.add_scalar('theta/norm_mean', norm_mean.item(), self.step)
+                logging.info(f'norm {norm_mean.item():.2e}')
+        embeddings = F.normalize(embeddings, dim=1)
+        cos_theta = self.kernel(embeddings)
+        cos_theta = cos_theta / torch.norm(self.kernel.weight, dim=1)
+        if label is None:
+            cos_theta *= self.s
+            return cos_theta
+        with torch.no_grad():
+            if self.interval >= 1 and self.step % self.interval == 0:
+                one_hot = torch.zeros_like(cos_theta)
+                one_hot.scatter_(1, label.view(-1, 1).long(), 1)
+                theta = torch.acos(cos_theta)
+                theta_neg = theta[one_hot < 1].view(bs, self.classnum - 1)
+                theta_pos = theta[one_hot == 1].view(bs)
+                if self.writer:
+                    self.writer.add_scalar('theta/pos_med', torch.median(theta_pos).item(), self.step)
+                    self.writer.add_scalar('theta/pos_min', torch.min(theta_pos).item(), self.step)
+                    self.writer.add_scalar('theta/pos_max', torch.max(theta_pos).item(), self.step)
+                    self.writer.add_histogram('theta/pos', theta_pos, self.step)
+                    self.writer.add_histogram('theta/neg', theta_neg, self.step)
+                    self.writer.add_scalar('theta/neg_med', torch.median(theta_neg).item(), self.step)
+
+                logging.info(f'pos_med: {torch.median(theta_pos).item():.2e} ' +
+                             f'neg_med: {torch.median(theta_neg).item():.2e} '
+                             )
+        output = cos_theta
+        cos_theta_need = cos_theta[idx_, label].clone()
+        theta = torch.acos(cos_theta_need)
+        sin_theta = torch.sin(theta.clamp(0, np.pi / 2))
+        cos_theta_m = torch.cos(theta + self.m * (1 - sin_theta) + 0.3)
+
+        # cos_theta_m = torch.cos(theta + self.m * cos_theta + 0.1)
+
+        cond_mask = (cos_theta_need - self.threshold) <= 0
+        if torch.any(cond_mask).item():
+            logging.info(f'this concatins a difficult sample, {cond_mask.sum().item()}')
+        output[idx_, label] = cos_theta_m.type_as(output)
+        output *= self.s  # scale up in order to make softmax work, first introduced in normface
+        self.step += 1
+        return output
+
+
 class Arcface(Module):
     # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599
     def __init__(self, embedding_size=conf.embedding_size, classnum=None, s=conf.scale, m=conf.margin):
@@ -971,6 +1048,7 @@ class Arcface(Module):
         kernel = nn.Linear(embedding_size, classnum, bias=False)
         # kernel = Parameter(torch.Tensor(embedding_size, classnum))
         kernel.weight.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
+        # todo
         if conf.spec_norm:
             kernel = nn.utils.spectral_norm(kernel)
         self.kernel = kernel
@@ -1061,7 +1139,7 @@ class Arcface(Module):
         # kernel_norm = l2_norm(self.kernel, axis=0)  # 0 dim is emd dim
         # cos_theta = torch.mm(embeddings, kernel_norm).clamp(-1, 1)
         cos_theta = self.kernel(embeddings)
-        cos_theta = cos_theta/ torch.norm(self.kernel.weight,   dim= 1)
+        cos_theta = cos_theta / torch.norm(self.kernel.weight, dim=1)
         # torch.norm(cos_theta, dim=1)
         # stat(cos_theta)
         if label is None:

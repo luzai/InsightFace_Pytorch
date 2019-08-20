@@ -38,14 +38,26 @@
 #    python train.cotching.py --batch_size 256 --mutual_learning $mualt --train_mode mual --work_path work_space/r18.mual.again3.$mualt --acc_grad 4 --tau 0 --epochs 16
 #done
 
-#for times in 1 2 3
+#for times in 1
 #do
-#    python train.py --epochs 38 --work_path work_space/mbfc.fwdv2.$times --batch_size 400 --acc_grad 3
+#    python train.py --epochs 18 --work_path work_space/mbfc.se.prelu.ms1m.$times --batch_size 400 --acc_grad 3 --fill_cache .3
 #done
 
 for times in 1
 do
-    python train.py --epochs 76 --work_path work_space/mbfc.se.prelu.adamarcface.ep76.$times --batch_size 400 --acc_grad 3 --fill_cache .7
+    python train.py --epochs 18 --work_path work_space/mbfc.se.prelu.specnrm.ms1m.cesigsft.$times.cont --batch_size 400 --acc_grad 3 --fill_cache .7 --spec_norm True --start_epoch 6 --start_step 60225
 done
+
+#for times in  2 3
+#do
+#    python train.py --epochs 18 --work_path work_space/mbfc.se.prelu.ms1m.$times --batch_size 400 --acc_grad 3 --fill_cache .5
+#done
+
+#for times in 1
+#do
+#    python train.py --epochs 76 --work_path work_space/mbfc.se.prelu.adamarcface.ep76.$times --batch_size 400 --acc_grad 3 --fill_cache .7
+#done
+
+
 
 

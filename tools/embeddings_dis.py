@@ -68,7 +68,7 @@ def embedding_generator(gpu_id, q_in, q_out):
             imlist.append(im[:, :, ::-1])  # RGB
             imnamelist.append(impath.replace(args.prefix, ''))
         batch = np.array(imlist).transpose((0, 3, 1, 2))  # RGB
-        
+
         if not use_torch:
             data = mx.nd.array(batch)
             db = mx.io.DataBatch(data=(data,))
@@ -94,12 +94,12 @@ def embedding_generator(gpu_id, q_in, q_out):
                 embs = mod.model(lz.to_torch(batch).to(dev)).cpu().numpy()
                 if flip_test:
                     embs += mod.model(lz.to_torch(batch[..., ::-1].copy()).to(dev)).cpu().numpy()
-        
+
         #         for j in range(embs.shape[0]):
         #             embs[j] = embs[j]/np.sqrt(np.sum(embs[j]**2))
         import sklearn, sklearn.preprocessing
         embs = sklearn.preprocessing.normalize(embs)
-        
+
         q_out.put((embs, imnamelist))
 
 
@@ -114,7 +114,7 @@ def embedding_consumer(emb_path, imname_path, q_out):
         if data is None:
             break
         embs, imnames = data
-        
+
         emb_outfile.write(embs.tobytes())
         for imname in imnames:
             imname_outfile.write(('%s\n' % imname))
@@ -122,7 +122,7 @@ def embedding_consumer(emb_path, imname_path, q_out):
         if idx % 100 == 0:
             speed = 100 / (time.time() - start_time)
             print('process [%d/%d], speed: %f its/s, left:%f h ' % (
-            idx, int(args.total_batch), speed, (args.total_batch - idx) / speed / 60 / 60))
+                idx, int(args.total_batch), speed, (args.total_batch - idx) / speed / 60 / 60))
             start_time = time.time()
     emb_outfile.close()
     imname_outfile.close()
@@ -133,12 +133,12 @@ def main():
     print('#####', args.model, args.output_root)
     model_prefix, epoch = args.model.split(',')
     imagelist = open(args.images_list, 'rt', encoding='utf-8').read().split('\n')[:-1]
-    
+
     for i in range(len(imagelist)):
         imagelist[i] = args.prefix + imagelist[i].strip().split(' ')[0]
-    
+
     args.total_batch = np.ceil(len(imagelist) / float(batch_size))
-    
+
     def read_batch():
         imlist = []
         for impath in imagelist:
@@ -148,7 +148,7 @@ def main():
                 imlist = []
         if len(imlist) != 0:
             yield imlist
-    
+
     q_ins = []
     emb_generators = []
     q_out = mp.Queue()
@@ -159,41 +159,41 @@ def main():
         p = mp.Process(target=embedding_generator, args=(gpu_id, q_in, q_out))
         emb_generators.append(p)
         p.start()
-    
+
     bin_filename = os.path.join(args.images_list.split('/')[-2], args.images_list.split('/')[-1].split('.')[0] + '.bin')
     dump_path = os.path.join(args.output_root, os.path.basename(model_prefix), bin_filename)
     print('###### features will be dumped to:%s' % dump_path)
     dirname = os.path.dirname(dump_path)
     if not os.path.exists(dirname):
         os.makedirs(dirname)
-    
+
     imlist_path = dump_path.replace('bin', 'txt')
     conp = mp.Process(target=embedding_consumer, args=(dump_path, imlist_path, q_out))
     conp.start()
-    
+
     for idx, batch in enumerate(read_batch()):
         imlist = batch
         q_ins[idx % len(q_ins)].put(imlist)
-    
+
     for q_in in q_ins:
         q_in.put(None)
     for p in emb_generators:
         p.join()
-    
+
     q_out.put(None)
     conp.join()
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    
+
     parser.add_argument('--images_list', type=str, help='Path to list with images.')
     parser.add_argument('--output_root', type=str, help='Path to save embeddings.')
     parser.add_argument('--prefix', type=str, help='Prefix for paths to images.', default='')
     parser.add_argument('--batch_size', type=int, help='Batch size.', default=128)
     parser.add_argument('--gpu_num', type=int, help='Number of GPU to use.', default=0)
     parser.add_argument('--model', type=str, help='model_prefix,epoch')
-    
+
     parser.set_defaults(
         images_list='../data/lists/dis/dis_list.txt',
         output_root='../output',
@@ -202,7 +202,7 @@ def parse_arguments():
         prefix='../data/',
         batch_size=256
     )
-    
+
     return parser.parse_args()
 
 

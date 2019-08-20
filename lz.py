@@ -1006,6 +1006,18 @@ def json_dump(obj, file, mode='a'):  # write not append!
         json.dump(obj, file)
 
 
+def json_load(file):
+    import json
+    if isinstance(file, str):
+        with open(file, 'r') as f:
+            obj = json.load(f)
+    elif hasattr(file, 'read'):
+        obj = json.load(file)
+    else:
+        raise TypeError('"file" must be a filename str or a file-object')
+    return obj
+
+
 def msgpack_dump(obj, file, **kwargs):
     file = str(file)
     import msgpack, msgpack_numpy as m
@@ -1062,19 +1074,6 @@ def msgpack_loads(file, **kwargs):
     obj = msgpack.unpackb(file, **kwargs)
     gc.enable()
     return obj
-
-
-def json_load(file):
-    import json
-    if isinstance(file, str):
-        with open(file, 'r') as f:
-            obj = json.load(f)
-    elif hasattr(file, 'read'):
-        obj = json.load(file)
-    else:
-        raise TypeError('"file" must be a filename str or a file-object')
-    return obj
-
 
 def append_file(line, file=None):
     file = file or 'append.txt'

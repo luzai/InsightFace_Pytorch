@@ -1004,6 +1004,9 @@ class face_learner(object):
         elif conf.loss == 'adamarcface':
             from models.model import AdaMArcface
             self.head = AdaMArcface(classnum=self.class_num)
+        elif conf.loss =='arcsinmrg':
+            from models.model import ArcSinMrg
+            self.head = ArcSinMrg(classnum=self.class_num)
         else:
             raise ValueError(f'{conf.loss}')
         self.model.cuda()
@@ -1020,21 +1023,24 @@ class face_learner(object):
 
         paras_only_bn, paras_wo_bn = separate_bn_paras(self.model)
         if conf.use_opt == 'adam':  # todo deprecated
-            self.optimizer = optim.Adam([{'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': 0},
-                                         {'params': paras_only_bn}, ],
-                                        betas=(conf.adam_betas1, conf.adam_betas2),
-                                        amsgrad=True,
-                                        lr=conf.lr,
-                                        )
+            self.optimizer = optim.Adam([
+                {'params': paras_wo_bn, 'weight_decay': conf.weight_decay},
+                {'params': [*self.head.parameters()], 'weight_decay': conf.weight_decay, 'lr_mult': 10},
+                {'params': paras_only_bn},
+            ],
+                # betas=(conf.adam_betas1, conf.adam_betas2),
+                # amsgrad=True,
+                lr=conf.lr,
+            )
         elif conf.use_opt == 'sgd':
             ## wdecay
             # for adamarcface
-            if conf.loss =='adamarcface':
+            if conf.loss == 'adamarcface':
                 self.optimizer = optim.SGD([
-                {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},  # this is mobilenet wdecay
-                {'params': [paras_wo_bn[-1]] + list(self.head.parameters())[0:1], 'weight_decay': 4e-4},
-                {'params': list(self.head.parameters())[1:2], 'weight_decay': 0, 'lr_mult': .1},
-                {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
+                    {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},  # this is mobilenet wdecay
+                    {'params': [paras_wo_bn[-1]] + list(self.head.parameters())[0:1], 'weight_decay': 4e-4},
+                    {'params': list(self.head.parameters())[1:2], 'weight_decay': 0, 'lr_mult': .1},
+                    {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
             else:
                 self.optimizer = optim.SGD([
                     {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},  # this is mobilenet wdecay
@@ -1060,7 +1066,14 @@ class face_learner(object):
             #     {'params': [*self.head.parameters()], 'weight_decay': conf.weight_decay, 'lr_mult': 10},
             #     {'params': paras_only_bn},
             # ], lr=conf.lr, momentum=conf.momentum, )
-
+        elif conf.use_opt == 'radam':
+            from tools.radam import RAdam
+            self.optimizer = RAdam([
+                {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},  # this is mobilenet wdecay
+                {'params': [paras_wo_bn[-1]] + list(self.head.parameters()), 'weight_decay': 4e-4},
+                {'params': paras_only_bn}
+            ], lr=conf.lr
+            )
         elif conf.use_opt == 'adabound':
             from tools.adabound import AdaBound
             self.optimizer = AdaBound([
@@ -1218,6 +1231,7 @@ class face_learner(object):
         e = 0
         ttl_batch = int(epochs * len(loader))
         loader_enum = data_prefetcher(enumerate(loader))
+        acc_grad_cnt = 0
         while True:
             now_lr = conf.lr * (self.step + 1) / ttl_batch
             for params in self.optimizer.param_groups:
@@ -1240,7 +1254,8 @@ class face_learner(object):
             data_time.update(
                 lz.timer.since_last_check(verbose=False)
             )
-            self.optimizer.zero_grad()
+            if acc_grad_cnt == 0:
+                self.optimizer.zero_grad()
             embeddings = self.model(imgs, )
             thetas = self.head(embeddings, labels)
             loss_xent = conf.ce_loss(thetas, labels)
@@ -1258,7 +1273,13 @@ class face_learner(object):
             with torch.no_grad():
                 acc_t = (thetas.argmax(dim=1) == labels)
                 acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
-            self.optimizer.step()
+            if acc_grad_cnt == conf.acc_grad - 1:
+                self.optimizer.step()
+                acc_grad_cnt = 0
+            else:
+                acc_grad_cnt += 1
+            assert acc_grad_cnt < conf.acc_grad, acc_grad_cnt
+
             loss_time.update(
                 lz.timer.since_last_check(verbose=False)
             )
@@ -1394,7 +1415,7 @@ class face_learner(object):
                     loss_xent = conf.ce_loss(thetas, labels) - 50 * m_mean
                 else:
                     thetas = self.head(embeddings, labels)
-                    loss_xent = F.cross_entropy(thetas, labels, )
+                    loss_xent = conf.ce_loss(thetas, labels, )
                 if conf.kd:
                     alpha = conf.alpha
                     T = conf.temperature
@@ -1429,7 +1450,6 @@ class face_learner(object):
                         scaled_loss.backward()
                 else:
                     ((loss_xent + runtime_regloss) / conf.acc_grad).backward()
-                # torch.nn.utils.clip_grad_value_(self.model.parameters(), 5)
                 with torch.no_grad():
                     if conf.mining == 'dop':
                         update_dop_cls(thetas, labels_cpu, conf.dop)
@@ -1999,7 +2019,7 @@ class face_learner(object):
                         wi = 1 / conf.batch_size * (1 / gi_b)
                     embeddings = self.model(imgs)
                     thetas = self.head(embeddings, labels)
-                    loss = (F.cross_entropy(thetas, labels, reduction='none') * wi).mean()
+                    loss = (conf.ce_loss(thetas, labels, reduction='none') * wi).mean()
                     if conf.fp16:
                         with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                             scaled_loss.backward()
@@ -2374,7 +2394,7 @@ class face_learner(object):
             modelp = save_path / 'model_{}'.format(fixed_str)
         logging.info(f'you are using gpu, load model, {modelp}')
         model_state_dict = torch.load(modelp)
-        model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
+        # model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
         if conf.cvt_ipabn:
             import copy
             model_state_dict2 = copy.deepcopy(model_state_dict)
@@ -2392,7 +2412,11 @@ class face_learner(object):
             assert osp.exists(save_path / 'head_{}'.format(fixed_str))
             logging.info(f'load head from {modelp}')
             head_state_dict = torch.load(save_path / 'head_{}'.format(fixed_str))
+            # todo
+            # kw = head_state_dict.pop('kernel')
+            # head_state_dict['kernel.weight']=kw.transpose(0,1)
             self.head.load_state_dict(head_state_dict)
+
         if load_optimizer:
             logging.info(f'load opt from {modelp}')
             self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
@@ -2714,7 +2738,7 @@ class face_learner(object):
                     teacher_outputs = self.head(teachers_embedding, labels)
                 loss = -(F.softmax(teacher_outputs / T, dim=1) * F.log_softmax(outputs / T, dim=1)).sum(
                     dim=1).mean() * T * T * alpha + \
-                       F.cross_entropy(outputs, labels) * (1. - alpha)  # todo wrong here
+                       conf.ce_loss(outputs, labels) * (1. - alpha)  # todo wrong here
             if conf.tri_wei != 0:
                 loss_triplet = self.head_triplet(embeddings, labels)
                 loss = (1 - conf.tri_wei) * loss + conf.tri_wei * loss_triplet  # todo
@@ -3109,8 +3133,8 @@ class face_cotching(face_learner):
                 if disagree.sum().item() == 0:
                     logging.info(f'disagree is zero!')
                     disagree = to_torch(np.random.randint(0, 1, disagree.shape)).type_as(disagree)  # todo
-                loss_xent = F.cross_entropy(thetas[disagree], labels[disagree], reduction='none')
-                loss_xent2 = F.cross_entropy(thetas2[disagree], labels2[disagree], reduction='none')
+                loss_xent = conf.ce_loss(thetas[disagree], labels[disagree], reduction='none')
+                loss_xent2 = conf.ce_loss(thetas2[disagree], labels2[disagree], reduction='none')
                 ind_sorted = loss_xent.argsort()
                 ind2_sorted = loss_xent2.argsort()
                 num_disagree = labels[disagree].shape[0]
@@ -3372,8 +3396,8 @@ class face_cotching(face_learner):
                         disagree = pred != pred2
                         if disagree.sum().item() == 0:
                             continue  # this assert acc can finally reach bs
-                        loss_xent = F.cross_entropy(thetas[disagree], labels[disagree], reduction='none')
-                        loss_xent2 = F.cross_entropy(thetas2[disagree], labels[disagree], reduction='none')
+                        loss_xent = conf.ce_loss(thetas[disagree], labels[disagree], reduction='none')
+                        loss_xent2 = conf.ce_loss(thetas2[disagree], labels[disagree], reduction='none')
                         ind_sorted = loss_xent.argsort()
                         ind2_sorted = loss_xent2.argsort()
                         num_disagree = labels[disagree].shape[0]
@@ -3407,7 +3431,7 @@ class face_cotching(face_learner):
                     labels_cpu = labels.cpu()
                     embeddings2 = self.model2(imgs, )  # model1 --> imgs1 --> model2
                     thetas2 = self.head2(embeddings2, labels)
-                    loss_xent2 = F.cross_entropy(thetas2, labels)
+                    loss_xent2 = conf.ce_loss(thetas2, labels)
                     self.optimizer2.zero_grad()
                     if conf.fp16:
                         with amp.scale_loss(loss_xent2, self.optimizer2) as scaled_loss:
@@ -3432,7 +3456,7 @@ class face_cotching(face_learner):
 
                     embeddings = self.model(imgs2, )
                     thetas = self.head(embeddings, labels2)
-                    loss_xent = F.cross_entropy(thetas, labels2)
+                    loss_xent = conf.ce_loss(thetas, labels2)
                     self.optimizer.zero_grad()
                     if conf.fp16:
                         with amp.scale_loss(loss_xent, self.optimizer) as scaled_loss:
@@ -3577,8 +3601,8 @@ class face_cotching(face_learner):
                 thetas = self.head(embeddings, labels)
                 thetas2 = self.head2(embeddings2, labels2)
 
-                loss_xent = F.cross_entropy(thetas, labels, )
-                loss_xent2 = F.cross_entropy(thetas2, labels2)
+                loss_xent = conf.ce_loss(thetas, labels, )
+                loss_xent2 = conf.ce_loss(thetas2, labels2)
 
                 if conf.mutual_learning:
                     T = conf.mutual_learning
@@ -3732,8 +3756,8 @@ class face_cotching(face_learner):
 
                 if num_disagree == 0:
                     continue  # this assert acc can finally reach bs
-                loss_xent = F.cross_entropy(thetas[disagree], labels[disagree], reduction='none')
-                loss_xent2 = F.cross_entropy(thetas2[disagree], labels[disagree], reduction='none')
+                loss_xent = conf.ce_loss(thetas[disagree], labels[disagree], reduction='none')
+                loss_xent2 = conf.ce_loss(thetas2[disagree], labels[disagree], reduction='none')
                 ind_sorted = loss_xent.argsort()
                 ind2_sorted = loss_xent2.argsort()
                 tau = conf.tau
@@ -4054,8 +4078,8 @@ class face_cotching_head(face_learner):
                 if disagree.sum().item() == 0:
                     logging.info(f'disagree is zero!')
                     disagree = to_torch(np.random.randint(0, 1, disagree.shape)).type_as(disagree)  # todo
-                loss_xent = F.cross_entropy(thetas[disagree], labels[disagree], reduction='none')
-                loss_xent2 = F.cross_entropy(thetas2[disagree], labels[disagree], reduction='none')
+                loss_xent = conf.ce_loss(thetas[disagree], labels[disagree], reduction='none')
+                loss_xent2 = conf.ce_loss(thetas2[disagree], labels[disagree], reduction='none')
                 ind_sorted = loss_xent.argsort()
                 ind2_sorted = loss_xent2.argsort()
                 num_disagree = labels[disagree].shape[0]

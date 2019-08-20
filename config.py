@@ -14,15 +14,15 @@ if dist:
     num_devs = 1
 else:
     # lz.init_dev(lz.get_dev(num_devs, ok=(2, 3)))
-    # lz.init_dev(lz.get_dev(num_devs))
-    lz.init_dev((2, 3))
+    lz.init_dev(lz.get_dev(num_devs))
+    # lz.init_dev((2, 3))
 
 conf = edict()
 conf.num_workers = ndevs * 6
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
-conf.loss = 'adamarcface'  # adamarcface adamrg adacos softmax arcface arcfaceneg cosface
+conf.loss = 'arcface'  # adamarcface adamrg adacos softmax arcface arcfaceneg cosface
 
 conf.writer = None
 conf.local_rank = None
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/mbfc.nose.fwdv1.280.bak')
+conf.work_path = Path('work_space/mbfc.casia.2.sgd')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -48,7 +48,7 @@ casia_folder = conf.data_path / 'casia'  # the cleaned one todo may need the oth
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = dingyi_folder  # retina_folder
+conf.use_data_folder = dingyi_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 conf.clean_ids = None  # np.asarray(msgpack_load(root_path + 'train.configs/noise.20.pk', allow_np=False))
 
@@ -91,7 +91,7 @@ conf.mb_mult = 1.285
 # conf.mb_mult = 2.005 # 1.37
 conf.mbfc_wm = 1  # 1.2 ** conf.phi
 conf.mbfc_dm = 2  # 1.56 ** conf.phi
-conf.mbfc_se = False
+conf.mbfc_se = True
 conf.lpf = False
 conf.eff_name = 'efficientnet-b0'
 
@@ -127,21 +127,21 @@ conf.mutual_learning = 0
 
 conf.fp16 = True
 conf.opt_level = "O1"
-conf.batch_size = 140 * num_devs
+conf.batch_size = 200 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
 conf.log_interval = 105
 conf.need_tb = True
 conf.other_every = None  # 11
 conf.num_recs = 1
-conf.acc_grad = 4
+conf.acc_grad = 4 // num_devs
 # --------------------Training Config ------------------------
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
-conf.use_opt = 'sgd'  # adabound
+conf.use_opt = 'sgd'  # adabound adam radam
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
 conf.final_lr = 1e-1
-conf.lr = 1e-1
+conf.lr = 1e-1  # 3e-3  #
 conf.lr_gamma = 0.1
 conf.start_epoch = 0
 conf.start_step = 0
@@ -149,13 +149,14 @@ conf.start_step = 0
 # conf.milestones = (np.array([23, 32])).astype(int)
 conf.epochs = 38
 conf.milestones = (np.array([9, 13])).astype(int)
-conf.warmup = 0  # conf.epochs/25 # 1 0
+conf.warmup = 1  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = 0
+conf.fill_cache = .7
 conf.val_ijbx = False
-
+conf.spec_norm = True
+conf.use_of = False
 
 # todo may use kl_div to speed up
 class CrossEntropyLabelSmooth(nn.Module):
@@ -189,7 +190,37 @@ class CrossEntropyLabelSmooth(nn.Module):
         return loss
 
 
-conf.ce_loss = CrossEntropyLoss()  # CrossEntropyLabelSmooth()
+class CrossEntropySigSoft(nn.Module):
+
+    def forward(self, inputs, targets):
+        log_probs = logsigsoftmax(inputs)
+        bs = inputs.shape[0]
+        idx_ = torch.arange(0, bs, dtype=torch.long)
+        log_probs2 = log_probs[idx_, targets]
+        loss = - log_probs2.mean()
+        return loss
+
+
+def logsigsoftmax(logits):
+    """
+    Computes sigsoftmax from the paper - https://arxiv.org/pdf/1805.10829.pdf
+    """
+    max_values = torch.max(logits, 1, keepdim=True)[0]
+    exp_logits_sigmoided = torch.exp(logits - max_values) * torch.sigmoid(logits)
+    sum_exp_logits_sigmoided = exp_logits_sigmoided.sum(1, keepdim=True)
+    log_probs = logits - max_values + F.logsigmoid(logits) - torch.log(sum_exp_logits_sigmoided)
+    return log_probs
+
+
+class CrossEntropySigSoft2(nn.Module):
+
+    def forward(self, inputs, targets):
+        inputs2 = inputs + F.logsigmoid(inputs / 12)  # todo
+        loss = F.cross_entropy(inputs2, targets)
+        return loss
+
+
+conf.ce_loss = CrossEntropyLoss()  # CrossEntropyLabelSmooth()  # CrossEntropySigSoft2()  #
 if conf.use_test:
     conf.vat_loss_func = VATLoss(xi=1e-6, eps=8, ip=1)
 conf.need_log = True

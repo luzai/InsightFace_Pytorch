@@ -26,4 +26,4 @@ parser.add_argument('--start_step', default=conf.start_step, type=int)
 parser.add_argument('--fill_cache', default=conf.fill_cache, type=float)
 parser.add_argument('--lambda_runtime_reg', default=conf.lambda_runtime_reg, type=float)
 parser.add_argument('--conv2dmask_drop_ratio', default=conf.conv2dmask_drop_ratio, type=float)
-
+parser.add_argument('--spec_norm', default=conf.spec_norm, type=bool)

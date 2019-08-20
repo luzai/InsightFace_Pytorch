@@ -57,7 +57,7 @@ if __name__ == '__main__':
         # 'mbfc2',
         # 'r18.l2sft',
         # 'r18.adamrg',
-        # 'mbfc.nose',
+        # 'mbfc.se.prelu.specnrm.ms1m.cesigsft.1',
     ]:
         learner.load_state(
             resume_path=Path(f'work_space/{p}/models/'),
