@@ -685,13 +685,16 @@ class MobileFaceNet(Module):
         out = self.conv_4(out)
         out = self.conv_45(out)
         out = self.conv_5(out)
-        out = self.conv_6_sep(out)
-        out = self.conv_6_dw(out)
+        fea7x7 = self.conv_6_sep(out)
+        out = self.conv_6_dw(fea7x7)
         out = self.conv_6_flatten(out)
         out = self.linear(out)
         out = self.bn(out)
         # out = F.normalize(out, dim=1)
-        return out
+        if kwargs.get('use_of', False):
+            return out, fea7x7
+        else:
+            return out
 
 
 class CSMobileFaceNet(nn.Module):

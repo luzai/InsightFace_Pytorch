@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/mbfc.casia.2.sgd')
+conf.work_path = Path('work_space/mbfc.casia.2.2.bak')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -99,7 +99,7 @@ conf.test_transform = trans.Compose([
     trans.ToTensor(),
     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
-conf.use_loader = 'torch'  # todo mxent lack valds path and testing speed
+conf.use_loader = 'dali'  # todo mxent lack val path and testing speed
 conf.flip = True
 
 conf.upgrade_irse = True
@@ -137,11 +137,11 @@ conf.num_recs = 1
 conf.acc_grad = 4 // num_devs
 # --------------------Training Config ------------------------
 conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
-conf.use_opt = 'sgd'  # adabound adam radam
+conf.use_opt = 'radam'  # adabound adam radam
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
 conf.final_lr = 1e-1
-conf.lr = 1e-1  # 3e-3  #
+conf.lr = 3e-3  # 1e-1  #
 conf.lr_gamma = 0.1
 conf.start_epoch = 0
 conf.start_step = 0
@@ -157,6 +157,7 @@ conf.fill_cache = .7
 conf.val_ijbx = False
 conf.spec_norm = True
 conf.use_of = False
+
 
 # todo may use kl_div to speed up
 class CrossEntropyLabelSmooth(nn.Module):

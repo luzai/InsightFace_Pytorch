@@ -6,6 +6,9 @@ from config import conf
 from pathlib import Path
 
 torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.deterministic = False
+torch.backends.cudnn.enabled= True
+
 
 
 def log_conf(conf):

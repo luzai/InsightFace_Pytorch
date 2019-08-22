@@ -872,6 +872,11 @@ class face_learner(object):
         if conf.use_loader == 'mxnet':
             self.loader = MxnetLoader(conf.use_data_folder)
             self.class_num = self.loader.num_classes
+        elif conf.use_loader == 'dali':
+            from tools.dali import fdali_iter, plmxds
+            self.loader = fdali_iter
+            self.class_num = plmxds.num_classes
+
         elif conf.dataset_name == 'webface' or conf.dataset_name == 'casia':
             file = '/data2/share/casia_landmark.txt'
             df = pd.read_csv(file, sep='\t', header=None)
@@ -1004,7 +1009,7 @@ class face_learner(object):
         elif conf.loss == 'adamarcface':
             from models.model import AdaMArcface
             self.head = AdaMArcface(classnum=self.class_num)
-        elif conf.loss =='arcsinmrg':
+        elif conf.loss == 'arcsinmrg':
             from models.model import ArcSinMrg
             self.head = ArcSinMrg(classnum=self.class_num)
         else:
@@ -1122,7 +1127,7 @@ class face_learner(object):
             for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                     conf,
-                    self.loader.dataset.root_path,
+                    Path(conf.use_data_folder),
                     ds)
                 if dist_need_log:
                     self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
@@ -1200,7 +1205,7 @@ class face_learner(object):
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                             conf,
-                            self.loader.dataset.root_path,
+                            Path(conf.use_data_folder),
                             ds)
                         if dist_need_log:
                             self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
@@ -1256,14 +1261,22 @@ class face_learner(object):
             )
             if acc_grad_cnt == 0:
                 self.optimizer.zero_grad()
-            embeddings = self.model(imgs, )
+            embeddings = self.model(imgs, use_of=conf.use_of)
+            ttl_runtime = runtime_regloss = torch.FloatTensor([0]).cuda()
+            if conf.use_of:
+                from tools.of_penalty import of_reger
+                embeddings, fea7x7 = embeddings
+                runtime_regloss += conf.use_of * of_reger.forward(fea7x7)
             thetas = self.head(embeddings, labels)
             loss_xent = conf.ce_loss(thetas, labels)
+            assert not judgenan(runtime_regloss)
+            assert not judgenan(loss_xent)
             if conf.fp16:
-                with amp.scale_loss(loss_xent, self.optimizer) as scaled_loss:
+                with amp.scale_loss((loss_xent + runtime_regloss) / conf.acc_grad,
+                                    self.optimizer) as scaled_loss:
                     scaled_loss.backward()
             else:
-                loss_xent.backward()
+                ((loss_xent + runtime_regloss) / conf.acc_grad).backward()
             with torch.no_grad():
                 if conf.mining == 'dop':
                     update_dop_cls(thetas, labels_cpu, conf.dop)
@@ -1308,7 +1321,7 @@ class face_learner(object):
                 for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                     accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                         conf,
-                        self.loader.dataset.root_path,
+                        Path(conf.use_data_folder),
                         ds)
                     self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                     logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -1350,7 +1363,7 @@ class face_learner(object):
             for ds in ['cfp_fp', ]:
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                     conf,
-                    self.loader.dataset.root_path,
+                    Path(conf.use_data_folder),
                     ds)
                 self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                 logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -1405,9 +1418,12 @@ class face_learner(object):
                         w_ = 0
                     runtime_regloss = lambda_runtime_reg * (ttl_runtime / target_runtime) ** w_
                 else:
-                    embeddings = self.model(imgs, )
+                    embeddings = self.model(imgs, use_of=conf.use_of)
                     ttl_runtime = runtime_regloss = torch.FloatTensor([0]).cuda()
-
+                    if conf.use_of:
+                        from tools.of_penalty import of_reger
+                        embeddings, fea7x7 = embeddings
+                        runtime_regloss += conf.use_of * of_reger.forward(fea7x7)
                 assert not torch.isnan(embeddings).any().item()
                 if conf.loss == 'adamarcface':
                     self.head.clamp_m()
@@ -1443,7 +1459,8 @@ class face_learner(object):
                 # lz.msgpack_dump(res, '/tmp/t.pk')
                 # msgpack_load('/tmp/t.pk')
                 # exit()
-
+                assert not judgenan(runtime_regloss)
+                assert not judgenan(loss_xent)
                 if conf.fp16:
                     with amp.scale_loss((loss_xent + runtime_regloss) / conf.acc_grad,
                                         self.optimizer) as scaled_loss:
@@ -1508,7 +1525,7 @@ class face_learner(object):
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                             conf,
-                            self.loader.dataset.root_path,
+                            Path(conf.use_data_folder),
                             ds)
                         self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -1645,7 +1662,7 @@ class face_learner(object):
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                             conf,
-                            self.loader.dataset.root_path,
+                            Path(conf.use_data_folder),
                             ds)
                         self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -1760,7 +1777,7 @@ class face_learner(object):
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                             conf,
-                            self.loader.dataset.root_path,
+                            Path(conf.use_data_folder),
                             ds)
                         self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -1899,7 +1916,7 @@ class face_learner(object):
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                             conf,
-                            self.loader.dataset.root_path,
+                            Path(conf.use_data_folder),
                             ds)
                         self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -2131,7 +2148,7 @@ class face_learner(object):
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                             conf,
-                            self.loader.dataset.root_path,
+                            Path(conf.use_data_folder),
                             ds)
                         self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -2265,7 +2282,7 @@ class face_learner(object):
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                             conf,
-                            self.loader.dataset.root_path,
+                            Path(conf.use_data_folder),
                             ds)
                         self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -2538,7 +2555,7 @@ class face_learner(object):
             self.load_state(resume_path=resume_path)
         self.model.eval()
         for ds in valds_names:
-            accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.loader.dataset.root_path,
+            accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, Path(conf.use_data_folder),
                                                                        ds)
             logging.info(f'validation accuracy on {ds} is {accuracy} ')
             res[ds] = accuracy
@@ -2551,15 +2568,15 @@ class face_learner(object):
         if resume_path is not None:
             self.load_state(resume_path=resume_path)
         self.model.eval()
-        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
+        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, Path(conf.use_data_folder),
                                                                               'agedb_30')
         logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
 
-        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
+        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, Path(conf.use_data_folder),
                                                                               'lfw')
         logging.info(f'validation accuracy on lfw is {accuracy} ')
 
-        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, self.loader.dataset.root_path,
+        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, Path(conf.use_data_folder),
                                                                               'cfp_fp')
         logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
         self.model.train()
@@ -3063,7 +3080,7 @@ class face_cotching(face_learner):
         res = {}
         self.model.eval()
         for ds in ['cfp_fp']:  # ['lfw', 'agedb_30', 'cfp_fp', 'cfp_ff', 'calfw', 'cplfw', 'vgg2_fp', ]
-            accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, self.loader.dataset.root_path,
+            accuracy, best_threshold, roc_curve_tensor = self.evaluate(conf, Path(conf.use_data_folder),
                                                                        ds)
             logging.info(f'validation accuracy on {ds} is {accuracy} ')
             res[ds] = accuracy
@@ -3087,7 +3104,7 @@ class face_cotching(face_learner):
             for ds in ['cfp_fp', ]:
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                     conf,
-                    self.loader.dataset.root_path,
+                    Path(conf.use_data_folder),
                     ds)
                 self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                 logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -3207,7 +3224,7 @@ class face_cotching(face_learner):
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                             conf,
-                            self.loader.dataset.root_path,
+                            Path(conf.use_data_folder),
                             ds)
                         self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -3357,7 +3374,7 @@ class face_cotching(face_learner):
             for ds in ['cfp_fp', ]:
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                     conf,
-                    self.loader.dataset.root_path,
+                    Path(conf.use_data_folder),
                     ds)
                 self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                 logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -3507,7 +3524,7 @@ class face_cotching(face_learner):
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                             conf,
-                            self.loader.dataset.root_path,
+                            Path(conf.use_data_folder),
                             ds)
                         self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -3559,7 +3576,7 @@ class face_cotching(face_learner):
             for ds in ['cfp_fp', ]:
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                     conf,
-                    self.loader.dataset.root_path,
+                    Path(conf.use_data_folder),
                     ds)
                 self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                 logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -3675,7 +3692,7 @@ class face_cotching(face_learner):
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                             conf,
-                            self.loader.dataset.root_path,
+                            Path(conf.use_data_folder),
                             ds)
                         self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -3709,7 +3726,7 @@ class face_cotching(face_learner):
             for ds in ['cfp_fp', ]:
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                     conf,
-                    self.loader.dataset.root_path,
+                    Path(conf.use_data_folder),
                     ds)
                 self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                 logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -3841,7 +3858,7 @@ class face_cotching(face_learner):
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                             conf,
-                            self.loader.dataset.root_path,
+                            Path(conf.use_data_folder),
                             ds)
                         self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -4035,7 +4052,7 @@ class face_cotching_head(face_learner):
             for ds in ['cfp_fp', ]:
                 accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                     conf,
-                    self.loader.dataset.root_path,
+                    Path(conf.use_data_folder),
                     ds)
                 self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                 logging.info(f'validation accuracy on {ds} is {accuracy} ')
@@ -4146,7 +4163,7 @@ class face_cotching_head(face_learner):
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                             conf,
-                            self.loader.dataset.root_path,
+                            Path(conf.use_data_folder),
                             ds)
                         self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                         logging.info(f'validation accuracy on {ds} is {accuracy} ')

@@ -264,6 +264,10 @@ def allow_growth_keras():
     keras.backend.set_session(allow_growth_sess())
 
 
+def judgenan(x):
+    return not not torch.isnan(x).any().item() or not not torch.isinf(x).any().item()
+
+
 def get_mem():
     import psutil
     while True:
