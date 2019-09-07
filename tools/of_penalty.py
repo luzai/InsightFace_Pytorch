@@ -24,13 +24,13 @@ class OFPenalty(nn.Module):
         if self.last_x is None:
             with torch.no_grad():
                 x = F.normalize(torch.randn(B, N, 1, device='cuda'), dim=1)
-                for _ in range(3):
-                    x = torch.bmm(A, x)
-                    x = F.normalize(x, dim=1)
+                # for _ in range(1):
+                #     x = torch.bmm(A, x)
+                #     x = F.normalize(x, dim=1)
                 self.last_x = x
 
         x = self.last_x
-        for _ in range(1): # todo
+        for _ in range(9):
             x = torch.bmm(A, x)
             x = F.normalize(x, dim=1)
         self.last_x = x.detach()
@@ -44,8 +44,8 @@ class OFPenalty(nn.Module):
         return numerator / denominator
 
     def get_singular_values(self, A):
-        AAT = torch.bmm(A, A.permute(0, 2, 1))
-        # AAT = ATA = torch.bmm(A.permute(0, 2, 1), A) # todo why not same??
+        # AAT = torch.bmm(A, A.permute(0, 2, 1))
+        AAT = ATA = torch.bmm(A.permute(0, 2, 1), A)  # todo why not same??
         B, N, _ = AAT.size()
         largest = self.dominant_eigenvalue(AAT)
         I = torch.eye(N, device='cuda').expand(B, N, N)  # noqa
@@ -149,19 +149,70 @@ class OFPenaltyOri(nn.Module):
         return singular_penalty
 
 
+def l2_reg_ortho(W, l2_reg=None):
+    cols = W[0].numel()
+    rows = W.shape[0]
+    w1 = W.view(-1, cols)
+    wt = torch.transpose(w1, 0, 1)
+    m = torch.matmul(wt, w1)
+    ident = (torch.eye(cols, cols))
+    ident = ident.cuda()
+
+    w_tmp = (m - ident)
+    height = w_tmp.size(0)
+    u = F.normalize(w_tmp.new_empty(height).normal_(0, 1), dim=0, eps=1e-12)
+    v = F.normalize(torch.matmul(w_tmp.t(), u), dim=0, eps=1e-12)
+    u = F.normalize(torch.matmul(w_tmp, v), dim=0, eps=1e-12)
+    sigma = torch.dot(u, torch.matmul(w_tmp, v))
+
+    if l2_reg is None:
+        l2_reg = (sigma) ** 2
+    else:
+        l2_reg = l2_reg + (sigma) ** 2
+
+    return l2_reg
+
+
 if __name__ == '__main__':
     init_dev(2)
-    torch.manual_seed(1)
-    # A = torch.rand(100, 512, 7, 7).cuda()
-    A = torch.ones(100, 512, 7, 7).cuda()
-    A = (A - 0.5) * 10
+    A = torch.rand(512, 49).cuda()
+    A = A - 0.5
+    reg = l2_reg_ortho(A)
+    print(torch.sqrt(reg))
+
     A.requires_grad_(True)
-    for i in range(999):
-        reg = of_reger.forward(A) *  1e-6
+    for i in range(9999):
+        reg = l2_reg_ortho(A)
         reg.backward()
         A.data = A.data - 1e-3 * A.grad.detach()
         A.grad = None
         if i % 99 == 1:
-            print(i, reg.item())
-    # A = A.view(100, 512, 49)
+            print(i, torch.sqrt(reg))
+    print(A)
+    # Ares = A.cpu().detach()
+    # Ares = torch.rand(512, 49) - 0.5
+    # from scipy.spatial.distance import cdist
+    # dist = cdist(Ares, Ares, 'cosine')
+    # cos = 1 - dist
+    # cos = cos[~np.eye(cos.shape[0],dtype=bool)]
+    # stat(cos)
+    # np.linalg.norm(Ares, axis=1)
+    # np.linalg.svd(Ares, compute_uv=False)
+
+    # torch.manual_seed(1)
+    # A = torch.rand(1, 512, 7, 7).cuda()
+    # A = torch.ones(1, 512, 7, 7).cuda()
+    # A = (A - 0.5)
+
+    # A.requires_grad_(True)
+    # for i in range(999):
+    #     reg = of_reger.forward(A)
+    #     reg.backward()
+    #     A.data = A.data - 1e-3 * A.grad.detach()
+    #     A.grad = None
+    #     if i % 99 == 1:
+    #         print(i, reg.item())
+    #
+    # A = A.view(-1, 512, 49)
     # print(torch.sort(of_reger.get_singular_values(A)[0])[0])
+    # print(torch.sort(of_reger.get_singular_values(A)[1])[0])

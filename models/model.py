@@ -1,6 +1,6 @@
 # -*- coding: future_fstrings -*-
 from lz import *
-from torch.nn import Linear, Conv2d, BatchNorm1d, BatchNorm2d, Dropout, \
+from torch.nn import BatchNorm1d, BatchNorm2d, Dropout, \
     MaxPool2d, AdaptiveAvgPool2d, Sequential, Module, Parameter
 from collections import namedtuple
 from config import conf
@@ -32,21 +32,38 @@ class Swish(nn.Module):
 
     def forward(self, x):
         res = x * torch.sigmoid(x)
-        assert not torch.isnan(res).any().item()
+        # assert not torch.isnan(res).any().item()
         return res
 
 
-NoneLin = nn.PReLU  # Swish
+class Mish(nn.Module):
+    def __init__(self, *args):
+        super(Mish, self).__init__()
+
+    def forward(self, x):
+        return x * torch.tanh(F.softplus(x))
+
+
+if conf.use_act == 'elu':
+    NonLin = lambda *args: nn.ELU(inplace=True)
+elif conf.use_act == 'prelu':
+    NonLin = nn.PReLU
+elif conf.use_act == 'mish':
+    NonLin = Mish
+elif conf.use_act == 'swish':
+    NonLin = Swish
+else:
+    raise NotImplementedError()
 
 
 class SEModule(nn.Module):
     def __init__(self, channels, reduction=4, mult=2):
         super(SEModule, self).__init__()
         self.avg_pool = AdaptiveAvgPool2d(1)
-        self.fc1 = Conv2d(
+        self.fc1 = nn.Conv2d(
             channels, channels // reduction, kernel_size=1, padding=0, bias=False)
-        self.relu = NoneLin(channels // reduction) if conf.upgrade_irse else nn.ReLU(inplace=True)
-        self.fc2 = Conv2d(
+        self.relu = NonLin(channels // reduction) if conf.upgrade_irse else nn.ReLU(inplace=True)
+        self.fc2 = nn.Conv2d(
             channels // reduction, channels, kernel_size=1, padding=0, bias=False)
         self.sigmoid = nn.Sigmoid()  # nn.Tanh() #
         self.mult = mult
@@ -74,15 +91,15 @@ def bn_act(depth, with_act, ipabn=None):
         if with_act:
             if ipabn == 'sync':
                 return [InPlaceABNSync(depth, activation='none'),
-                        NoneLin(depth, ), ]
+                        NonLin(depth, ), ]
             else:
                 return [InPlaceABN(depth, activation='none'),
-                        NoneLin(depth, ), ]
+                        NonLin(depth, ), ]
         else:
             return [InPlaceABN(depth, activation='none')]
     else:
         if with_act:
-            return [BatchNorm2d(depth), NoneLin(depth, ), ]
+            return [BatchNorm2d(depth), NonLin(depth, ), ]
         else:
             return [BatchNorm2d(depth)]
 
@@ -106,22 +123,21 @@ class bottleneck_IR(Module):
             self.shortcut_layer = MaxPool2d(1, stride)
         else:
             self.shortcut_layer = Sequential(
-                Conv2d(in_channel, depth, (1, 1), stride, bias=False),
+                nn.Conv2d(in_channel, depth, (1, 1), stride, bias=False),
                 BatchNorm2d(depth))
         if conf.upgrade_irse:
             self.res_layer = Sequential(
                 *bn_act(in_channel, False, ipabn),
-                Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
+                nn.Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
                 *bn_act(depth, True, ipabn),
-                Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
+                nn.Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
                 *bn_act(depth, False, ipabn))
         else:
             self.res_layer = Sequential(
                 BatchNorm2d(in_channel),
-                Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False), NoneLin(depth),
-                Conv2d(depth, depth, (3, 3), stride, 1, bias=False), BatchNorm2d(depth))
+                nn.Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False), NonLin(depth),
+                nn.Conv2d(depth, depth, (3, 3), stride, 1, bias=False), BatchNorm2d(depth))
 
-    # @jit.script_method
     def forward(self, x):
         shortcut = self.shortcut_layer(x)
         res = self.res_layer(x)
@@ -133,37 +149,71 @@ class Identity(Module):
         return x
 
 
+class true_bottleneck_IR_SE(Module):  # this is botleneck block
+    def __init__(self, in_channel, depth, stride):
+        super(true_bottleneck_IR_SE, self).__init__()
+        if in_channel == depth and stride == 1:
+            self.shortcut_layer = Identity()
+        else:
+            self.shortcut_layer = Sequential(
+                nn.Conv2d(in_channel, depth, (1, 1), stride, bias=False),
+                *bn_act(depth, False, conf.ipabn)
+            )
+        self.res_layer = Sequential(
+            *bn_act(in_channel, False, conf.ipabn),
+            nn.Conv2d(in_channel, in_channel // 4, (1, 1), (1, 1), 0, bias=False),
+            *bn_act(in_channel // 4, True, conf.ipabn),
+            nn.Conv2d(in_channel // 4, in_channel // 4, (3, 3), stride, 1, bias=False),
+            *bn_act(in_channel // 4, True, conf.ipabn),
+            nn.Conv2d(in_channel // 4, depth, (1, 1), 1, 0, bias=False),
+            *bn_act(depth, False, conf.ipabn),
+            SEModule(depth, 16),
+        )
+
+    def forward(self, x):
+        shortcut = self.shortcut_layer(x)
+        res = self.res_layer(x)
+        res.add_(shortcut)
+        return res
+
+
 class bottleneck_IR_SE(Module):  # this is basic block
     def __init__(self, in_channel, depth, stride):
         super(bottleneck_IR_SE, self).__init__()
-        self.ipabn = int(bool(conf.ipabn))
         if conf.upgrade_irse and in_channel == depth and stride == 1:
             self.shortcut_layer = Identity()
         elif not conf.upgrade_irse and in_channel == depth:
             self.shortcut_layer = MaxPool2d(kernel_size=1, stride=stride)
         else:
             self.shortcut_layer = Sequential(
-                Conv2d(in_channel, depth, (1, 1), stride, bias=False),
+                nn.Conv2d(in_channel, depth, (1, 1), stride, bias=False),
                 *bn_act(depth, False, conf.ipabn)
             )
         if conf.upgrade_irse:
             self.res_layer = Sequential(
                 *bn_act(in_channel, False, conf.ipabn),
-                Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
+                nn.Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
                 *bn_act(depth, True, conf.ipabn),
-                Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
+                nn.Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
                 *bn_act(depth, False, conf.ipabn),
                 SEModule(depth, 16)
             )
         else:
             self.res_layer = Sequential(
                 BatchNorm2d(in_channel),
-                Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
-                NoneLin(depth),
-                Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
+                nn.Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
+                NonLin(depth),
+                nn.Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
                 BatchNorm2d(depth),
                 SEModule(depth, 16)
             )
+        # todo
+        # if zero_init_residual:
+        #     for m in self.modules():
+        #         if isinstance(m, Bottleneck):
+        #             nn.init.constant_(m.bn3.weight, 0)
+        #         elif isinstance(m, BasicBlock):
+        #             nn.init.constant_(m.bn2.weight, 0)
 
     def forward_ipabn(self, x):
         shortcut = self.shortcut_layer(x.clone())
@@ -183,8 +233,6 @@ class bottleneck_IR_SE(Module):  # this is basic block
         forward = forward_ori
 
 
-# todo true_bottleneck_IR_SE
-
 class Bottleneck(namedtuple('Block', ['in_channel', 'depth', 'stride'])):
     '''A named tuple describing a ResNet block.'''
 
@@ -194,48 +242,53 @@ def get_block(in_channel, depth, num_units, stride=2):
 
 
 def get_blocks(num_layers):
-    if num_layers == 50:
-        blocks = [
-            get_block(in_channel=64, depth=64, num_units=3),
-            get_block(in_channel=64, depth=128, num_units=4),
-            get_block(in_channel=128, depth=256, num_units=14),
-            get_block(in_channel=256, depth=512, num_units=3)
-        ]
-    elif num_layers == 100:
-        blocks = [
-            get_block(in_channel=64, depth=64, num_units=3),
-            get_block(in_channel=64, depth=128, num_units=13),
-            get_block(in_channel=128, depth=256, num_units=30),
-            get_block(in_channel=256, depth=512, num_units=3)
-        ]
-    elif num_layers == 152 or num_layers == 140:
-        blocks = [
-            get_block(in_channel=64, depth=64, num_units=3),
-            get_block(in_channel=64, depth=128, num_units=15),
-            get_block(in_channel=128, depth=256, num_units=48),
-            get_block(in_channel=256, depth=512, num_units=3)
-        ]
-    elif num_layers == 20 or num_layers == 26:  # this is 26 in fact!
-        blocks = [
-            get_block(in_channel=64, depth=64, num_units=2),
-            get_block(in_channel=64, depth=128, num_units=3),
-            get_block(in_channel=128, depth=256, num_units=5),
-            get_block(in_channel=256, depth=512, num_units=2)
-        ]
-    elif num_layers == 18:
-        blocks = [
-            get_block(in_channel=64, depth=64, num_units=2),
-            get_block(in_channel=64, depth=128, num_units=2),
-            get_block(in_channel=128, depth=256, num_units=2),
-            get_block(in_channel=256, depth=512, num_units=2)
-        ]
+    if conf.bottle_neck:
+        filter_list = [64, 256, 512, 1024, 2048]
+    else:
+        filter_list = [64, 64, 128, 256, 512]
+    if num_layers == 18:
+        units = [2, 2, 2, 2]
     elif num_layers == 34:
-        blocks = [
-            get_block(in_channel=64, depth=64, num_units=3),
-            get_block(in_channel=64, depth=128, num_units=4),
-            get_block(in_channel=128, depth=256, num_units=6),
-            get_block(in_channel=256, depth=512, num_units=3)
-        ]
+        units = [3, 4, 6, 3]
+    elif num_layers == 49:
+        units = [3, 4, 14, 3]
+    elif num_layers == 50:  # basic
+        units = [3, 4, 14, 3]
+    elif num_layers == 74:
+        units = [3, 6, 24, 3]
+    elif num_layers == 90:
+        units = [3, 8, 30, 3]
+    elif num_layers == 98:
+        units = [3, 4, 38, 3]
+    elif num_layers == 99:
+        units = [3, 8, 35, 3]
+    elif num_layers == 100:  # basic
+        units = [3, 13, 30, 3]
+    elif num_layers == 134:
+        units = [3, 10, 50, 3]
+    elif num_layers == 136:
+        units = [3, 13, 48, 3]
+    elif num_layers == 140:  # basic
+        units = [3, 15, 48, 3]
+    elif num_layers == 124:  # basic
+        units = [3, 13, 40, 5]
+    elif num_layers == 160:  # basic
+        units = [3, 24, 49, 3]
+    elif num_layers == 101:  # bottleneck
+        units = [3, 4, 23, 3]
+    elif num_layers == 152:  # bottleneck
+        units = [3, 8, 36, 3]
+    elif num_layers == 200:
+        units = [3, 24, 36, 3]
+    elif num_layers == 269:
+        units = [3, 30, 48, 8]
+
+    blocks = [get_block(filter_list[0], filter_list[1], units[0]),
+              get_block(filter_list[1], filter_list[2], units[1]),
+              get_block(filter_list[2], filter_list[3], units[2]),
+              get_block(filter_list[3], filter_list[4], units[3])
+              ]
+
     return blocks
 
 
@@ -246,31 +299,40 @@ class Backbone(Module):
     def __init__(self, num_layers=conf.net_depth, drop_ratio=conf.drop_ratio, mode=conf.net_mode,
                  ebsize=conf.embedding_size):
         super(Backbone, self).__init__()
-        assert num_layers in [18, 34, 20, 50, 100, 152, ], 'num_layers should be not defined'
+        # assert num_layers in [18, 34, 20, 50, 100, 152, ], 'num_layers should be not defined'
         assert mode in ['ir', 'ir_se'], 'mode should be ir or ir_se'
         blocks = get_blocks(num_layers)
         if mode == 'ir':
             unit_module = bottleneck_IR
         elif mode == 'ir_se':
-            unit_module = bottleneck_IR_SE
-        self.input_layer = Sequential(Conv2d(3, 64, (3, 3), 1, 1, bias=False),
+            if not conf.bottle_neck:
+                unit_module = bottleneck_IR_SE
+            else:
+                unit_module = true_bottleneck_IR_SE
+        self.input_layer = Sequential(nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False),
                                       bn2d(64, conf.ipabn),
-                                      NoneLin(64))
+                                      NonLin(64))
         out_resolution = conf.input_size // 16
-        self.output_layer = Sequential(
-            bn2d(512, conf.ipabn),
+        if conf.bottle_neck:
+            out_planes = 2048
+        else:
+            out_planes = 512
+        if conf.out_type=='fc':
+            self.output_layer = Sequential(
+            bn2d(out_planes, conf.ipabn),
             Dropout(drop_ratio),
             Flatten(),
-            Linear(512 * out_resolution ** 2, ebsize,
-                   bias=True if not conf.upgrade_bnneck else False),
-            BatchNorm1d(ebsize))
-        # self.output_layer = Sequential(
-        #     # bn2d(512, conf.ipabn),
-        #     Linear_block(512, 512, groups=512, kernel=(out_resolution, out_resolution), stride=(1, 1), padding=(0, 0)),
-        #     Flatten(),
-        #     Linear(512, ebsize, bias=False),
-        #     BatchNorm1d(ebsize))
-
+            nn.Linear(out_planes * out_resolution ** 2, ebsize,
+                      bias=True if not conf.upgrade_bnneck else False),
+            nn.BatchNorm1d(ebsize))
+        elif conf.out_type=='gpool':
+            self.output_layers = nn.Sequential(
+            bn2d(out_planes, conf.ipabn),
+            nn.AdaptiveAvgPool2d(1),
+            Flatten(),
+            nn.Linear(out_planes, ebsize, bias=False),
+            nn.BatchNorm1d(ebsize),
+        )
         modules = []
         for block in blocks:
             for bottleneck in block:
@@ -281,11 +343,25 @@ class Backbone(Module):
         self.body = Sequential(*modules)
         self._initialize_weights()
 
-    def forward(self, x, ):
-        if conf.input_size != x.shape[-1]:
-            x = F.interpolate(x, size=conf.input_size, mode='bilinear', align_corners=True)  # bicubic
+    def forward(self, inp, *args, **kwargs, ):
+        if conf.input_size != inp.shape[-1]:
+            inp = F.interpolate(inp, size=conf.input_size, mode='bilinear', align_corners=True)  # bicubic
+        x = self.input_layer(inp)
+        # x = self.body(x)
+        break_inds = [1, 3, 5, ]
+        xs = []
+        for ind, layer in enumerate(self.body):
+            x = layer(x)
+            if ind in break_inds:
+                xs.append(x)
+        xs.append(x)
+        x = self.output_layer(x)
+        return x
 
-        x = self.input_layer(x)
+    def forward_ori(self, inp, *args, **kwargs):
+        if conf.input_size != inp.shape[-1]:
+            inp = F.interpolate(inp, size=conf.input_size, mode='bilinear', align_corners=True)  # bicubic
+        x = self.input_layer(inp)
         x = self.body(x)
         x = self.output_layer(x)
         return x
@@ -508,13 +584,13 @@ def get_controller(
 class Conv_block(Module):
     def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1, ):
         super(Conv_block, self).__init__()
-        self.conv = Conv2d(in_c, out_channels=out_c,
-                           kernel_size=kernel, groups=groups, stride=stride, padding=padding,
-                           bias=False)
+        self.conv = nn.Conv2d(in_c, out_channels=out_c,
+                              kernel_size=kernel, groups=groups, stride=stride, padding=padding,
+                              bias=False)
         if conf.spec_norm:
             self.conv = nn.utils.spectral_norm(self.conv)
         self.bn = bn2d(out_c, conf.ipabn)
-        self.PReLU = NoneLin(out_c)
+        self.PReLU = NonLin(out_c)
 
     # @jit.script_method
     def forward(self, x):
@@ -525,12 +601,12 @@ class Conv_block(Module):
 
 
 class Linear_block(Module):
-    def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1, ):
+    def __init__(self, in_c, out_c, kernel=(1, 1), stride=(1, 1), padding=(0, 0), groups=1, spec_norm=conf.spec_norm):
         super(Linear_block, self).__init__()
-        self.conv = Conv2d(in_c, out_channels=out_c,
-                           kernel_size=kernel, groups=groups, stride=stride, padding=padding,
-                           bias=False)
-        if conf.spec_norm:
+        self.conv = nn.Conv2d(in_c, out_channels=out_c,
+                              kernel_size=kernel, groups=groups, stride=stride, padding=padding,
+                              bias=False)
+        if spec_norm:
             self.conv = nn.utils.spectral_norm(self.conv)
         self.bn = bn2d(out_c, conf.ipabn)
 
@@ -549,14 +625,19 @@ class Depth_Wise(Module):
         super(Depth_Wise, self).__init__()
         self.conv = Conv_block(in_c, out_c=groups, kernel=(1, 1), padding=(0, 0), stride=(1, 1), )
         if conf.lpf and stride[0] == 2:
-            self.conv_dw = Linear_block(groups, groups, groups=groups, kernel=kernel, padding=padding, stride=(1, 1), )
+            self.conv_dw = Linear_block(groups, groups, groups=groups, kernel=kernel, padding=padding, stride=(1, 1),
+
+                                        )
         else:
-            self.conv_dw = Linear_block(groups, groups, groups=groups, kernel=kernel, padding=padding, stride=stride, )
+            self.conv_dw = Linear_block(
+                groups, groups, groups=groups, kernel=kernel, padding=padding, stride=stride,
+                spec_norm=False  # todo
+            )
         if conf.mbfc_se:
             self.se = SEModule(groups)
         else:
             self.se = Identity()
-        self.conv_dw_nlin = NoneLin(groups)
+        self.conv_dw_nlin = NonLin(groups)
         if conf.lpf and stride[0] == 2:
             self.dnsmpl = Downsample(channels=groups, filt_size=5, stride=2)
         else:
@@ -601,7 +682,6 @@ class MobileFaceNet(Module):
     def __init__(self, embedding_size=conf.embedding_size,
                  width_mult=conf.mbfc_wm, depth_mult=conf.mbfc_dm):
         super(MobileFaceNet, self).__init__()
-        # global Conv2d
         # if mode == 'small':
         #     blocks = [1, 4, 6, 2]
         # else:
@@ -639,7 +719,8 @@ class MobileFaceNet(Module):
         self.conv_5 = Residual(make_divisible(128 * width_mult), num_block=blocks[3],
                                groups=make_divisible(256 * width_mult), kernel=(3, 3), stride=(1, 1), padding=(1, 1),
                                )
-        # Conv2d = STNConv
+        # Conv2d_bk = nn.Conv2d
+        # nn.Conv2d = STNConv
         self.conv_6_sep = Conv_block(make_divisible(128 * width_mult), make_divisible(512 * width_mult), kernel=(1, 1),
                                      stride=(1, 1), padding=(0, 0), )
         out_resolution = conf.input_size // 16
@@ -648,11 +729,12 @@ class MobileFaceNet(Module):
                                       stride=(1, 1),
                                       padding=(0, 0),
                                       )
-        # Conv2d = nn.Conv2d
+        # nn.Conv2d = Conv2d_bk
         self.conv_6_flatten = Flatten()
-        # todo
-        self.linear = Linear(make_divisible(512 * width_mult), embedding_size, bias=False, )
-        self.bn = BatchNorm1d(embedding_size)
+        self.linear = nn.Linear(make_divisible(512 * width_mult), embedding_size, bias=False, )
+        if conf.spec_norm:
+            self.linear = nn.utils.spectral_norm(self.linear)
+        self.bn = nn.BatchNorm1d(embedding_size)
 
         self._initialize_weights()
 
@@ -1396,10 +1478,6 @@ class ArcfaceNeg(Module):
     forward = forward_eff_v2
 
 
-##################################  Cosface head #################
-# import torch.jit
-# from torch import jit
-
 
 class CosFace(Module):
     # class CosFace(jit.ScriptModule):
@@ -1576,13 +1654,13 @@ if __name__ == '__main__':
 
     init_dev(3)
     conf.input_size = 112
-    # conf.embedding_size = 256
-
-    # model = Backbone(18, 0, 'ir_se')
-    # model.eval()
+    conf.embedding_size = 512
+    conf.bottle_neck = True  # False
+    # conf.mbfc_se = False
+    # model = Backbone(18, 0.3, 'ir_se')
     model = MobileFaceNet(conf.embedding_size,
                           width_mult=1,
-                          depth_mult=2,
+                          depth_mult=1,
                           )
     model.eval()
     model.cuda()

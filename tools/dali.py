@@ -46,18 +46,25 @@ class PlainMxnetDs(object):
         conf.num_clss = self.num_classes
 
 
+plmxds = PlainMxnetDs()
+
+
 # Let us define a simple pipeline that takes images stored in recordIO format, decodes them and prepares them for ingestion in DL framework (crop, normalize and NHWC -> NCHW conversion).
 
 class RecordIOPipeline(Pipeline):
-    def __init__(self, batch_size, num_threads, device_id, num_gpus):
+    def __init__(self, batch_size, device_id, num_gpus, num_threads=2):
         super(RecordIOPipeline, self).__init__(batch_size,
                                                num_threads,
-                                               device_id)
+                                               device_id,
+                                               prefetch_queue_depth={"cpu_size": 6, "gpu_size": 2}
+                                               )
         self.input = ops.MXNetReader(path=rec_files,
                                      index_path=idx_files,
                                      random_shuffle=True,
                                      shard_id=device_id,
-                                     num_shards=num_gpus)
+                                     num_shards=num_gpus,
+                                     initial_fill=len(plmxds.imgidx) // num_gpus,
+                                     )
         self.decode = ops.ImageDecoder(device="mixed", output_type=types.RGB)
         self.cmnp = ops.CropMirrorNormalize(device="gpu",
                                             output_dtype=types.FLOAT,
@@ -82,19 +89,27 @@ class RecordIOPipeline(Pipeline):
 
 num_gpus = conf.num_devs
 batch_size = conf.batch_size // conf.num_devs
-pipes = [RecordIOPipeline(batch_size=batch_size, num_threads=6, device_id=device_id, num_gpus=num_gpus) for device_id in
+pipes = [RecordIOPipeline(batch_size=batch_size, device_id=device_id, num_gpus=num_gpus,
+                          ) for device_id in
          range(num_gpus)]
 pipes[0].build()
-plmxds = PlainMxnetDs()
 
 
 class FDALIGenericIterator(DALIGenericIterator):
     def __len__(self):
-        return len(plmxds.imgidx) // conf.batch_size
+        return (len(plmxds.imgidx) // conf.batch_size) + 1
+
+    def force_reset(self):
+        if self._stop_at_epoch:
+            self._counter = 0
+        else:
+            self._counter = self._counter % self._size
+        for p in self._pipes:
+            p.reset()
 
     def __next__(self):
         data = super(FDALIGenericIterator, self).__next__()
-        if isinstance(data,list):
+        if isinstance(data, list):
             labels = []
             imgs = []
             for d in data:
@@ -113,15 +128,33 @@ class FDALIGenericIterator(DALIGenericIterator):
 fdali_iter = FDALIGenericIterator(pipes, ['imgs', 'labels'],
                                   pipes[0].epoch_size("Reader"))
 
+
+def get_loader_enum(loader):
+    succ = False
+    while not succ:
+        loader_enum = (enumerate(loader))
+        succ = True
+    return loader_enum
+
+
 if __name__ == '__main__':
-    print(len(fdali_iter))
-    for i, data in enumerate(fdali_iter):
-        if i ==len(fdali_iter)-1:
-            break
+    loader_enum = get_loader_enum(fdali_iter)
+
+    while True:
+        try:
+            ind_data, data = next(loader_enum)
+        except StopIteration as err:
+            logging.info(f'one epoch finish err is {err}, {ind_data}')
+            fdali_iter.reset()
+            loader_enum = get_loader_enum(fdali_iter)
+            ind_data, data = next(loader_enum)
         label = data["labels"]
         imgs = data["imgs"]
-        print(imgs.shape, label.shape)
-    # embed()
+        print(ind_data, imgs.shape, label.shape, np.unique(label, return_counts=True)[1].mean())
+
+    # plt_imshow(imgs[0].cpu() )
+    plt_imshow_tensor(imgs[label == 12].cpu(), ncol=6)
+    plt.show()
 
     # pipe_out = pipes[0].run()
     # images, labels = pipe_out

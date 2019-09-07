@@ -1033,7 +1033,7 @@ class face_learner(object):
                 {'params': [*self.head.parameters()], 'weight_decay': conf.weight_decay, 'lr_mult': 10},
                 {'params': paras_only_bn},
             ],
-                # betas=(conf.adam_betas1, conf.adam_betas2),
+                betas=(conf.adam_betas1, conf.adam_betas2),
                 # amsgrad=True,
                 lr=conf.lr,
             )
@@ -1074,10 +1074,19 @@ class face_learner(object):
         elif conf.use_opt == 'radam':
             from tools.radam import RAdam
             self.optimizer = RAdam([
-                {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},  # this is mobilenet wdecay
-                {'params': [paras_wo_bn[-1]] + list(self.head.parameters()), 'weight_decay': 4e-4},
+                {'params': paras_wo_bn[:-1], 'weight_decay': conf.weight_decay},  # this is mobilenet wdecay
+                {'params': [paras_wo_bn[-1]] + list(self.head.parameters()), 'weight_decay': conf.weight_decay*10},
                 {'params': paras_only_bn}
-            ], lr=conf.lr
+            ], lr=conf.lr, betas=(conf.adam_betas1, conf.adam_betas2),
+            )
+        elif conf.use_opt == 'ranger':
+            from tools.ranger import Ranger
+            self.optimizer = Ranger([
+                {'params': paras_wo_bn[:-1], 'weight_decay': conf.weight_decay},  # this is mobilenet wdecay
+                {'params': [paras_wo_bn[-1]] + list(self.head.parameters()), 'weight_decay': conf.weight_decay*10},
+                {'params': paras_only_bn}
+            ], lr=conf.lr, betas=(conf.adam_betas1, conf.adam_betas2),
+                N_sma_threshhold=conf.n_sma,
             )
         elif conf.use_opt == 'adabound':
             from tools.adabound import AdaBound
@@ -1336,6 +1345,9 @@ class face_learner(object):
         succ = False
         while not succ:
             try:
+                if conf.use_loader == "dali":
+                    # loader.force_reset()
+                    loader.reset()
                 loader_enum = data_prefetcher(enumerate(loader))
                 succ = True
             except Exception as e:
@@ -2391,7 +2403,9 @@ class face_learner(object):
 
     def load_state(self, fixed_str='',
                    resume_path=None, latest=True,
-                   load_optimizer=False, load_imp=False, load_head=False
+                   load_optimizer=False,
+                   load_imp=False, load_head=False,
+                   strict=True
                    ):
         from pathlib import Path
         save_path = Path(resume_path)
@@ -2421,17 +2435,17 @@ class face_learner(object):
                     model_state_dict2[name] = torch.abs(model_state_dict[name])
             model_state_dict = model_state_dict2
         if list(model_state_dict.keys())[0].startswith('module'):
-            self.model.load_state_dict(model_state_dict, strict=True)
+            self.model.load_state_dict(model_state_dict, strict=strict)
         else:
-            self.model.module.load_state_dict(model_state_dict, strict=True)
+            self.model.module.load_state_dict(model_state_dict, strict=strict)
 
         if load_head:
             assert osp.exists(save_path / 'head_{}'.format(fixed_str))
             logging.info(f'load head from {modelp}')
             head_state_dict = torch.load(save_path / 'head_{}'.format(fixed_str))
-            # todo
-            # kw = head_state_dict.pop('kernel')
-            # head_state_dict['kernel.weight']=kw.transpose(0,1)
+            if 'kernel' in head_state_dict:
+                kw = head_state_dict.pop('kernel')
+                head_state_dict['kernel.weight'] = kw.transpose(0, 1)
             self.head.load_state_dict(head_state_dict)
 
         if load_optimizer:
@@ -2657,9 +2671,10 @@ class face_learner(object):
 
         f = h5py.File(out, 'w')
         chunksize = 80 * 10 ** 3
-        dst = f.create_dataset("feas", (chunksize, 512), maxshape=(None, 512), dtype='f2')
-        dst_gtri = f.create_dataset("gtri", (chunksize, 512), maxshape=(None, 512), dtype='f2')
-        dst_gxent = f.create_dataset("gxent", (chunksize, 512), maxshape=(None, 512), dtype='f2')
+        fdim = conf.embedding_size
+        dst = f.create_dataset("feas", (chunksize, fdim), maxshape=(None, fdim), dtype='f2')
+        dst_gtri = f.create_dataset("gtri", (chunksize, fdim), maxshape=(None, fdim), dtype='f2')
+        dst_gxent = f.create_dataset("gxent", (chunksize, fdim), maxshape=(None, fdim), dtype='f2')
         dst_tri = f.create_dataset("tri", (chunksize,), maxshape=(None,), dtype='f2')
         dst_xent = f.create_dataset("xent", (chunksize,), maxshape=(None,), dtype='f2')
         dst_gtri_norm = f.create_dataset("gtri_norm", (chunksize,), maxshape=(None,), dtype='f2')
@@ -2672,8 +2687,8 @@ class face_learner(object):
             labels = data['labels'].cuda()
             bs = imgs.shape[0]
             if ind_dst + bs > dst.shape[0]:
-                dst.resize((dst.shape[0] + chunksize, 512), )
-                dst_gxent.resize((dst.shape[0] + chunksize, 512), )
+                dst.resize((dst.shape[0] + chunksize, fdim), )
+                dst_gxent.resize((dst.shape[0] + chunksize, fdim), )
                 dst_xent.resize((dst.shape[0] + chunksize,), )
                 dst_xent[dst.shape[0]:dst.shape[0] + chunksize] = -1
                 dst_gxent_norm.resize((dst.shape[0] + chunksize,), )

@@ -6,7 +6,7 @@ from config import conf
 
 __all__ = ['mbfc']
 
-use_hard = True
+use_hard = False
 
 
 def conv_bn(inp, oup, stride, conv_layer=nn.Conv2d, norm_layer=nn.BatchNorm2d, nlin_layer=nn.ReLU):

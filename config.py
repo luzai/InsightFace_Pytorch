@@ -9,20 +9,20 @@ from torchvision import transforms as trans
 # todo label smooth
 # print = lambda x: logging.info(f'do not prt {x}')
 dist = False
-num_devs = 2
+num_devs = 4
 if dist:
     num_devs = 1
 else:
     # lz.init_dev(lz.get_dev(num_devs, ok=(2, 3)))
     lz.init_dev(lz.get_dev(num_devs))
-    # lz.init_dev((2, 3))
+    # lz.init_dev((0, 1, 2, 3,))
 
 conf = edict()
 conf.num_workers = ndevs * 6
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
-conf.loss = 'arcface'  # adamarcface adamrg adacos softmax arcface arcfaceneg cosface
+conf.loss = 'arcface'  # adamarcface adamrg adacos softmax arcface arcfaceneg cosface arcsinmrg
 
 conf.writer = None
 conf.local_rank = None
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/mbfc.casia.2.2.bak')
+conf.work_path = Path('work_space/irse.elu.casia.gpool')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -48,7 +48,7 @@ casia_folder = conf.data_path / 'casia'  # the cleaned one todo may need the oth
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = dingyi_folder
+conf.use_data_folder = casia_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 conf.clean_ids = None  # np.asarray(msgpack_load(root_path + 'train.configs/noise.20.pk', allow_np=False))
 
@@ -82,7 +82,7 @@ conf.embedding_size = 512
 conf.drop_ratio = .4
 conf.conv2dmask_drop_ratio = .2
 conf.lambda_runtime_reg = 5
-conf.net_mode = 'mobilefacenet'  # effnet mbfc sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
+conf.net_mode = 'ir_se'  # effnet mbfc sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
 conf.decs = None
 conf.net_depth = 18  # 100 121 169 201 264 50 20
 conf.mb_mode = 'face.large'
@@ -127,37 +127,41 @@ conf.mutual_learning = 0
 
 conf.fp16 = True
 conf.opt_level = "O1"
-conf.batch_size = 200 * num_devs
+conf.batch_size = 220 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
-conf.log_interval = 105
+conf.log_interval = 999
 conf.need_tb = True
 conf.other_every = None  # 11
 conf.num_recs = 1
-conf.acc_grad = 4 // num_devs
+conf.acc_grad = 1
 # --------------------Training Config ------------------------
-conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
-conf.use_opt = 'radam'  # adabound adam radam
+conf.weight_decay = 5e-4  # 4e-5 5e-4, 1e-6 for 1e-3, 0.3 for 3e-3
+conf.use_opt = 'sgd'  # adabound adam radam
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
 conf.final_lr = 1e-1
-conf.lr = 3e-3  # 1e-1  #
+conf.lr = 1e-1  # 3e-3  #
 conf.lr_gamma = 0.1
 conf.start_epoch = 0
 conf.start_step = 0
 # conf.epochs = 37
 # conf.milestones = (np.array([23, 32])).astype(int)
-conf.epochs = 38
+conf.epochs = 18
 conf.milestones = (np.array([9, 13])).astype(int)
 conf.warmup = 1  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = .7
+conf.fill_cache = 0
 conf.val_ijbx = False
-conf.spec_norm = True
+conf.spec_norm = False
 conf.use_of = False
-
+conf.use_act = "elu"
+conf.bottle_neck = False
+conf.never_stop = False
+conf.n_sma = 5
+conf.out_type='gpool'
 
 # todo may use kl_div to speed up
 class CrossEntropyLabelSmooth(nn.Module):
@@ -216,12 +220,12 @@ def logsigsoftmax(logits):
 class CrossEntropySigSoft2(nn.Module):
 
     def forward(self, inputs, targets):
-        inputs2 = inputs + F.logsigmoid(inputs / 12)  # todo
+        inputs2 = inputs + F.logsigmoid(inputs / 10)  # todo
         loss = F.cross_entropy(inputs2, targets)
         return loss
 
 
-conf.ce_loss = CrossEntropyLoss()  # CrossEntropyLabelSmooth()  # CrossEntropySigSoft2()  #
+conf.ce_loss = CrossEntropyLoss()  # CrossEntropySigSoft2()  #   CrossEntropyLabelSmooth()
 if conf.use_test:
     conf.vat_loss_func = VATLoss(xi=1e-6, eps=8, ip=1)
 conf.need_log = True

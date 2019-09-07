@@ -1225,7 +1225,7 @@ def plt_imshow(img, ax=None, keep_ori_size=False, inp_mode='rgb'):
     if inp_mode == 'bgr':
         img = img[..., ::-1]
     if ax is None:
-        h, w, c, = img.shape
+        h, w,  = img.shape[0], img.shape[1]
         inchh = h / 100
         inchw = w / 100
         if keep_ori_size:

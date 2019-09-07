@@ -11,7 +11,8 @@ import torch
 from models.model import l2_norm
 import cv2
 
-known_bottom = ['SuperKernel', 'batchnorm', 'conv', 'activation', 'linear',
+known_bottom = ['SuperKernel', 'batchnorm',
+                'conv', 'activation', 'linear',
                 'Conv2dSamePadding', ]
 
 
@@ -25,7 +26,7 @@ def separate_bn_paras(modules):
     # [layer.__class__ for layer in modules]
     should_skip = False
     for layer in modules:
-        if 'model' in str(layer.__class__): # model defeind in models and model.py
+        if 'model' in str(layer.__class__):  # model defeind in models and model.py
             should_skip = True
         if 'torch.nn.modules.container' in str(layer.__class__):
             should_skip = True

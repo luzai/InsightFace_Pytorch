@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+export PYTHONPATH=.
 
 #CUDA_VISIBLE_DEVICES=0,1,2,3 python  -m torch.distributed.launch --nproc_per_node=4 --nnodes=1 --node_rank=0 --master_addr="10.13.72.84" --master_port=12345 ./train.py
 
@@ -43,10 +44,10 @@
 #    python train.py --epochs 18 --work_path work_space/mbfc.se.prelu.ms1m.$times --batch_size 400 --acc_grad 3 --fill_cache .3
 #done
 
-for times in 1
-do
-    python train.py --epochs 18 --work_path work_space/mbfc.se.prelu.specnrm.ms1m.cesigsft.$times.cont --batch_size 400 --acc_grad 3 --fill_cache .7 --spec_norm True --start_epoch 6 --start_step 60225
-done
+#for times in 1
+#do
+#    python train.py --epochs 18 --work_path work_space/ir.se.elu.ms1m.radam.la.lr3e-3.$times --batch_size 512 --acc_grad 2 --fill_cache 0 --spec_norm False --start_epoch 0 --start_step 0
+#done
 
 #for times in  2 3
 #do
@@ -58,6 +59,49 @@ done
 #    python train.py --epochs 76 --work_path work_space/mbfc.se.prelu.adamarcface.ep76.$times --batch_size 400 --acc_grad 3 --fill_cache .7
 #done
 
+#for times in 1 2 3
+#do
+#for scale in 48
+#do
+#for betas1 in  0.95
+#do
+#for n_sma in  5
+#do
+#    python tools/clean.py
+#    python train.py --epochs 18 --work_path work_space/ir.se.elu.casia.ranger.lr3e-3.$scale.$betas1.$n_sma.$times --batch_size 512 --acc_grad 2 --spec_norm False --loss 'arcface' --lr 0.003 --use_opt 'ranger' --adam_betas1 0.95 --weight_decay 0.00004 --scale $scale --adam_betas1 $betas1 --n_sma $n_sma
+#done
+#done
+#done
+#done
+#
+#for times in 1
+#do
+#for scale in 64
+#do
+#for betas1 in 0.9 0.95
+#do
+#for n_sma in  4 5
+#do
+#    python tools/clean.py
+#    python train.py --epochs 18 --work_path work_space/ir.se.elu.casia.ranger.lr3e-3.$scale.$betas1.$n_sma.specnrm.$times --batch_size 512 --acc_grad 2 --spec_norm False --loss 'arcface' --lr 0.003 --use_opt 'ranger' --adam_betas1 0.95 --weight_decay 0.00004 --scale $scale --adam_betas1 $betas1 --n_sma $n_sma --spec_norm True
+#done
+#done
+#done
+#done
 
+#for times in 1
+#do
+#for scale in 48
+#do
+#for betas1 in 0.95
+#do
+#for n_sma in  5
+#do
+#    python tools/clean.py
+#    python train.py --epochs 18 --work_path work_space/mbfc.elu.casia.ranger.lr3e-3.$scale.$betas1.$n_sma.$times.dm1.nose.stnconv --batch_size 256 --acc_grad 4 --spec_norm False --loss 'arcface' --lr 0.003 --use_opt 'ranger' --adam_betas1 0.95 --weight_decay 0.00004 --scale $scale --adam_betas1 $betas1 --n_sma $n_sma --mbfc_dm 1 --mbfc_se False
+#done
+#done
+#done
+#done
 
 
