@@ -17,33 +17,24 @@ from PIL import Image
 from config import conf
 
 os.chdir(lz.root_path)
-bs = conf.batch_size *2
+bs = conf.batch_size * 2
 use_mxnet = False
-DIM = conf.embedding_size  # 512  #
+DIM = conf.embedding_size  # 512
+dump_mid_res = True
 
 use_ijbx = 'IJBB'
 IJBC_path = '/data1/share/IJB_release/' if 'amax' in hostname() else '/home/zl/zl_data/IJB_release/'
-# ijbcp = IJBC_path + 'ijbc.info.h5'
-# if osp.exists(ijbcp):
-# if False:
-#     df_tm, df_pair, df_name = df_load(ijbcp, 'tm'), df_load(ijbcp, 'pair'), df_load(ijbcp, 'name')
-# else:
 fn = (os.path.join(IJBC_path + f'{use_ijbx}/meta', f'{use_ijbx.lower()}_face_tid_mid.txt'))
 df_tm = pd.read_csv(fn, sep=' ', header=None)
 fn = (os.path.join(IJBC_path + f'{use_ijbx}/meta', f'{use_ijbx.lower()}_template_pair_label.txt'))
 df_pair = pd.read_csv(fn, sep=' ', header=None)
 fn = os.path.join(IJBC_path + f'{use_ijbx}/meta', f'{use_ijbx.lower()}_name_5pts_score.txt')
 df_name = pd.read_csv(fn, sep=' ', header=None)
-# df_dump(df_tm, ijbcp, 'tm')
-# df_dump(df_pair, ijbcp, 'pair')
-# df_dump(df_name, ijbcp, 'name')
 
 unique_tid = np.unique(df_pair.iloc[:, :2].values.flatten())
 refrence = get_reference_facial_points(default_square=True)
 img_list_path = IJBC_path + f'{use_ijbx}/meta/{use_ijbx.lower()}_name_5pts_score.txt'
-img_path = '/share/data/loose_crop'
-if not osp.exists(img_path):
-    img_path = IJBC_path + f'{use_ijbx}/loose_crop'
+img_path = IJBC_path + f'{use_ijbx}/loose_crop'
 img_list = open(img_list_path)
 files = img_list.readlines()
 num_imgs = len(files)
@@ -56,6 +47,7 @@ class DatasetIJBC2(torch.utils.data.Dataset):
             trans.ToTensor(),
             trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
         ])
+
         try:
             self.env = lmdb.open(img_path + '/../imgs_lmdb', readonly=True,
                                  max_readers=1, lock=False,
@@ -92,8 +84,9 @@ class DatasetIJBC2(torch.utils.data.Dataset):
             buf.write(imgbuf)
             buf.seek(0)
             f = Image.open(buf)
-            img = f.convert('RGB')
-            img = np.asarray(img)
+            img2 = f.convert('RGB')
+            img2 = np.asarray(img2)
+            img = img2
         assert img is not None, img_name
         lmk = np.array([float(x) for x in name_lmk_score[1:-1]], dtype=np.float32)
         lmk = lmk.reshape((5, 2))
@@ -108,6 +101,7 @@ class DatasetIJBC2(torch.utils.data.Dataset):
         return img, faceness_score, item, name_lmk_score[0]
 
 
+@torch.no_grad()
 def test_ijbc3(conf, learner):
     if not use_mxnet:
         learner.model.eval()
@@ -134,13 +128,13 @@ def test_ijbc3(conf, learner):
             fea = (img_feat + img_featf) / 2.
         # fea = fea * faceness_score.numpy().reshape(-1, 1) # todo need?
         img_feats[ind * bs: min((ind + 1) * bs, ind * bs + fea.shape[0]), :] = fea
-    print('last fea shape', fea.shape, np.linalg.norm(fea, axis=-1), img_feats.shape)
-    # import h5py
-    # f = h5py.File(lz.work_path + '/r100.ijbc.h5')
-    # f['feas'] = img_feats
-    # f.flush()
-    # f.close()
-    # exit()
+    print('last fea shape', fea.shape, np.linalg.norm(fea, axis=-1)[-10:], img_feats.shape)
+    if dump_mid_res:
+        import h5py
+        f = h5py.File('/tmp/feas.ijbb.h5', 'w')
+        f['feas'] = img_feats
+        f.flush()
+        f.close()
 
     templates, medias = df_tm.values[:, 1], df_tm.values[:, 2]
     p1, p2, label = df_pair.values[:, 0], df_pair.values[:, 1], df_pair.values[:, 2]
@@ -209,8 +203,8 @@ def test_ijbc3(conf, learner):
         score[s] = similarity_score.flatten()
         if c % 10 == 0:
             print('Finish {}/{} pairs.'.format(c, total_sublists))
-
-    # msgpack_dump(score, 'work_space/score.t.pk')
+    if dump_mid_res:
+        msgpack_dump([label, score], f'/tmp/score.ijbb.pk')
     print('score range', score.max(), score.min())
     # _ = plt.hist(score)
     fpr, tpr, _ = roc_curve(label, score)
@@ -222,7 +216,11 @@ def test_ijbc3(conf, learner):
     res = []
     x_labels = [10 ** -6, 10 ** -4, 10 ** -3, ]
     for fpr_iter in np.arange(len(x_labels)):
-        _, min_index = min(list(zip(abs(fpr - x_labels[fpr_iter]), range(len(fpr)))))
+        _, min_index = min(
+            list(zip(
+                abs(fpr - x_labels[fpr_iter]), range(len(fpr))
+            ))
+        )
         print(x_labels[fpr_iter], tpr[min_index])
         res.append((x_labels[fpr_iter], tpr[min_index]))
     roc_auc = auc(fpr, tpr)
@@ -236,7 +234,11 @@ def test_ijbc3(conf, learner):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--modelp',
-                        default='mbfc.se.tanh.ep76.1',  # 'r100.128.retina.clean.arc',
+                        default='n2.irse.elu.casia.arcneg.15.0.48.0.02',
+                        # 'irse.elu.casia.arc.ft',
+                        # 'n2.irse.elu.casia.arcneg.15.0.4.0.1',
+                        # 'irse.elu.casia.arc.mid.bl.ds',
+                        # 'r100.128.retina.clean.arc',
                         type=str)
     args = parser.parse_args()
     # lz.init_dev(lz.get_dev(2))
@@ -252,21 +254,23 @@ if __name__ == '__main__':
         from config import conf
 
         conf.need_log = False
-        bs = conf.batch_size *2
+        bs = conf.batch_size * 2
         conf.fp16 = True
         conf.ipabn = False
         conf.cvt_ipabn = False
-        conf.net_depth = 100
+        # conf.ds = True
+        # conf.use_bl = True
+        # conf.mid_type = 'gpool'
+        # conf.net_depth = 100
         # conf.net_mode = 'ir_se'
         # conf.embedding_size = 512
         # conf.input_size = 128
         conf.use_chkpnt = False
-        conf.fill_cache = False
         from Learner import FaceInfer, face_learner
 
-        learner = FaceInfer(conf,
-                            list(map(int, os.environ['CUDA_VISIBLE_DEVICES'].split(',')))
-                            )
+        gpuid = list(map(int, os.environ['CUDA_VISIBLE_DEVICES'].split(',')))
+        print(gpuid)
+        learner = FaceInfer(conf, gpuid)
         learner.load_state(
             resume_path=f'work_space/{args.modelp}/save/',
             latest=True,

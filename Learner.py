@@ -1,7 +1,6 @@
 # -*- coding: future_fstrings -*-
 import lz
 from lz import *
-
 from models import Backbone, MobileFaceNet, CSMobileFaceNet, l2_norm, Arcface, MySoftmax, TripletLoss
 import models
 import numpy as np
@@ -10,7 +9,6 @@ from torch import optim
 from tensorboardX import SummaryWriter
 from matplotlib import pyplot as plt
 from utils import get_time, gen_plot, hflip_batch, separate_bn_paras, hflip
-from PIL import Image
 from torchvision import transforms as trans
 import os, random, logging, numbers, math
 from pathlib import Path
@@ -876,7 +874,6 @@ class face_learner(object):
             from tools.dali import fdali_iter, plmxds
             self.loader = fdali_iter
             self.class_num = plmxds.num_classes
-
         elif conf.dataset_name == 'webface' or conf.dataset_name == 'casia':
             file = '/data2/share/casia_landmark.txt'
             df = pd.read_csv(file, sep='\t', header=None)
@@ -1022,6 +1019,8 @@ class face_learner(object):
             self.head.kernel.data = kernel
         if self.head is not None:
             self.head = self.head.cuda()
+        if conf.ds:
+            self.heads = [Arcface(classnum=self.class_num).cuda() for i in range(4)]
         if conf.tri_wei != 0:
             self.head_triplet = TripletLoss().cuda()
         logging.info('model heads generated')
@@ -1075,7 +1074,7 @@ class face_learner(object):
             from tools.radam import RAdam
             self.optimizer = RAdam([
                 {'params': paras_wo_bn[:-1], 'weight_decay': conf.weight_decay},  # this is mobilenet wdecay
-                {'params': [paras_wo_bn[-1]] + list(self.head.parameters()), 'weight_decay': conf.weight_decay*10},
+                {'params': [paras_wo_bn[-1]] + list(self.head.parameters()), 'weight_decay': conf.weight_decay * 10},
                 {'params': paras_only_bn}
             ], lr=conf.lr, betas=(conf.adam_betas1, conf.adam_betas2),
             )
@@ -1083,7 +1082,7 @@ class face_learner(object):
             from tools.ranger import Ranger
             self.optimizer = Ranger([
                 {'params': paras_wo_bn[:-1], 'weight_decay': conf.weight_decay},  # this is mobilenet wdecay
-                {'params': [paras_wo_bn[-1]] + list(self.head.parameters()), 'weight_decay': conf.weight_decay*10},
+                {'params': [paras_wo_bn[-1]] + list(self.head.parameters()), 'weight_decay': conf.weight_decay * 10},
                 {'params': paras_only_bn}
             ], lr=conf.lr, betas=(conf.adam_betas1, conf.adam_betas2),
                 N_sma_threshhold=conf.n_sma,
@@ -1116,7 +1115,7 @@ class face_learner(object):
 
     def count_flops(self):
         from thop import profile
-        flops, params = profile(self.model, input_size=(1, 3, 112, 112))
+        flops, params = profile(self.model,(torch.rand(1,3,112,112), ))
         return flops, params
 
     def train_dist(self, conf, epochs):
@@ -1276,8 +1275,15 @@ class face_learner(object):
                 from tools.of_penalty import of_reger
                 embeddings, fea7x7 = embeddings
                 runtime_regloss += conf.use_of * of_reger.forward(fea7x7)
-            thetas = self.head(embeddings, labels)
-            loss_xent = conf.ce_loss(thetas, labels)
+            if isinstance(embeddings, list):
+                assert conf.ds
+                thetas = self.head(embeddings[0], labels)
+                loss_xent = conf.ce_loss(thetas, labels)
+                for i in range(4):
+                    loss_xent += 0.1 * conf.ce_loss(self.heads[i](embeddings[i + 1], labels), labels)
+            else:
+                thetas = self.head(embeddings, labels)
+                loss_xent = conf.ce_loss(thetas, labels)
             assert not judgenan(runtime_regloss)
             assert not judgenan(loss_xent)
             if conf.fp16:
@@ -1436,14 +1442,22 @@ class face_learner(object):
                         from tools.of_penalty import of_reger
                         embeddings, fea7x7 = embeddings
                         runtime_regloss += conf.use_of * of_reger.forward(fea7x7)
-                assert not torch.isnan(embeddings).any().item()
                 if conf.loss == 'adamarcface':
                     self.head.clamp_m()
                     thetas, m_mean = self.head(embeddings, labels)
                     loss_xent = conf.ce_loss(thetas, labels) - 50 * m_mean
                 else:
-                    thetas = self.head(embeddings, labels)
-                    loss_xent = conf.ce_loss(thetas, labels, )
+                    if isinstance(embeddings, list):
+                        assert not torch.isnan(embeddings[0]).any().item()
+                        assert conf.ds
+                        thetas = self.head(embeddings[0], labels)
+                        loss_xent = conf.ce_loss(thetas, labels)
+                        for i in range(4):
+                            loss_xent += 0.1 * conf.ce_loss(self.heads[i](embeddings[i + 1], labels), labels)
+                    else:
+                        assert not torch.isnan(embeddings).any().item()
+                        thetas = self.head(embeddings, labels)
+                        loss_xent = conf.ce_loss(thetas, labels)
                 if conf.kd:
                     alpha = conf.alpha
                     T = conf.temperature
@@ -2499,6 +2513,7 @@ class face_learner(object):
                         embeddings[idx:] = l2_norm(emb_batch)
                     else:
                         embeddings[idx:] = self.model(batch.cuda()).cpu()
+            # lz.msgpack_dump(embeddings,'/tmp/cfpfp.2.pk' )
             tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
             res = accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
             # buf = gen_plot(fpr, tpr)
@@ -2511,55 +2526,6 @@ class face_learner(object):
         return res
 
     evaluate_accelerate = evaluate
-
-    # todo this evaluate is depracated
-    def evaluate_accelerate_dingyi(self, conf, path, name, nrof_folds=10, tta=True):
-        lz.timer.since_last_check('start eval')
-        self.model.eval()  # set the module in evaluation mode
-        idx = 0
-        if name in self.val_loader_cache:
-            loader = self.val_loader_cache[name]
-        else:
-            if tta:
-                dataset = Dataset_val(path, name, transform=hflip)
-            else:
-                dataset = Dataset_val(path, name)
-            loader = DataLoader(dataset, batch_size=conf.batch_size, num_workers=0,
-                                shuffle=False, pin_memory=False)
-            self.val_loader_cache[name] = loader  # because we have limited memory
-        length = len(loader.dataset)
-        embeddings = np.zeros([length, conf.embedding_size])
-        issame = np.zeros(length)
-
-        with torch.no_grad():
-            for data in loader:
-                carray_batch = data['carray']
-                issame_batch = data['issame']
-                if tta:
-                    fliped = data['fliped_carray']
-                    emb_batch = self.model(carray_batch.cuda()) + self.model(fliped.cuda())
-                    emb_batch = emb_batch.cpu()
-                    embeddings[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
-                            idx + conf.batch_size)] = l2_norm(emb_batch)
-                else:
-                    embeddings[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
-                            idx + conf.batch_size)] = self.model(carray_batch.cuda()).cpu()
-                issame[idx: (idx + conf.batch_size > length) * (length) + (idx + conf.batch_size <= length) * (
-                        idx + conf.batch_size)] = issame_batch
-                idx += conf.batch_size
-
-        # tpr/fpr is averaged over various fold division
-        try:
-            tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
-        #     buf = gen_plot(fpr, tpr)
-        #     roc_curve = Image.open(buf)
-        #     roc_curve_tensor = trans.ToTensor()(roc_curve)
-        except Exception as e:
-            logging.error(f'{e}')
-        roc_curve_tensor = torch.zeros(3, 100, 100)
-        self.model.train()
-        lz.timer.since_last_check('eval end')
-        return accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
 
     def validate_ori(self, conf, resume_path=None,
                      valds_names=('lfw', 'agedb_30', 'cfp_fp',

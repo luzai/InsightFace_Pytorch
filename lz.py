@@ -1333,7 +1333,7 @@ def plt_matshow(mat, figsize=(6, 6)):
     # plt.colorbar()
 
 
-def apply_colormap_on_image(org_im, activation, colormap_name='viridis', alpha=.4):
+def apply_colormap_on_image(org_im, activation, colormap_name='viridis', alpha=.4, thresh=30):
     """
         Apply heatmap on image
     Args:
@@ -1350,6 +1350,7 @@ def apply_colormap_on_image(org_im, activation, colormap_name='viridis', alpha=.
     # Change alpha channel in colormap to make sure original image is displayed
     heatmap = copy.copy(no_trans_heatmap)
     heatmap[:, :, 3] = alpha
+    heatmap[:, :, 3][activation < thresh] = 0
     heatmap = Image.fromarray((heatmap * 255).astype(np.uint8))
     no_trans_heatmap = Image.fromarray((no_trans_heatmap * 255).astype(np.uint8))
 
@@ -1939,14 +1940,15 @@ class AverageMeter(object):
         self.count = 0
 
     def update(self, val, n=1):
-        val = float(val)
-        self.mem.append(val)
-        self.avg = np.mean(list(self.mem))
+        ## way 1
+        # val = float(val)
+        # self.mem.append(val)
+        # self.avg = np.mean(list(self.mem))
         ## way 2
-        # self.val = val
-        # self.sum += val * n
-        # self.count += n
-        # self.avg = self.sum / self.count
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
 
 
 def extend_bbox(img_proc, bbox,

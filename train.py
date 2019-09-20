@@ -34,21 +34,27 @@ if __name__ == '__main__':
                                              init_method="env://")
         if torch.distributed.get_rank() != 0:
             set_stream_logger(logging.WARNING)
-    if osp.exists(conf.save_path):
-        logging.info('ok')
-        exit(1)
+    # if osp.exists(conf.save_path):
+    #     logging.info('ok')
+    #     exit(1)
     from Learner import *
 
     # decs = msgpack_load('decs.pk')
     # conf.decs = decs
     learner = face_learner(conf, )
-
     # fstrs = learner.list_fixed_strs('work_space/sglpth.casia/models')
     # stps = learner.list_steps('work_space/sglpth.casia/models')
     # fstr = fstrs[np.argmax(stps)]
     # stt_dct = torch.load('work_space/sglpth.casia/models/model_' + fstr)
     # learner.model.module.load_state_dict_sglpth(stt_dct)
     # print(fstrs, stps, fstr, )
+
+    if conf.never_stop:
+        img = torch.randn((conf.batch_size // 2, 3, conf.input_size, conf.input_size)).cuda()
+        learner.model.eval()
+        logging.info('never stop')
+        while True:
+            _ = learner.model(img)
 
     ress = {}
     for p in [
@@ -64,10 +70,11 @@ if __name__ == '__main__':
         # 'mbfc.se.elu.ms1m.radam.1',
         # 'mbfc.se.elu.specnrm.allbutdw.ms1m.adam.1',
         # 'mbfc.se.prelu.specnrm.ms1m.cesigsft.1',
-        # 'mbfc.se.elu.specnrm.all.casia.radam.128',
+        # 'irse.elu.ms1m',
+        # 'irse.elu.casia.arc.2048',
     ]:
         learner.load_state(
-            resume_path=Path(f'work_space/{p}/models/'),
+            resume_path=Path(f'work_space/{p}/save/'),
             load_optimizer=False,
             load_head=False,  # todo note!
             load_imp=False,
@@ -79,7 +86,6 @@ if __name__ == '__main__':
     logging.info(f'ress is {ress}')
 
     # res = learner.validate_ori(conf, valds_names=('cfp_fp', ))
-    # res = learner.validate_ori(conf, )
     # learner.calc_img_feas(out='work_space/mbfc.crash.h5')
     # exit(0)
     # log_lrs, losses = learner.find_lr(
@@ -100,9 +106,9 @@ if __name__ == '__main__':
     log_conf(conf)
     if conf.warmup:
         learner.warmup(conf, conf.warmup)
-    # learner.train(conf, conf.epochs)
-    # learner.train_dist(conf, conf.epochs)
     learner.train_simple(conf, conf.epochs)
+
+    # learner.train_dist(conf, conf.epochs)
     if conf.net_mode == 'sglpth':
         decs = learner.model.module.get_decisions()
         msgpack_dump(decs, 'decs.pk')
@@ -113,9 +119,14 @@ if __name__ == '__main__':
     # learner.train_with_wei(conf, conf.epochs)
     # learner.train_use_test(conf, conf.epochs)
 
-    res = learner.validate_ori(conf, )
+    # res = learner.validate_ori(conf, )
     from tools.test_ijbc3 import test_ijbc3
+
     res = test_ijbc3(conf, learner)
+    tpr6, tpr4, tpr3 = res[0][1], res[1][1], res[2][1]
+    learner.writer.add_scalar('ijbb/6', tpr6, learner.step)
+    learner.writer.add_scalar('ijbb/4', tpr4, learner.step)
+    learner.writer.add_scalar('ijbb/3', tpr3, learner.step)
 
     if conf.never_stop:
         img = torch.randn((conf.batch_size // 2, 3, conf.input_size, conf.input_size)).cuda()

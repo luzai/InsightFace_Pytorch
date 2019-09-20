@@ -155,6 +155,7 @@ class true_bottleneck_IR_SE(Module):  # this is botleneck block
         if in_channel == depth and stride == 1:
             self.shortcut_layer = Identity()
         else:
+            # todo arch ft
             self.shortcut_layer = Sequential(
                 nn.Conv2d(in_channel, depth, (1, 1), stride, bias=False),
                 *bn_act(depth, False, conf.ipabn)
@@ -180,21 +181,30 @@ class true_bottleneck_IR_SE(Module):  # this is botleneck block
 class bottleneck_IR_SE(Module):  # this is basic block
     def __init__(self, in_channel, depth, stride):
         super(bottleneck_IR_SE, self).__init__()
-        if conf.upgrade_irse and in_channel == depth and stride == 1:
-            self.shortcut_layer = Identity()
-        elif not conf.upgrade_irse and in_channel == depth:
-            self.shortcut_layer = MaxPool2d(kernel_size=1, stride=stride)
+        if not conf.spec_norm:
+            conv_op = nn.Conv2d
         else:
-            self.shortcut_layer = Sequential(
-                nn.Conv2d(in_channel, depth, (1, 1), stride, bias=False),
-                *bn_act(depth, False, conf.ipabn)
-            )
+            conv_op = lambda *args, **kwargs: nn.utils.spectral_norm(nn.Conv2d(*args, **kwargs))
+        if in_channel == depth and stride == 1:
+            self.shortcut_layer = Identity()
+        else:
+            if not conf.arch_ft:
+                self.shortcut_layer = Sequential(
+                    nn.Conv2d(in_channel, depth, (1, 1), stride, bias=False),
+                    *bn_act(depth, False, conf.ipabn)
+                )
+            else:
+                self.shortcut_layer = nn.Sequential(
+                    nn.AvgPool2d(kernel_size=2, stride=2),
+                    nn.Conv2d(in_channel, depth, 1, 1, bias=False),
+                    *bn_act(depth, False, conf.ipabn)
+                )
         if conf.upgrade_irse:
             self.res_layer = Sequential(
                 *bn_act(in_channel, False, conf.ipabn),
-                nn.Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
+                conv_op(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
                 *bn_act(depth, True, conf.ipabn),
-                nn.Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
+                conv_op(depth, depth, (3, 3), stride, 1, bias=False),
                 *bn_act(depth, False, conf.ipabn),
                 SEModule(depth, 16)
             )
@@ -207,13 +217,6 @@ class bottleneck_IR_SE(Module):  # this is basic block
                 BatchNorm2d(depth),
                 SEModule(depth, 16)
             )
-        # todo
-        # if zero_init_residual:
-        #     for m in self.modules():
-        #         if isinstance(m, Bottleneck):
-        #             nn.init.constant_(m.bn3.weight, 0)
-        #         elif isinstance(m, BasicBlock):
-        #             nn.init.constant_(m.bn2.weight, 0)
 
     def forward_ipabn(self, x):
         shortcut = self.shortcut_layer(x.clone())
@@ -309,30 +312,50 @@ class Backbone(Module):
                 unit_module = bottleneck_IR_SE
             else:
                 unit_module = true_bottleneck_IR_SE
-        self.input_layer = Sequential(nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False),
-                                      bn2d(64, conf.ipabn),
-                                      NonLin(64))
-        out_resolution = conf.input_size // 16
-        if conf.bottle_neck:
-            out_planes = 2048
+        if not conf.arch_ft:
+            self.input_layer = Sequential(nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False),
+                                          bn2d(64, conf.ipabn),
+                                          NonLin(64))
         else:
-            out_planes = 512
-        if conf.out_type=='fc':
+            self.input_layer = Sequential(nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False),
+                                          bn2d(64, conf.ipabn),
+                                          NonLin(64),
+                                          nn.Conv2d(64, 64, (3, 3), 1, 1, bias=False),
+                                          bn2d(64, conf.ipabn),
+                                          NonLin(64),
+                                          )
+        out_resolution = conf.input_size // 16
+
+        if conf.bottle_neck:
+            expansions = 4
+        else:
+            expansions = 1
+        out_planes = 512 * expansions
+        if conf.out_type == 'fc':
             self.output_layer = Sequential(
-            bn2d(out_planes, conf.ipabn),
-            Dropout(drop_ratio),
-            Flatten(),
-            nn.Linear(out_planes * out_resolution ** 2, ebsize,
-                      bias=True if not conf.upgrade_bnneck else False),
-            nn.BatchNorm1d(ebsize))
-        elif conf.out_type=='gpool':
-            self.output_layers = nn.Sequential(
-            bn2d(out_planes, conf.ipabn),
-            nn.AdaptiveAvgPool2d(1),
-            Flatten(),
-            nn.Linear(out_planes, ebsize, bias=False),
-            nn.BatchNorm1d(ebsize),
-        )
+                bn2d(out_planes, conf.ipabn),
+                Dropout(drop_ratio),
+                Flatten(),
+                nn.Linear(out_planes * out_resolution ** 2, ebsize,
+                          bias=True if not conf.upgrade_bnneck else False),
+                nn.BatchNorm1d(ebsize))
+            if conf.pfe:
+                self.output_layer_sigma = Sequential(
+                    bn2d(out_planes, conf.ipabn),
+                    Dropout(drop_ratio),
+                    Flatten(),
+                    nn.Linear(out_planes * out_resolution ** 2, ebsize,
+                              bias=True if not conf.upgrade_bnneck else False),
+                    nn.BatchNorm1d(ebsize))
+
+        elif conf.out_type == 'gpool':
+            self.output_layer = nn.Sequential(
+                bn2d(out_planes, conf.ipabn),
+                nn.AdaptiveAvgPool2d(1),
+                Flatten(),
+                nn.Linear(out_planes, ebsize, bias=False),
+                nn.BatchNorm1d(ebsize),
+            )
         modules = []
         for block in blocks:
             for bottleneck in block:
@@ -341,22 +364,96 @@ class Backbone(Module):
                                 bottleneck.depth,
                                 bottleneck.stride))
         self.body = Sequential(*modules)
+        if conf.mid_type == 'gpool':
+            self.fcs = nn.Sequential(
+                nn.Sequential(bn2d(64 * expansions, conf.ipabn),
+                              nn.AdaptiveAvgPool2d(1),
+                              Flatten(),
+                              nn.Linear(64 * expansions, ebsize, bias=False),
+                              nn.BatchNorm1d(ebsize), ),
+                nn.Sequential(bn2d(128 * expansions, conf.ipabn),
+                              nn.AdaptiveAvgPool2d(1),
+                              Flatten(),
+                              nn.Linear(128 * expansions, ebsize, bias=False),
+                              nn.BatchNorm1d(ebsize), ),
+                nn.Sequential(bn2d(256 * expansions, conf.ipabn),
+                              nn.AdaptiveAvgPool2d(1),
+                              Flatten(),
+                              nn.Linear(256 * expansions, ebsize, bias=False),
+                              nn.BatchNorm1d(ebsize), ),
+            )
+        elif conf.mid_type == 'fc':
+            self.fcs = nn.Sequential(
+                nn.Sequential(bn2d(64 * expansions, conf.ipabn),
+                              Dropout(drop_ratio),
+                              Flatten(),
+                              nn.Linear(64 * expansions * (out_resolution * 8) ** 2, ebsize, bias=False),
+                              nn.BatchNorm1d(ebsize), ),
+                nn.Sequential(bn2d(128 * expansions, conf.ipabn),
+                              Dropout(drop_ratio),
+                              Flatten(),
+                              nn.Linear(128 * expansions * (out_resolution * 4) ** 2, ebsize, bias=False),
+                              nn.BatchNorm1d(ebsize), ),
+                nn.Sequential(bn2d(256 * expansions, conf.ipabn),
+                              Dropout(drop_ratio),
+                              Flatten(),
+                              nn.Linear(256 * expansions * (out_resolution * 2) ** 2, ebsize, bias=False),
+                              nn.BatchNorm1d(ebsize), ),
+            )
+        else:
+            self.fcs = None
+        if conf.use_bl:
+            self.bls = nn.Sequential(
+                nn.Sequential(*[unit_module(64 * expansions, 64 * expansions, 1) for _ in range(3)]),
+                nn.Sequential(*[unit_module(128 * expansions, 128 * expansions, 1) for _ in range(2)]),
+                nn.Sequential(*[unit_module(256 * expansions, 256 * expansions, 1) for _ in range(1)]),
+            )
+        else:
+            self.bls = nn.Sequential(
+                Identity(),
+                Identity(),
+                Identity(),
+            )
+        self.fuse_wei = nn.Linear(4, 1, bias=False)
         self._initialize_weights()
+        if conf.pfe:
+            nn.init.constant_(self.output_layer_sigma[-1].weight, 0)
+            nn.init.constant_(self.output_layer_sigma[-1].bias, 1)
 
     def forward(self, inp, *args, **kwargs, ):
+        bs = inp.shape[0]
         if conf.input_size != inp.shape[-1]:
             inp = F.interpolate(inp, size=conf.input_size, mode='bilinear', align_corners=True)  # bicubic
         x = self.input_layer(inp)
         # x = self.body(x)
-        break_inds = [1, 3, 5, ]
+        if conf.net_depth == 18:
+            break_inds = [1, 3, 5, ]  # r18
+        else:
+            break_inds = [3 - 1, 3 + 4 - 1, 3 + 4 + 13 - 1, ]  # r50
         xs = []
+        shps = []
         for ind, layer in enumerate(self.body):
             x = layer(x)
+            shps.append(x.shape)
             if ind in break_inds:
                 xs.append(x)
         xs.append(x)
-        x = self.output_layer(x)
-        return x
+        if conf.mid_type:
+            v4 = self.output_layer(x)
+            v1 = self.fcs[0](self.bls[0](xs[0]))
+            v2 = self.fcs[1](self.bls[1](xs[1]))
+            v3 = self.fcs[2](self.bls[2](xs[2]))
+            v5 = self.fuse_wei(torch.stack([v1, v2, v3, v4], dim=-1)).view(bs, -1)
+            if conf.ds and self.training:
+                return [v5, v4, v3, v2, v1]
+            elif conf.ds and not self.training:
+                return v5
+        else:
+            v5 = self.output_layer(x)
+            if conf.pfe:
+                sigma = self.output_layer_sigma(x)
+                return v5, sigma
+        return v5
 
     def forward_ori(self, inp, *args, **kwargs):
         if conf.input_size != inp.shape[-1]:
@@ -408,6 +505,10 @@ class Backbone(Module):
                 nn.init.xavier_uniform_(m.weight.data)
                 if m.bias is not None:
                     m.bias.data.zero_()
+        # todo
+        for m in self.modules():
+            if isinstance(m, bottleneck_IR_SE):
+                nn.init.constant_(m.res_layer[5].weight, 0)
 
 
 class DoubleConv(nn.Module):
@@ -772,7 +873,6 @@ class MobileFaceNet(Module):
         out = self.conv_6_flatten(out)
         out = self.linear(out)
         out = self.bn(out)
-        # out = F.normalize(out, dim=1)
         if kwargs.get('use_of', False):
             return out, fea7x7
         else:
@@ -784,7 +884,6 @@ class CSMobileFaceNet(nn.Module):
         raise ValueError('deprecated')
 
 
-# nB = gl_conf.batch_size
 # nB = gl_conf.batch_size
 # idx_ = torch.arange(0, nB, dtype=torch.long)
 
@@ -1224,7 +1323,7 @@ class Arcface(Module):
         # kernel_norm = l2_norm(self.kernel, axis=0)  # 0 dim is emd dim
         # cos_theta = torch.mm(embeddings, kernel_norm).clamp(-1, 1)
         cos_theta = self.kernel(embeddings)
-        cos_theta = cos_theta / torch.norm(self.kernel.weight, dim=1)
+        cos_theta /= torch.norm(self.kernel.weight, dim=1)
         # torch.norm(cos_theta, dim=1)
         # stat(cos_theta)
         if label is None:
@@ -1248,8 +1347,8 @@ class Arcface(Module):
                 logging.info(f'pos_med: {torch.median(theta_pos).item():.2e} ' +
                              f'neg_med: {torch.median(theta_neg).item():.2e} '
                              )
-        output = cos_theta
-        cos_theta_need = cos_theta[idx_, label].clone()
+        output = cos_theta.clone()
+        cos_theta_need = cos_theta[idx_, label]
         theta = torch.acos(cos_theta_need)
         cos_theta_m = torch.cos(theta + self.m)
         cond_mask = (cos_theta_need - self.threshold) <= 0
@@ -1310,11 +1409,10 @@ class Arcface(Module):
         nB = embeddings.shape[0]
         idx_ = torch.arange(0, nB, dtype=torch.long)
         embeddings = F.normalize(embeddings, dim=1)
-        kernel_norm = l2_norm(self.kernel, axis=0)
-        cos_theta = torch.mm(embeddings, kernel_norm)
-
-        # cos_theta.clamp_(-1, 1)  # for numerical stability
-        # cos_theta_m = (cos_theta * self.cos_m - torch.sqrt((1 - torch.pow(cos_theta, 2))) * self.sin_m)
+        cos_theta = self.kernel(embeddings)
+        cos_theta /= torch.norm(self.kernel.weight, dim=1)
+        # kernel_norm = l2_norm(self.kernel, axis=0)
+        # cos_theta = torch.mm(embeddings, kernel_norm)
 
         cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability
         cos_theta_2 = torch.pow(cos_theta, 2)
@@ -1447,14 +1545,15 @@ class ArcfaceNeg(Module):
                 logging.info(f'pos_med: {torch.median(theta_pos).item():.2e} ' +
                              f'neg_med: {torch.median(theta_neg).item():.2e} '
                              )
-        output = cos_theta
+        output = cos_theta.clone()
         if self.m != 0:
-            cos_theta_need = cos_theta[idx_, label].clone()
+            cos_theta_need = cos_theta[idx_, label]
             theta = torch.acos(cos_theta_need)
             cos_theta_m = torch.cos(theta + self.m)
             cond_mask = (cos_theta_need - self.threshold) <= 0  # those should be replaced
             if torch.any(cond_mask).item():
                 logging.info(f'this concatins a difficult sample, {cond_mask.sum().item()}')
+                # exit(1)
             output[idx_, label] = cos_theta_m.type_as(output)
         if self.m2 != 0:
             with torch.no_grad():
@@ -1463,20 +1562,20 @@ class ArcfaceNeg(Module):
                 topk = conf.topk
                 topkind = torch.argsort(cos_theta_neg, dim=1)[:, -topk:]
                 idx = torch.stack([idx_] * topk, dim=1)
-            cos_theta_neg_need = cos_theta[idx, topkind].clone()
+            cos_theta_neg_need = cos_theta[idx, topkind]
             theta = torch.acos(cos_theta_neg_need)
             cos_theta_neg_m = torch.cos(theta - self.m2)
             cond_mask = (cos_theta_neg_need >= self.threshold2)  # < is masked is what should not be replaced
             if torch.any(cond_mask).item():
                 logging.info(f'neg concatins difficult samples '
                              f'{(cond_mask).sum().item()}')
+                # exit(1)
             output[idx, topkind] = cos_theta_neg_m.type_as(output)
         output *= self.s  # scale up in order to make softmax work, first introduced in normface
         self.step += 1
         return output
 
     forward = forward_eff_v2
-
 
 
 class CosFace(Module):
@@ -1655,15 +1754,18 @@ if __name__ == '__main__':
     init_dev(3)
     conf.input_size = 112
     conf.embedding_size = 512
-    conf.bottle_neck = True  # False
+    conf.bottle_neck = False
     # conf.mbfc_se = False
-    # model = Backbone(18, 0.3, 'ir_se')
-    model = MobileFaceNet(conf.embedding_size,
-                          width_mult=1,
-                          depth_mult=1,
-                          )
+    conf.net_depth = 18
+    conf.out_type = 'fc'
+    conf.mid_type = ''  # 'gpool'
+    model = Backbone(conf.net_depth, 0.3, 'ir_se', ebsize=512)
+    # model = MobileFaceNet(2048,
+    #                       width_mult=1,
+    #                       depth_mult=1,)
     model.eval()
     model.cuda()
+    print(model)
     # params = []
     # # wmdm = "1.0,2.25 1.1,1.86 1.2,1.56 1.3,1.33 1.4,1.15 1.5,1.0".split(' ') # 1,2 1.56,2  1.0,1.0
     # wmdm = "1.2,1.56".split(' ')
@@ -1703,12 +1805,12 @@ if __name__ == '__main__':
     input = torch.randn(1, 3, conf.input_size, conf.input_size).cuda()
     flops, params = profile(model, inputs=(input,),
                             # only_ops=(nn.Conv2d, nn.Linear),
-                            # device='cpu',
+                            verbose=False,
                             )
     flops /= 10 ** 9
     params /= 10 ** 6
     print(params, flops, )
-    exit(0)
+    exit(1)
     classifier = AdaMArcface(classnum=10).cuda()
     classifier.train()
     model.train()

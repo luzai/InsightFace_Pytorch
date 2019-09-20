@@ -164,8 +164,8 @@ class EfficientNet(nn.Module):
         in_channels = block_args.output_filters  # output of final block
         # out_channels = round_filters(1280, self._global_params)
         out_channels = conf.embedding_size
-        # self._conv_head = Conv2dSamePadding(in_channels, out_channels, kernel_size=1, bias=False)
-        # self._bn1 = nn.BatchNorm2d(num_features=out_channels, momentum=bn_mom, eps=bn_eps)
+        self._conv_head = Conv2dSamePadding(in_channels, out_channels, kernel_size=1, bias=False)
+        self._bn1 = nn.BatchNorm2d(num_features=out_channels, momentum=bn_mom, eps=bn_eps)
 
         # Final linear layer
         # self._dropout = self._global_params.dropout_rate
@@ -205,12 +205,12 @@ class EfficientNet(nn.Module):
         x = self.extract_features(inputs)
 
         # Head
-        # x = relu_fn(self._bn1(self._conv_head(x)))
-        # x = F.adaptive_avg_pool2d(x, 1).squeeze(-1).squeeze(-1)
-        x = self.pool(x).squeeze(-1).squeeze(-1)
+        x = relu_fn(self._bn1(self._conv_head(x)))
+        x = F.adaptive_avg_pool2d(x, 1).squeeze(-1).squeeze(-1)
+        # x = self.pool(x).squeeze(-1).squeeze(-1)
         # if self._dropout:
         #     x = F.dropout(x, p=self._dropout, training=self.training)
-        x = self.new_fc(x)
+        # x = self.new_fc(x)
         x = self.new_bn1(x)
         return x
 
@@ -248,13 +248,15 @@ if __name__ == '__main__':
     lz.init_dev(3)
     name = 'efficientnet-b0'
     model = EfficientNet.from_name(name)
+    # model = EfficientNet.from_pretrained(name)
     imgsize = EfficientNet.get_image_size(name)
     conf.input_size = imgsize
+    print(model)
     from thop import profile
-
-    flops, params = profile(model, input_size=(1, 3, 128, 128),
+    flops, params = profile(model,
+                            (torch.rand((1, 3, 128, 128)),),
                             # only_ops=(nn.Conv2d, nn.Linear),
-                            device='cuda:0',
+                            verbose=False
                             )
     flops /= 10 ** 9
     params /= 10 ** 6

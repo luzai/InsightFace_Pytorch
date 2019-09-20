@@ -6,23 +6,23 @@ from torch.nn import CrossEntropyLoss
 from tools.vat import VATLoss
 from torchvision import transforms as trans
 
-# todo label smooth
+# torch.autograd.set_detect_anomaly(True)
 # print = lambda x: logging.info(f'do not prt {x}')
 dist = False
-num_devs = 4
+num_devs = 2
 if dist:
     num_devs = 1
 else:
     # lz.init_dev(lz.get_dev(num_devs, ok=(2, 3)))
     lz.init_dev(lz.get_dev(num_devs))
-    # lz.init_dev((0, 1, 2, 3,))
+    # lz.init_dev((3,))
 
 conf = edict()
 conf.num_workers = ndevs * 6
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
-conf.loss = 'arcface'  # adamarcface adamrg adacos softmax arcface arcfaceneg cosface arcsinmrg
+conf.loss = 'arcfaceneg'  # adamarcface adamrg adacos softmax arcface arcfaceneg cosface arcsinmrg
 
 conf.writer = None
 conf.local_rank = None
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/irse.elu.casia.gpool')
+conf.work_path = Path('work_space/irse.casia.elu.arcneg.1.3.15.bak')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -44,11 +44,11 @@ asia_emore = conf.data_path / 'asia_emore'
 glint_test = conf.data_path / 'glint_test'
 alpha_f64 = conf.data_path / 'alpha_f64'
 alpha_jk = conf.data_path / 'alpha_jk'
-casia_folder = conf.data_path / 'casia'  # the cleaned one todo may need the other for exploring the noise
+# casia_folder = conf.data_path / 'casia'  # the cleaned one todo may need the other for exploring the noise
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = casia_folder
+conf.use_data_folder = dingyi_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
 conf.clean_ids = None  # np.asarray(msgpack_load(root_path + 'train.configs/noise.20.pk', allow_np=False))
 
@@ -66,8 +66,8 @@ conf.mining = 'rand.id'  # todo balance opt # 'dop' 'imp' rand.img(slow) rand.id
 conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
 conf.rand_ratio = 9 / 27
 
-conf.margin = .5  # todo do not forget if use adacos!
-conf.margin2 = .2
+conf.margin = .3  # todo do not forget if use adacos!
+conf.margin2 = .1
 conf.topk = 15
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
@@ -78,7 +78,7 @@ conf.instances = 4
 conf.phi = 1.9
 conf.input_rg_255 = False
 conf.input_size = 112  # 128 224 112
-conf.embedding_size = 512
+conf.embedding_size = 512 # 2048#
 conf.drop_ratio = .4
 conf.conv2dmask_drop_ratio = .2
 conf.lambda_runtime_reg = 5
@@ -127,14 +127,14 @@ conf.mutual_learning = 0
 
 conf.fp16 = True
 conf.opt_level = "O1"
-conf.batch_size = 220 * num_devs
+conf.batch_size = 200 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
 conf.log_interval = 999
 conf.need_tb = True
 conf.other_every = None  # 11
 conf.num_recs = 1
-conf.acc_grad = 1
+conf.acc_grad = 2
 # --------------------Training Config ------------------------
 conf.weight_decay = 5e-4  # 4e-5 5e-4, 1e-6 for 1e-3, 0.3 for 3e-3
 conf.use_opt = 'sgd'  # adabound adam radam
@@ -161,7 +161,13 @@ conf.use_act = "elu"
 conf.bottle_neck = False
 conf.never_stop = False
 conf.n_sma = 5
-conf.out_type='gpool'
+conf.out_type = 'fc'
+conf.mid_type = ''  # 'gpool'  # 'fc'
+conf.use_bl = False
+conf.arch_ft = True
+conf.pfe = False
+conf.ds = False
+
 
 # todo may use kl_div to speed up
 class CrossEntropyLabelSmooth(nn.Module):

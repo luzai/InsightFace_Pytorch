@@ -259,6 +259,7 @@ if __name__ == '__main__':
     # 
     # l3 = nn.utils.spectral_norm(l, name ='weight_v')
     # l3.weight_v_v
-
-    cleanup()
+    while True:
+        cleanup()
+        time.sleep(60*10)
 
