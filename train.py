@@ -38,16 +38,16 @@ if __name__ == '__main__':
     #     logging.info('ok')
     #     exit(1)
 
-    conf.need_log = False
-    bs = conf.batch_size * 2
-    conf.ipabn = False
-    conf.cvt_ipabn = False
-    conf.arch_ft = False
-    conf.use_act = 'prelu'
-    conf.net_depth = 100
-    conf.net_mode = 'ir_se'
-    conf.embedding_size = 512
-    conf.input_size = 128
+    # conf.need_log = False
+    # bs = conf.batch_size * 2
+    # conf.ipabn = False
+    # conf.cvt_ipabn = False
+    # conf.arch_ft = False
+    # conf.use_act = 'prelu'
+    # conf.net_depth = 100
+    # conf.net_mode = 'ir_se'
+    # conf.embedding_size = 512
+    # conf.input_size = 128
 
     from Learner import *
 
@@ -63,7 +63,7 @@ if __name__ == '__main__':
 
     ress = {}
     for p in [
-        'r100.128.retina.clean.arc',
+        # 'r100.128.retina.clean.arc',
         # 'hrnet.retina.arc.3',
         # 'mbv3.retina.arc',
         # 'mbfc.lrg.retina.arc.s48',
@@ -90,9 +90,9 @@ if __name__ == '__main__':
         # logging.warning(f'{p} res: {res}')
     logging.info(f'ress is {ress}')
 
-    res = learner.validate_ori(conf, valds_names=('cfp_fp', ))
+    # res = learner.validate_ori(conf, valds_names=('cfp_fp', ))
+    # exit(1)
     # learner.calc_img_feas(out='work_space/mbfc.crash.h5')
-    exit(1)
     # log_lrs, losses = learner.find_lr(
     #                                   num=999,
     #                                   bloding_scale=1000)

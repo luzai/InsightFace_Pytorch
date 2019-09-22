@@ -370,12 +370,14 @@ class Backbone(Module):
                 nn.BatchNorm1d(ebsize),
             )
         modules = []
-        for block in blocks:
+        for ind, block in enumerate(blocks):
             for bottleneck in block:
                 modules.append(
                     unit_module(bottleneck.in_channel,
                                 bottleneck.depth,
-                                bottleneck.stride))
+                                bottleneck.stride,
+                                use_in=ind==0 if conf.use_in else False,
+                                ))
         self.body = Sequential(*modules)
         if conf.mid_type == 'gpool':
             self.fcs = nn.Sequential(
@@ -1767,13 +1769,13 @@ if __name__ == '__main__':
     from pathlib import Path
 
     init_dev(3)
-    conf.input_size = 112
-    conf.embedding_size = 512
-    conf.bottle_neck = False
+    # conf.input_size = 112
+    # conf.embedding_size = 512
+    # conf.bottle_neck = False
     # conf.mbfc_se = False
-    conf.net_depth = 18
-    conf.out_type = 'fc'
-    conf.mid_type = ''  # 'gpool'
+    # conf.net_depth = 18
+    # conf.out_type = 'fc'
+    # conf.mid_type = ''  # 'gpool'
     model = Backbone(conf.net_depth, 0.3, 'ir_se', ebsize=512)
     # model = MobileFaceNet(2048,
     #                       width_mult=1,

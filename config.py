@@ -164,11 +164,11 @@ conf.n_sma = 5
 conf.out_type = 'fc'
 conf.mid_type = ''  # 'gpool'  # 'fc'
 conf.use_bl = False
-conf.arch_ft = True
+conf.arch_ft = True#maybe this improves
 conf.pfe = False
 conf.ds = False
 conf.use_in = False
-conf.sigmoid_mult = 2
+conf.sigmoid_mult = 2# may better
 
 
 # todo may use kl_div to speed up
