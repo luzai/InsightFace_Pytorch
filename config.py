@@ -78,7 +78,7 @@ conf.instances = 4
 conf.phi = 1.9
 conf.input_rg_255 = False
 conf.input_size = 112  # 128 224 112
-conf.embedding_size = 512 # 2048#
+conf.embedding_size = 512  # 2048#
 conf.drop_ratio = .4
 conf.conv2dmask_drop_ratio = .2
 conf.lambda_runtime_reg = 5
@@ -167,6 +167,8 @@ conf.use_bl = False
 conf.arch_ft = True
 conf.pfe = False
 conf.ds = False
+conf.use_in = False
+conf.sigmoid_mult = 2
 
 
 # todo may use kl_div to speed up

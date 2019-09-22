@@ -59,10 +59,10 @@ def main(args):
         net.model.set_params(net.arg_params, net.aux_params)
     else:
         model_prefix, epoch = args.model.split(',')
-        sys.path.insert(0, '/home/zl/prj/InsightFace_Pytorch/')
+        sys.path.insert(0,  os.environ['HOME'] + '/prj/InsightFace_Pytorch/')
         from config import conf
         gpuid = 0
-        conf.ipabn = False  # todo
+        conf.ipabn = False
         conf.need_log = False
         from Learner import face_learner, FaceInfer
         learner = FaceInfer(conf, gpuid)

@@ -744,9 +744,9 @@ class FaceInfer():
             assert conf.input_size == imgsize, imgsize
         else:
             raise ValueError(conf.net_mode)
-        self.model = self.model.eval()
         self.model = torch.nn.DataParallel(self.model,
                                            device_ids=list(gpuid), output_device=gpuid[0]).to(gpuid[0])
+        self.model = self.model.eval()
 
     def load_model_only(self, fpath):
         model_state_dict = torch.load(fpath, map_location=lambda storage, loc: storage)
@@ -1115,7 +1115,7 @@ class face_learner(object):
 
     def count_flops(self):
         from thop import profile
-        flops, params = profile(self.model,(torch.rand(1,3,112,112), ))
+        flops, params = profile(self.model, (torch.rand(1, 3, 112, 112),))
         return flops, params
 
     def train_dist(self, conf, epochs):
@@ -2513,7 +2513,7 @@ class face_learner(object):
                         embeddings[idx:] = l2_norm(emb_batch)
                     else:
                         embeddings[idx:] = self.model(batch.cuda()).cpu()
-            # lz.msgpack_dump(embeddings,'/tmp/cfpfp.2.pk' )
+            lz.msgpack_dump(embeddings, '/tmp/cfpfp.pk')
             tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
             res = accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
             # buf = gen_plot(fpr, tpr)

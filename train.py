@@ -4,6 +4,7 @@ import torch
 from lz import *
 from config import conf
 from pathlib import Path
+from exargs import parser
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
@@ -15,7 +16,6 @@ def log_conf(conf):
     logging.info(f'training conf is {conf2}')
 
 
-from exargs import parser
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -37,6 +37,18 @@ if __name__ == '__main__':
     # if osp.exists(conf.save_path):
     #     logging.info('ok')
     #     exit(1)
+
+    conf.need_log = False
+    bs = conf.batch_size * 2
+    conf.ipabn = False
+    conf.cvt_ipabn = False
+    conf.arch_ft = False
+    conf.use_act = 'prelu'
+    conf.net_depth = 100
+    conf.net_mode = 'ir_se'
+    conf.embedding_size = 512
+    conf.input_size = 128
+
     from Learner import *
 
     # decs = msgpack_load('decs.pk')
@@ -49,16 +61,9 @@ if __name__ == '__main__':
     # learner.model.module.load_state_dict_sglpth(stt_dct)
     # print(fstrs, stps, fstr, )
 
-    if conf.never_stop:
-        img = torch.randn((conf.batch_size // 2, 3, conf.input_size, conf.input_size)).cuda()
-        learner.model.eval()
-        logging.info('never stop')
-        while True:
-            _ = learner.model(img)
-
     ress = {}
     for p in [
-        # 'r100.128.retina.clean.arc',
+        'r100.128.retina.clean.arc',
         # 'hrnet.retina.arc.3',
         # 'mbv3.retina.arc',
         # 'mbfc.lrg.retina.arc.s48',
@@ -85,9 +90,9 @@ if __name__ == '__main__':
         # logging.warning(f'{p} res: {res}')
     logging.info(f'ress is {ress}')
 
-    # res = learner.validate_ori(conf, valds_names=('cfp_fp', ))
+    res = learner.validate_ori(conf, valds_names=('cfp_fp', ))
     # learner.calc_img_feas(out='work_space/mbfc.crash.h5')
-    # exit(0)
+    exit(1)
     # log_lrs, losses = learner.find_lr(
     #                                   num=999,
     #                                   bloding_scale=1000)
@@ -127,6 +132,7 @@ if __name__ == '__main__':
     learner.writer.add_scalar('ijbb/6', tpr6, learner.step)
     learner.writer.add_scalar('ijbb/4', tpr4, learner.step)
     learner.writer.add_scalar('ijbb/3', tpr3, learner.step)
+    learner.writer.close()
 
     if conf.never_stop:
         img = torch.randn((conf.batch_size // 2, 3, conf.input_size, conf.input_size)).cuda()

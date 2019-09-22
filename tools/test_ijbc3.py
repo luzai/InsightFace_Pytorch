@@ -20,7 +20,7 @@ os.chdir(lz.root_path)
 bs = conf.batch_size * 2
 use_mxnet = False
 DIM = conf.embedding_size  # 512
-dump_mid_res = True
+dump_mid_res = False
 
 use_ijbx = 'IJBB'
 IJBC_path = '/data1/share/IJB_release/' if 'amax' in hostname() else '/home/zl/zl_data/IJB_release/'
@@ -234,11 +234,11 @@ def test_ijbc3(conf, learner):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--modelp',
-                        default='n2.irse.elu.casia.arcneg.15.0.48.0.02',
+                        # default='n2.irse.elu.casia.arcneg.15.0.48.0.02',
                         # 'irse.elu.casia.arc.ft',
                         # 'n2.irse.elu.casia.arcneg.15.0.4.0.1',
                         # 'irse.elu.casia.arc.mid.bl.ds',
-                        # 'r100.128.retina.clean.arc',
+                        default='r100.128.retina.clean.arc',
                         type=str)
     args = parser.parse_args()
     # lz.init_dev(lz.get_dev(2))
@@ -255,17 +255,17 @@ if __name__ == '__main__':
 
         conf.need_log = False
         bs = conf.batch_size * 2
-        conf.fp16 = True
         conf.ipabn = False
         conf.cvt_ipabn = False
-        # conf.ds = True
-        # conf.use_bl = True
-        # conf.mid_type = 'gpool'
-        # conf.net_depth = 100
-        # conf.net_mode = 'ir_se'
-        # conf.embedding_size = 512
-        # conf.input_size = 128
-        conf.use_chkpnt = False
+        conf.arch_ft = False
+        conf.use_act = 'prelu'
+        conf.net_depth = 100
+        conf.net_mode = 'ir_se'
+        conf.embedding_size = 512
+        conf.input_size = 128
+        conf.ds = False
+        conf.use_bl = False
+        conf.mid_type = ''  # 'gpool'
         from Learner import FaceInfer, face_learner
 
         gpuid = list(map(int, os.environ['CUDA_VISIBLE_DEVICES'].split(',')))

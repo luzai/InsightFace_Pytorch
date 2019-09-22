@@ -87,10 +87,10 @@ python tools/clean.py &
 #done
 #done
 
-for times in 1 2 3
-do
-python train.py --epochs 18 --work_path work_space/irse.elu.casia.arc.ft.$times --batch_size 512 --acc_grad 2 --loss 'arcface' --margin .5 --ds False --embedding_size 512 --arch_ft True
-done
+#for times in 1 2 3
+#do
+#python train.py --epochs 18 --work_path work_space/irse.elu.casia.arc.ft.$times --batch_size 512 --acc_grad 2 --loss 'arcface' --margin .5 --ds False --embedding_size 512 --arch_ft True
+#done
 
 #python train.py --epochs 18 --work_path work_space/irse.elu.casia.arc --batch_size 512 --acc_grad 2 --loss 'arcface' --margin .5 --ds False --embedding_size 512 --arch_ft False
 
@@ -104,17 +104,17 @@ done
 
 #python train.py --epochs 18 --work_path work_space/irse.elu.casia.arc.mid.bl.ds --batch_size 440 --acc_grad 2 --loss 'arcface' --margin .5 --ds True --mid_type gpool
 
-#for topk in 15
-#do
-#for scale in 48
-#do
-#for wmdm in  0.48,0.02 0.35,0.15 0.4,0.1 0.45,0.05 0.3,0.1
-#do
-#IFS=","; set -- $wmdm;
-#margin=$1; margin2=$2; echo $margin and $margin2
-#python train.py --epochs 18 --work_path work_space/n2.irse.elu.casia.arcneg.$topk.$margin.$margin2 --batch_size 512 --acc_grad 2 --loss 'arcfaceneg' --scale $scale --margin $margin --margin2 $margin2  --topk $topk --ds False
-#done
-#done
-#done
+for topk in 5
+do
+for scale in 48
+do
+for wmdm in  0.48,0.02 0.35,0.15 0.4,0.1 0.45,0.05 0.3,0.1
+do
+IFS=","; set -- $wmdm;
+margin=$1; margin2=$2; echo $margin and $margin2
+python train.py --epochs 18 --work_path work_space/n2.irse.elu.casia.arcneg.$topk.$margin.$margin2.specnrm --batch_size 512 --acc_grad 2 --loss 'arcfaceneg' --scale $scale --margin $margin --margin2 $margin2  --topk $topk --ds False --spec_norm True
+done
+done
+done
 
 

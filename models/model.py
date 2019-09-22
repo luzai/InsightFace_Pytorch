@@ -26,6 +26,11 @@ class Flatten(Module):
         return input.view(input.size(0), -1)
 
 
+class Identity(Module):
+    def forward(self, x):
+        return x
+
+
 class Swish(nn.Module):
     def __init__(self, *args):
         super(Swish, self).__init__()
@@ -57,7 +62,7 @@ else:
 
 
 class SEModule(nn.Module):
-    def __init__(self, channels, reduction=4, mult=2):
+    def __init__(self, channels, reduction=4, mult=conf.sigmoid_mult):
         super(SEModule, self).__init__()
         self.avg_pool = AdaptiveAvgPool2d(1)
         self.fc1 = nn.Conv2d(
@@ -65,7 +70,8 @@ class SEModule(nn.Module):
         self.relu = NonLin(channels // reduction) if conf.upgrade_irse else nn.ReLU(inplace=True)
         self.fc2 = nn.Conv2d(
             channels // reduction, channels, kernel_size=1, padding=0, bias=False)
-        self.sigmoid = nn.Sigmoid()  # nn.Tanh() #
+        # todo tanh+1 or sigmoid or sigmoid*2
+        self.sigmoid = nn.Sigmoid()  # nn.Tanh()
         self.mult = mult
         nn.init.xavier_uniform_(self.fc1.weight.data)
         nn.init.xavier_uniform_(self.fc2.weight.data)
@@ -114,9 +120,10 @@ def bn2d(depth, ipabn=None):
         return BatchNorm2d(depth)
 
 
-# todo gl_conf.upgrade_irse
+# @deprecated
+# todo gl_conf.upgrade_ir
 class bottleneck_IR(Module):
-    def __init__(self, in_channel, depth, stride):
+    def __init__(self, in_channel, depth, stride, ):
         super(bottleneck_IR, self).__init__()
         ipabn = conf.ipabn
         if in_channel == depth:
@@ -142,11 +149,6 @@ class bottleneck_IR(Module):
         shortcut = self.shortcut_layer(x)
         res = self.res_layer(x)
         return res + shortcut
-
-
-class Identity(Module):
-    def forward(self, x):
-        return x
 
 
 class true_bottleneck_IR_SE(Module):  # this is botleneck block
@@ -179,7 +181,7 @@ class true_bottleneck_IR_SE(Module):  # this is botleneck block
 
 
 class bottleneck_IR_SE(Module):  # this is basic block
-    def __init__(self, in_channel, depth, stride):
+    def __init__(self, in_channel, depth, stride, use_in=False):
         super(bottleneck_IR_SE, self).__init__()
         if not conf.spec_norm:
             conv_op = nn.Conv2d
@@ -199,35 +201,34 @@ class bottleneck_IR_SE(Module):  # this is basic block
                     nn.Conv2d(in_channel, depth, 1, 1, bias=False),
                     *bn_act(depth, False, conf.ipabn)
                 )
-        if conf.upgrade_irse:
-            self.res_layer = Sequential(
-                *bn_act(in_channel, False, conf.ipabn),
-                conv_op(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
-                *bn_act(depth, True, conf.ipabn),
-                conv_op(depth, depth, (3, 3), stride, 1, bias=False),
-                *bn_act(depth, False, conf.ipabn),
-                SEModule(depth, 16)
-            )
+        assert conf.upgrade_irse
+        self.res_layer = Sequential(
+            *bn_act(in_channel, False, conf.ipabn),
+            conv_op(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
+            *bn_act(depth, True, conf.ipabn),
+            conv_op(depth, depth, (3, 3), stride, 1, bias=False),
+            *bn_act(depth, False, conf.ipabn),
+            SEModule(depth, 16)
+        )
+        if not use_in:
+            self.IN = None
         else:
-            self.res_layer = Sequential(
-                BatchNorm2d(in_channel),
-                nn.Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
-                NonLin(depth),
-                nn.Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
-                BatchNorm2d(depth),
-                SEModule(depth, 16)
-            )
+            self.IN = nn.InstanceNorm2d(depth, affine=True)
 
     def forward_ipabn(self, x):
         shortcut = self.shortcut_layer(x.clone())
         res = self.res_layer(x)
         res.add_(shortcut)
+        if self.IN:
+            res = self.IN(res)
         return res
 
     def forward_ori(self, x):
         shortcut = self.shortcut_layer(x)
         res = self.res_layer(x)
         res.add_(shortcut)
+        if self.IN:
+            res = self.IN(res)
         return res
 
     if conf.ipabn:
@@ -312,11 +313,11 @@ class Backbone(Module):
                 unit_module = bottleneck_IR_SE
             else:
                 unit_module = true_bottleneck_IR_SE
-        if not conf.arch_ft:
+        if not conf.arch_ft and not conf.use_in:
             self.input_layer = Sequential(nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False),
                                           bn2d(64, conf.ipabn),
                                           NonLin(64))
-        else:
+        elif conf.arch_ft and not conf.use_in:
             self.input_layer = Sequential(nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False),
                                           bn2d(64, conf.ipabn),
                                           NonLin(64),
@@ -324,6 +325,18 @@ class Backbone(Module):
                                           bn2d(64, conf.ipabn),
                                           NonLin(64),
                                           )
+        elif conf.arch_ft and conf.use_in:
+            self.input_layer = Sequential(nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False),
+                                          nn.InstanceNorm2d(64, affine=True),
+                                          NonLin(64),
+                                          nn.Conv2d(64, 64, (3, 3), 1, 1, bias=False),
+                                          nn.InstanceNorm2d(64, affine=True),
+                                          NonLin(64),
+                                          )
+        elif not conf.arch_ft and conf.use_in:
+            self.input_layer = Sequential(nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False),
+                                          nn.InstanceNorm2d(64, affine=True),
+                                          NonLin(64), )
         out_resolution = conf.input_size // 16
 
         if conf.bottle_neck:
@@ -408,13 +421,13 @@ class Backbone(Module):
                 nn.Sequential(*[unit_module(128 * expansions, 128 * expansions, 1) for _ in range(2)]),
                 nn.Sequential(*[unit_module(256 * expansions, 256 * expansions, 1) for _ in range(1)]),
             )
+            self.fuse_wei = nn.Linear(4, 1, bias=False)
         else:
             self.bls = nn.Sequential(
                 Identity(),
                 Identity(),
                 Identity(),
             )
-        self.fuse_wei = nn.Linear(4, 1, bias=False)
         self._initialize_weights()
         if conf.pfe:
             nn.init.constant_(self.output_layer_sigma[-1].weight, 0)
@@ -438,6 +451,7 @@ class Backbone(Module):
             if ind in break_inds:
                 xs.append(x)
         xs.append(x)
+        assert not judgenan(x)
         if conf.mid_type:
             v4 = self.output_layer(x)
             v1 = self.fcs[0](self.bls[0](xs[0]))
@@ -450,10 +464,11 @@ class Backbone(Module):
                 return v5
         else:
             v5 = self.output_layer(x)
+            assert not judgenan(v5)
             if conf.pfe:
                 sigma = self.output_layer_sigma(x)
                 return v5, sigma
-        return v5
+            return v5
 
     def forward_ori(self, inp, *args, **kwargs):
         if conf.input_size != inp.shape[-1]:
