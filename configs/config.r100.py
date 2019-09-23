@@ -6,17 +6,19 @@ from torch.nn import CrossEntropyLoss
 from tools.vat import VATLoss
 from torchvision import transforms as trans
 
+# torch.autograd.set_detect_anomaly(True)
+# print = lambda x: logging.info(f'do not prt {x}')
 dist = False
-num_devs =4
+num_devs = 2
 if dist:
     num_devs = 1
 else:
-    pass
-    lz.init_dev((0, 1, 2, 3))
-    # lz.init_dev(lz.get_dev(num_devs))
+    # lz.init_dev(lz.get_dev(num_devs, ok=(2, 3)))
+    lz.init_dev(lz.get_dev(num_devs))
+    # lz.init_dev((3,))
 
 conf = edict()
-conf.num_workers = ndevs * 4
+conf.num_workers = ndevs * 6
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
@@ -42,13 +44,14 @@ asia_emore = conf.data_path / 'asia_emore'
 glint_test = conf.data_path / 'glint_test'
 alpha_f64 = conf.data_path / 'alpha_f64'
 alpha_jk = conf.data_path / 'alpha_jk'
-casia_folder = conf.data_path / 'casia'  # the cleaned one todo may need the other for exploring the noise
+# casia_folder = conf.data_path / 'casia'  # the cleaned one todo may need the other for exploring the noise
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = dingyi_folder#retina_folder
+conf.use_data_folder = retina_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
-conf.clean_ids = msgpack_load(root_path + 'train.configs/noise.40.pk')
+conf.clean_ids = None  # np.asarray(msgpack_load(root_path + 'train.configs/noise.40.pk', allow_np=False))
+
 if conf.use_data_folder == ms1m_folder:
     conf.cutoff = 0
 elif conf.use_data_folder == glint_folder:
@@ -74,8 +77,8 @@ conf.instances = 4
 
 conf.phi = 1.9
 conf.input_rg_255 = False
-conf.input_size = 128  # 128 224 112
-conf.embedding_size = 512
+conf.input_size = 112  # 128 224 112
+conf.embedding_size = 512  # 2048#
 conf.drop_ratio = .4
 conf.conv2dmask_drop_ratio = .2
 conf.lambda_runtime_reg = 5
@@ -88,7 +91,7 @@ conf.mb_mult = 1.285
 # conf.mb_mult = 2.005 # 1.37
 conf.mbfc_wm = 1  # 1.2 ** conf.phi
 conf.mbfc_dm = 2  # 1.56 ** conf.phi
-conf.mbfc_se = False
+conf.mbfc_se = True
 conf.lpf = False
 conf.eff_name = 'efficientnet-b0'
 
@@ -96,7 +99,7 @@ conf.test_transform = trans.Compose([
     trans.ToTensor(),
     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
-conf.use_loader = 'torch'  # todo mxent lack valds path and testing speed
+conf.use_loader = 'dali'  # todo mxent lack val path and testing speed
 conf.flip = True
 
 conf.upgrade_irse = True
@@ -127,9 +130,9 @@ conf.opt_level = "O1"
 conf.batch_size = 140 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
-conf.log_interval = 105
+conf.log_interval = 999
 conf.need_tb = True
-conf.other_every = None if not conf.prof else 51
+conf.other_every = None  # 11
 conf.num_recs = 1
 conf.acc_grad = 2
 # --------------------Training Config ------------------------
@@ -144,13 +147,28 @@ conf.start_epoch = 0
 conf.start_step = 0
 # conf.epochs = 37
 # conf.milestones = (np.array([23, 32])).astype(int)
-conf.epochs = 76
+conf.epochs = 18
 conf.milestones = (np.array([9, 13])).astype(int)
-conf.warmup = 0  # conf.epochs/25 # 1 0
+conf.warmup = 1  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = .7
+conf.fill_cache = 0
+conf.val_ijbx = False
+conf.spec_norm = False
+conf.use_of = False
+conf.use_act = "elu"
+conf.bottle_neck = False
+conf.never_stop = False
+conf.n_sma = 5
+conf.out_type = 'fc'
+conf.mid_type = ''  # 'gpool'  # 'fc'
+conf.use_bl = False
+conf.arch_ft = True#maybe this improves
+conf.pfe = False
+conf.ds = False
+conf.use_in = False
+conf.sigmoid_mult = 2# may better
 
 
 # todo may use kl_div to speed up
@@ -185,7 +203,37 @@ class CrossEntropyLabelSmooth(nn.Module):
         return loss
 
 
-conf.ce_loss = CrossEntropyLoss()  # CrossEntropyLabelSmooth()
+class CrossEntropySigSoft(nn.Module):
+
+    def forward(self, inputs, targets):
+        log_probs = logsigsoftmax(inputs)
+        bs = inputs.shape[0]
+        idx_ = torch.arange(0, bs, dtype=torch.long)
+        log_probs2 = log_probs[idx_, targets]
+        loss = - log_probs2.mean()
+        return loss
+
+
+def logsigsoftmax(logits):
+    """
+    Computes sigsoftmax from the paper - https://arxiv.org/pdf/1805.10829.pdf
+    """
+    max_values = torch.max(logits, 1, keepdim=True)[0]
+    exp_logits_sigmoided = torch.exp(logits - max_values) * torch.sigmoid(logits)
+    sum_exp_logits_sigmoided = exp_logits_sigmoided.sum(1, keepdim=True)
+    log_probs = logits - max_values + F.logsigmoid(logits) - torch.log(sum_exp_logits_sigmoided)
+    return log_probs
+
+
+class CrossEntropySigSoft2(nn.Module):
+
+    def forward(self, inputs, targets):
+        inputs2 = inputs + F.logsigmoid(inputs / 10)  # todo
+        loss = F.cross_entropy(inputs2, targets)
+        return loss
+
+
+conf.ce_loss = CrossEntropyLoss()  # CrossEntropySigSoft2()  #   CrossEntropyLabelSmooth()
 if conf.use_test:
     conf.vat_loss_func = VATLoss(xi=1e-6, eps=8, ip=1)
 conf.need_log = True

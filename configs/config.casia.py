@@ -22,7 +22,7 @@ conf.num_workers = ndevs * 6
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
-conf.loss = 'arcface'  # adacos softmax arcface arcfaceneg cosface
+conf.loss = 'arcfaceneg'  # adamarcface adamrg adacos softmax arcface arcfaceneg cosface arcsinmrg
 
 conf.writer = None
 conf.local_rank = None
@@ -32,7 +32,7 @@ conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
 conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/r100.elu.arcft.in.retina.arc')
+conf.work_path = Path('work_space/irse.casia.elu.arcneg.1.3.15.bak')
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -48,9 +48,9 @@ alpha_jk = conf.data_path / 'alpha_jk'
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = retina_folder #dingyi_folder
+conf.use_data_folder = dingyi_folder
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
-conf.clean_ids = None  # np.asarray(msgpack_load(root_path + 'train.configs/noise.40.pk', allow_np=False))
+conf.clean_ids = None  # np.asarray(msgpack_load(root_path + 'train.configs/noise.20.pk', allow_np=False))
 
 if conf.use_data_folder == ms1m_folder:
     conf.cutoff = 0
@@ -66,8 +66,8 @@ conf.mining = 'rand.id'  # todo balance opt # 'dop' 'imp' rand.img(slow) rand.id
 conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
 conf.rand_ratio = 9 / 27
 
-conf.margin = .5  # todo do not forget if use adacos!
-conf.margin2 = .2
+conf.margin = .3  # todo do not forget if use adacos!
+conf.margin2 = .1
 conf.topk = 15
 conf.fgg = ''  # g gg ''
 conf.fgg_wei = 0  # 1
@@ -84,7 +84,7 @@ conf.conv2dmask_drop_ratio = .2
 conf.lambda_runtime_reg = 5
 conf.net_mode = 'ir_se'  # effnet mbfc sglpth hrnet mbv3 mobilefacenet ir_se resnext densenet widerresnet
 conf.decs = None
-conf.net_depth = 100  # 100 121 169 201 264 50 20
+conf.net_depth = 18  # 100 121 169 201 264 50 20
 conf.mb_mode = 'face.large'
 conf.mb_mult = 1.285
 # conf.mb_mode = 'face.small'
@@ -127,7 +127,7 @@ conf.mutual_learning = 0
 
 conf.fp16 = True
 conf.opt_level = "O1"
-conf.batch_size = 140 * num_devs
+conf.batch_size = 200 * num_devs
 conf.ftbs_mult = 2
 conf.board_loss_every = 15
 conf.log_interval = 999
@@ -136,12 +136,12 @@ conf.other_every = None  # 11
 conf.num_recs = 1
 conf.acc_grad = 2
 # --------------------Training Config ------------------------
-conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
-conf.use_opt = 'sgd'  # adabound
+conf.weight_decay = 5e-4  # 4e-5 5e-4, 1e-6 for 1e-3, 0.3 for 3e-3
+conf.use_opt = 'sgd'  # adabound adam radam
 conf.adam_betas1 = .9  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
 conf.final_lr = 1e-1
-conf.lr = 1e-1
+conf.lr = 1e-1  # 3e-3  #
 conf.lr_gamma = 0.1
 conf.start_epoch = 0
 conf.start_step = 0
@@ -164,11 +164,11 @@ conf.n_sma = 5
 conf.out_type = 'fc'
 conf.mid_type = ''  # 'gpool'  # 'fc'
 conf.use_bl = False
-conf.arch_ft = True  # maybe this improves
+conf.arch_ft = True#maybe this improves
 conf.pfe = False
 conf.ds = False
-conf.use_in = True
-conf.sigmoid_mult = 2  # may better
+conf.use_in = False
+conf.sigmoid_mult = 2# may better
 
 
 # todo may use kl_div to speed up

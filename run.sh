@@ -55,6 +55,9 @@ python tools/clean.py &
 #    python train.py --epochs 76 --work_path work_space/mbfc.se.prelu.adamarcface.ep76.$times --batch_size 400 --acc_grad 3 --fill_cache .7
 #done
 
+python train.py --epochs 18 --work_path work_space/r100.retina.elu.arcft.in.specnrm.ranger.lr3e-3 --batch_size 320 --acc_grad 4 --loss 'arcface' --lr 0.003 --use_opt 'ranger' --weight_decay 0.00004 --adam_betas1 0.95 --n_sma 4 --spec_norm True --margin .5 --use_in True
+
+#python train.py --epochs 18 --work_path work_space/r100.retina.elu.arcft.in.specnrm --batch_size 156 --acc_grad 4 --loss 'arcface' --spec_norm True --margin .5 --use_in True
 
 #for times in 1
 #do
@@ -73,19 +76,19 @@ python tools/clean.py &
 #done
 #done
 
-for times in 1
-do
-for scale in 48
-do
-for betas1 in 0.95
-do
-for n_sma in 4
-do
-    python train.py --epochs 18 --work_path work_space/n1.irse.elu.casia.ranger.lr3e-3.$scale.$betas1.$n_sma.in.$times --batch_size 512 --acc_grad 2 --loss 'arcface' --lr 0.003 --use_opt 'ranger' --weight_decay 0.00004 --scale $scale --adam_betas1 $betas1 --n_sma $n_sma --spec_norm True --margin .5 --use_in True
-done
-done
-done
-done
+#for times in 1
+#do
+#for scale in 48
+#do
+#for betas1 in 0.95
+#do
+#for n_sma in 4
+#do
+#    python train.py --epochs 18 --work_path work_space/n1.irse.elu.casia.ranger.lr3e-3.$scale.$betas1.$n_sma.in.$times --batch_size 512 --acc_grad 2 --loss 'arcface' --lr 0.003 --use_opt 'ranger' --weight_decay 0.00004 --scale $scale --adam_betas1 $betas1 --n_sma $n_sma --spec_norm True --margin .5 --use_in True
+#done
+#done
+#done
+#done
 
 #for times in 1 2 3
 #do

@@ -8,6 +8,19 @@ import mxnet as mx
 import torch
 
 
+def trunct_idx():
+    base = "/data1/share/ms1m-retinaface-t1/"
+    df = pd.read_csv(base + '/train.idx', sep='\t', header=None)
+    ((df[1].diff() == 40).values).sum()
+
+    tmp = df[1].diff() != 40
+    tmp = tmp.values.tolist()
+    tmp = tmp[1:] + [False]
+    tmp = np.asarray(tmp)
+    clean_df = df[tmp]
+    clean_df.to_csv(base + '/train.tc.idx', sep='\t', header=False, index=False)
+
+
 def main1():
     parser = argparse.ArgumentParser(description='for face verification')
     parser.add_argument("-e", "--epochs", help="training epochs", default=8, type=int)
@@ -261,5 +274,4 @@ if __name__ == '__main__':
     # l3.weight_v_v
     while True:
         cleanup()
-        time.sleep(60*10)
-
+        time.sleep(60 * 10)
