@@ -77,11 +77,12 @@ if __name__ == '__main__':
         # 'mbfc.se.prelu.specnrm.ms1m.cesigsft.1',
         # 'irse.elu.ms1m',
         # 'irse.elu.casia.arc.2048',
+        # 'r100.retina.elu.arcft.in.specnrm.ranger.lr3e-3',
     ]:
         learner.load_state(
-            resume_path=Path(f'work_space/{p}/save/'),
-            load_optimizer=False,
-            load_head=False,  # todo note!
+            resume_path=Path(f'work_space/{p}/models/'),
+            load_optimizer=True,
+            load_head=True,  # todo note!
             load_imp=False,
             latest=True,
         )

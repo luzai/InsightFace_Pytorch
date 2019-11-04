@@ -463,7 +463,8 @@ class Backbone(Module):
             if conf.ds and self.training:
                 return [v5, v4, v3, v2, v1]
             elif conf.ds and not self.training:
-                return v5
+                return v5 # todo for test mid performance
+                # return v3
         else:
             v5 = self.output_layer(x)
             assert not judgenan(v5)

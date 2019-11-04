@@ -238,7 +238,9 @@ if __name__ == '__main__':
                         # 'irse.elu.casia.arc.ft',
                         # 'n2.irse.elu.casia.arcneg.15.0.4.0.1',
                         # 'irse.elu.casia.arc.mid.bl.ds',
-                        default='r100.128.retina.clean.arc',
+                        default='irse.elu.casia.arc.mid.bl.ds.9',
+                        # 'r100.128.retina.clean.arc',
+                        # default='r100.retina.elu.arcft.in.specnrm',
                         type=str)
     args = parser.parse_args()
     # lz.init_dev(lz.get_dev(2))
@@ -255,17 +257,18 @@ if __name__ == '__main__':
 
         conf.need_log = False
         bs = conf.batch_size * 2
-        conf.ipabn = False
-        conf.cvt_ipabn = False
-        conf.arch_ft = False
-        conf.use_act = 'prelu'
-        conf.net_depth = 100
+        # conf.ipabn = False
+        # conf.cvt_ipabn = False
+        # conf.arch_ft = False
+        # conf.use_act = 'prelu'
+        # conf.net_depth = 100
         conf.net_mode = 'ir_se'
         conf.embedding_size = 512
-        conf.input_size = 128
-        conf.ds = False
-        conf.use_bl = False
-        conf.mid_type = ''  # 'gpool'
+        # conf.input_size = 128
+        # conf.spec_norm = True
+        conf.ds = True
+        conf.use_bl = True
+        conf.mid_type = 'gpool' #''
         from Learner import FaceInfer, face_learner
 
         gpuid = list(map(int, os.environ['CUDA_VISIBLE_DEVICES'].split(',')))

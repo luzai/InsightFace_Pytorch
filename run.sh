@@ -55,9 +55,11 @@ python tools/clean.py &
 #    python train.py --epochs 76 --work_path work_space/mbfc.se.prelu.adamarcface.ep76.$times --batch_size 400 --acc_grad 3 --fill_cache .7
 #done
 
-python train.py --epochs 18 --work_path work_space/r100.retina.elu.arcft.in.specnrm.ranger.lr3e-3 --batch_size 320 --acc_grad 4 --loss 'arcface' --lr 0.003 --use_opt 'ranger' --weight_decay 0.00004 --adam_betas1 0.95 --n_sma 4 --spec_norm True --margin .5 --use_in True
+python train.py --epochs 18 --work_path work_space/r100.retina.elu.arcft.in.specnrm.ranger.lr3e-3.2 --batch_size 160 --acc_grad 4 --loss 'arcface' --lr 0.003 --use_opt 'ranger' --weight_decay 0.00004 --adam_betas1 0.95 --n_sma 4 --spec_norm True --margin .5 --use_in True --net_depth 100
 
 #python train.py --epochs 18 --work_path work_space/r100.retina.elu.arcft.in.specnrm --batch_size 156 --acc_grad 4 --loss 'arcface' --spec_norm True --margin .5 --use_in True
+
+#python train.py --epochs 1 --warmup 0 --work_path work_space/bak --never_stop True --batch_size 160
 
 #for times in 1
 #do
@@ -107,7 +109,7 @@ python train.py --epochs 18 --work_path work_space/r100.retina.elu.arcft.in.spec
 
 #python train.py --epochs 18 --work_path work_space/irse.elu.casia.arc.mid.bl --batch_size 480 --acc_grad 2 --loss 'arcface' --margin .5 --mid_type gpool --ds False
 
-#python train.py --epochs 18 --work_path work_space/irse.elu.casia.arc.mid.bl.ds --batch_size 440 --acc_grad 2 --loss 'arcface' --margin .5 --ds True --mid_type gpool
+#python train.py --epochs 18 --work_path work_space/irse.elu.casia.arc.midfc.bl.ds.9 --batch_size 180 --acc_grad 5 --loss 'arcface' --margin .5 --ds True --mid_type gpool --use_bl True
 
 #for topk in 5
 #do

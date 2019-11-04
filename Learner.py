@@ -1280,7 +1280,7 @@ class face_learner(object):
                 thetas = self.head(embeddings[0], labels)
                 loss_xent = conf.ce_loss(thetas, labels)
                 for i in range(4):
-                    loss_xent += 0.1 * conf.ce_loss(self.heads[i](embeddings[i + 1], labels), labels)
+                    loss_xent += .9 * conf.ce_loss(self.heads[i](embeddings[i + 1], labels), labels) # todo
             else:
                 thetas = self.head(embeddings, labels)
                 loss_xent = conf.ce_loss(thetas, labels)
