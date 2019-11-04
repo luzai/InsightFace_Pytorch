@@ -11,3 +11,5 @@
 - Install pytorch and other requirements by `pip install requirements.txt`. 
 - `cd ROOT_PATH`. Make sure execute following cmd in the root directory of project. 
 - train.py 
+
+Modified from [here](https://github.com/TreB1eN/InsightFace_Pytorch), credit to [TreB1eN](https://github.com/TreB1eN/). 
