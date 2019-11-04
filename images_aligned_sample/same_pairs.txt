@@ -1,3 +1,0 @@
-images_aligned_sample/10/00179.jpg  images_aligned_sample/10/00187.jpg
-images_aligned_sample/100/01806.jpg  images_aligned_sample/100/01804.jpg
-images_aligned_sample/1/00011.jpg  images_aligned_sample/1/00013.jpg

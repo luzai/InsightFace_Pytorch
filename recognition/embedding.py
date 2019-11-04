@@ -35,14 +35,18 @@ class Embedding:
             src[:, 0] += 8.0
         self.src = src
     
+    def __call__(self, imgs):
+        return self.gets(imgs)
+    
     def gets(self, imgs):
+        imgs = lz.to_numpy(imgs)
         input_blob = np.asarray(imgs)
         data = mx.nd.array(input_blob)
         db = mx.io.DataBatch(data=(data,))
         self.model.forward(db, is_train=False)
         return self.model.get_outputs()[0].asnumpy()
     
-    def get(self, rimg, landmark, normalize=True):
+    def get(self, rimg, landmark, normalize=False):
         assert landmark.shape[0] == 68 or landmark.shape[0] == 5
         assert landmark.shape[1] == 2
         if landmark.shape[0] == 68:

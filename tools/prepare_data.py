@@ -1,14 +1,13 @@
 from pathlib import Path
-from config import get_config
+from config import conf
 from data.data_pipe import load_bin, load_mx_rec
 import argparse
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='for face verification')
     parser.add_argument("-r", "--rec_path", help="mxnet record file path",
-                        default='/data1/share/faces_emore/', type=str)
+                        default='/data1/share/ms1m-retinaface-t1', type=str)
     args = parser.parse_args()
-    conf = get_config()
     rec_path = conf.data_path / args.rec_path
     load_mx_rec(rec_path)
 

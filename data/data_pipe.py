@@ -10,6 +10,7 @@ import cv2
 import bcolz
 import pickle
 import torch, logging
+
 try:
     import mxnet as mx
 except ImportError:
@@ -79,8 +80,10 @@ def load_bin(path, rootdir, transform, image_size=[112, 112]):
 
 
 def get_val_pair(path, name):
+    path = Path(path)
     carray = bcolz.carray(rootdir=path / name, mode='r')
     issame = np.load(path / '{}_list.npy'.format(name))
+    carray = np.asarray(carray, 'float32')
     return carray, issame
 
 
@@ -103,14 +106,20 @@ def load_mx_rec(rec_path):
     for idx in tqdm(range(1, max_idx)):
         img_info = imgrec.read_idx(idx)
         header, img = mx.recordio.unpack_img(img_info)  # rec is BGR format
-        label = int(header.label)
+        try:
+            label = int(header.label)
+        except:
+            label = int(header.label[0])
+            assert int(header.label[1]) == 1
         img = np.asarray(img)[:, :, ::-1]  # the saved file is RGB format
         img = Image.fromarray(img)
         label_path = save_path / str(label)
         if not label_path.exists():
             label_path.mkdir()
 
-        img.save(label_path / '{}.jpg'.format(idx), quality=95)
+        # img.save(label_path / '{}.jpg'.format(idx), quality=95)
+        img.save(label_path / '{}.png'.format(idx))
+        # break
 
 # class train_dataset(Dataset):
 #     def __init__(self, imgs_bcolz, label_bcolz, h_flip=True):

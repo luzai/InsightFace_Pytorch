@@ -8,3 +8,10 @@ __pycache__
 *.pkl
 .ipynb_checkpoints
 *.ipynb
+*.pyc
+arc
+train.configs
+*.jpg
+*.png
+*.ipynb
+*.pk

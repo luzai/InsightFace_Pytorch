@@ -1,32 +1,48 @@
+from lz import *
 from datetime import datetime
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
 import io
 from torchvision import transforms as trans
+from torchvision import transforms
 from data.data_pipe import de_preprocess
 import torch
 from models.model import l2_norm
 import cv2
 
+known_bottom = ['SuperKernel', 'batchnorm',
+                'conv', 'activation', 'linear',
+                'Conv2dSamePadding', ]
+
 
 def separate_bn_paras(modules):
     if isinstance(modules, (torch.nn.DataParallel, torch.nn.parallel.DistributedDataParallel)):
         modules = modules.module
-    if not isinstance(modules, list):
-        modules = [*modules.modules()]
     paras_only_bn = []
     paras_wo_bn = []
+    if not isinstance(modules, list):
+        modules = [*modules.modules()]
+    # [layer.__class__ for layer in modules]
+    should_skip = False
     for layer in modules:
-        if 'model' in str(layer.__class__):
+        if 'model' in str(layer.__class__):  # model defeind in models and model.py
+            should_skip = True
+        if 'torch.nn.modules.container' in str(layer.__class__):
+            should_skip = True
+        for kb_ in known_bottom:
+            if kb_ in str(layer.__class__):
+                should_skip = False
+        if should_skip:
+            logging.info(f'ignore {layer.__class__}')
             continue
-        if 'container' in str(layer.__class__):
-            continue
+        cls_nm = str(layer.__class__).lower()
+        if 'batchnorm' in cls_nm or 'inplaceabn' in cls_nm or 'prelu' in cls_nm:
+            paras_only_bn.extend([*layer.parameters()])
         else:
-            if 'batchnorm' in str(layer.__class__).lower() or 'inplaceabn' in str(layer.__class__).lower():
-                paras_only_bn.extend([*layer.parameters()])
-            else:
-                paras_wo_bn.extend([*layer.parameters()])
+            paras_wo_bn.extend([*layer.parameters()])
+    # names = [ name for name, p in modules.named_parameters()]
+    # for name, p in modules.named_parameters():
     return paras_only_bn, paras_wo_bn
 
 
@@ -105,9 +121,9 @@ def face_reader(conf, conn, flag, boxes_arr, result_arr, learner, mtcnn, targets
             bboxes, faces = mtcnn.align_multi(image, limit=conf.face_limit)
         except:
             bboxes = []
-        
+
         results = learner.infer(conf, faces, targets, tta)
-        
+
         if len(bboxes) > 0:
             print('bboxes in reader : {}'.format(bboxes))
             bboxes = bboxes[:, :-1]  # shape:[10,4],only keep 10 highest possibiity faces
@@ -149,6 +165,24 @@ def hflip_batch(imgs_tensor):
     for i, img_ten in enumerate(imgs_tensor):
         hfliped_imgs[i] = hflip(img_ten)
     return hfliped_imgs
+
+
+ccrop = transforms.Compose([
+    de_preprocess,
+    transforms.ToPILImage(),
+    transforms.Resize([128, 128]),  # smaller side resized
+    transforms.CenterCrop([112, 112]),
+    transforms.ToTensor(),
+    transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+])
+
+
+def ccrop_batch(imgs_tensor):
+    ccropped_imgs = torch.empty_like(imgs_tensor)
+    for i, img_ten in enumerate(imgs_tensor):
+        ccropped_imgs[i] = ccrop(img_ten)
+
+    return ccropped_imgs
 
 
 def get_time():
