@@ -1,4 +1,3 @@
-# -*- coding: future_fstrings -*-
 
 from lz import *
 import numpy as np

@@ -6,8 +6,6 @@ import nvidia.dali.types as types
 from nvidia.dali.plugin.pytorch import DALIGenericIterator
 
 base = "/media/mem_data/" + conf.dataset_name + "/"
-if not osp.exists(base):
-    base = "/data1/share/" + conf.dataset_name + "/"
 idx_files = [base + "train.tc.idx"]
 rec_files = [base + "train.rec"]
 

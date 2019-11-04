@@ -1,4 +1,3 @@
-# -*- coding: future_fstrings -*-
 
 from os import path
 import torch, logging

@@ -1,10 +1,10 @@
 import sys
 
 sys.path.insert(0, '/data1/xinglu/prj/InsightFace_Pytorch')
+sys.path.insert(0, '/home/zl/prj/fcpth')
 from lz import *
 import lz
 from torchvision import transforms as trans
-import redis
 import argparse
 from mtcnn import get_reference_facial_points, warp_and_crop_face
 import torch.utils.data, torchvision.transforms.functional
@@ -238,9 +238,7 @@ if __name__ == '__main__':
                         # 'irse.elu.casia.arc.ft',
                         # 'n2.irse.elu.casia.arcneg.15.0.4.0.1',
                         # 'irse.elu.casia.arc.mid.bl.ds',
-                        default='irse.elu.casia.arc.mid.bl.ds.9',
-                        # 'r100.128.retina.clean.arc',
-                        # default='r100.retina.elu.arcft.in.specnrm',
+                        default='r50.alpha.elu.in',
                         type=str)
     args = parser.parse_args()
     # lz.init_dev(lz.get_dev(2))
@@ -262,20 +260,19 @@ if __name__ == '__main__':
         # conf.arch_ft = False
         # conf.use_act = 'prelu'
         # conf.net_depth = 100
-        conf.net_mode = 'ir_se'
-        conf.embedding_size = 512
+        # conf.net_mode = 'ir_se'
+        # conf.embedding_size = 512
         # conf.input_size = 128
-        # conf.spec_norm = True
-        conf.ds = True
-        conf.use_bl = True
-        conf.mid_type = 'gpool' #''
+        # conf.ds = False
+        # conf.use_bl = False
+        # conf.mid_type = ''  # 'gpool'
         from Learner import FaceInfer, face_learner
-
+        # todo 
         gpuid = list(map(int, os.environ['CUDA_VISIBLE_DEVICES'].split(',')))
         print(gpuid)
         learner = FaceInfer(conf, gpuid)
         learner.load_state(
-            resume_path=f'work_space/{args.modelp}/save/',
+            resume_path=f'work_space/{args.modelp}/models/',
             latest=True,
         )
         learner.model.eval()

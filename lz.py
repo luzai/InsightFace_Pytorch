@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-# -*- coding: future_fstrings -*-
-
-import matplotlib
-
-# matplotlib.use('Gtk3Agg')
-# matplotlib.use('TkAgg')
-# matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-# plt.switch_backend('Agg')
-# plt.switch_backend('TkAgg')
-# print(matplotlib.get_backend())
-
+try:
+    import matplotlib
+    matplotlib.verbose = True
+    # matplotlib.use('Gtk3Agg')
+    # matplotlib.use('QtAgg')
+    # matplotlib.use('TkAgg')
+    # matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    # plt.switch_backend('Agg')
+    # print(matplotlib.get_backend())
+except:
+    pass
 import os, sys, time, \
     random, \
     subprocess, glob, re, \
@@ -18,7 +18,7 @@ import os, sys, time, \
     multiprocessing as mp, \
     logging, \
     collections, \
-    functools, signal
+    functools, signal, shutil
 from os import path as osp
 from IPython import embed
 from easydict import EasyDict as edict
@@ -169,8 +169,8 @@ InteractiveShell.ast_node_interactivity = "all"
 
 ## ndarray will be pretty
 np.set_string_function(lambda arr: f'np {arr.shape} {arr.dtype} '
-f'{arr.__str__()} '
-f'dtype:{arr.dtype} shape:{arr.shape} np', repr=True)
+                                   f'{arr.__str__()} '
+                                   f'dtype:{arr.dtype} shape:{arr.shape} np', repr=True)
 
 ## print(ndarray) will be pretty (and pycharm dbg)
 # np.set_string_function(lambda arr: f'np {arr.shape} {arr.dtype} \n'
@@ -185,6 +185,61 @@ f'dtype:{arr.dtype} shape:{arr.shape} np', repr=True)
 
 logging.info('import lz')
 
+
+def simplify_conf(conf):
+    conf2 = {k: v for k, v in conf.items() if not isinstance(v, (dict, np.ndarray))}
+    logging.info(f'training conf is {conf2}')
+    return conf2
+
+def swa_bn_update(loader, model, device=0):
+    logging.info('update bn ')
+    def _check_bn_apply(module, flag):
+        if issubclass(module.__class__, torch.nn.modules.batchnorm._BatchNorm):
+            flag[0] = True
+    def _check_bn(model):
+        flag = [False]
+        model.apply(lambda module: _check_bn_apply(module, flag))
+        return flag[0]
+    def _reset_bn(module):
+        if issubclass(module.__class__, torch.nn.modules.batchnorm._BatchNorm):
+            module.running_mean = torch.zeros_like(module.running_mean)
+            module.running_var = torch.ones_like(module.running_var)
+    def _get_momenta(module, momenta):
+        if issubclass(module.__class__, torch.nn.modules.batchnorm._BatchNorm):
+            momenta[module] = module.momentum
+
+    def _set_momenta(module, momenta):
+        if issubclass(module.__class__, torch.nn.modules.batchnorm._BatchNorm):
+            module.momentum = momenta[module]
+    if not _check_bn(model):
+        return
+    was_training = model.training
+    model.train()
+    momenta = {}
+    model.apply(_reset_bn)
+    model.apply(lambda module: _get_momenta(module, momenta))
+    n = 0
+    for idx, input in enumerate(loader):
+        if idx % 999==9:
+            print(idx, len(loader))
+        if isinstance(input, (list, tuple)):
+            input = input[0]
+        if isinstance(input, (dict,)):
+            input =input['imgs']
+        b = input.size(0)
+
+        momentum = b / float(n + b)
+        for module in momenta.keys():
+            module.momentum = momentum
+
+        if device is not None:
+            input = input.to(device)
+
+        model(input)
+        n += b
+
+    model.apply(lambda module: _set_momenta(module, momenta))
+    model.train(was_training)
 
 def init_dev(n=(0,)):
     import os
@@ -345,12 +400,22 @@ def cpu_priority(level=19):
     p.nice(level)
 
 
+def cloud_normpath(path):
+    path = str(path)
+    path = osp.normpath(path)
+    path = path.replace('s3:/', 's3://')
+    return path
+
+
 def mkdir_p(path, delete=True, verbose=True):
     path = str(path)
     if path == '':
         return
     if delete and osp.exists(path):
         rm(path)
+    if not osp.exists(path):
+        os.makedirs(path, exist_ok=True)
+    path = cloud_normpath(path)
     if not osp.exists(path):
         os.makedirs(path, exist_ok=True)
 
@@ -402,31 +467,6 @@ if os.environ.get('log', '0') == '1':
 
 
 class Timer(object):
-    """A flexible Timer class.
-
-    :Example:
-
-    >>> import time
-    >>> import cvbase as cvb
-    >>> with cvb.Timer():
-    >>>     # simulate a code block that will run for 1s
-    >>>     time.sleep(1)
-    1.000
-    >>> with cvb.Timer(print_tmpl='hey it taks {:.1f} seconds'):
-    >>>     # simulate a code block that will run for 1s
-    >>>     time.sleep(1)
-    hey it taks 1.0 seconds
-    >>> timer = cvb.Timer()
-    >>> time.sleep(0.5)
-    >>> print(timer.since_start())
-    0.500
-    >>> time.sleep(0.5)
-    >>> print(timer.since_last_check())
-    0.500
-    >>> print(timer.since_start())
-    1.000
-
-    """
 
     def __init__(self, print_tmpl=None, start=True, ):
         self._is_running = False
@@ -1079,6 +1119,7 @@ def msgpack_loads(file, **kwargs):
     gc.enable()
     return obj
 
+
 def append_file(line, file=None):
     file = file or 'append.txt'
     with open(file, 'a') as f:
@@ -1225,7 +1266,7 @@ def plt_imshow(img, ax=None, keep_ori_size=False, inp_mode='rgb'):
     if inp_mode == 'bgr':
         img = img[..., ::-1]
     if ax is None:
-        h, w,  = img.shape[0], img.shape[1]
+        h, w, = img.shape[0], img.shape[1]
         inchh = h / 100
         inchw = w / 100
         if keep_ori_size:
@@ -1940,15 +1981,15 @@ class AverageMeter(object):
         self.count = 0
 
     def update(self, val, n=1):
-        ## way 1
-        # val = float(val)
-        # self.mem.append(val)
-        # self.avg = np.mean(list(self.mem))
+        # way 1
+        val = float(val)
+        self.mem.append(val)
+        self.avg = np.mean(list(self.mem))
         ## way 2
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
+        # self.val = val
+        # self.sum += val * n
+        # self.count += n
+        # self.avg = self.sum / self.count
 
 
 def extend_bbox(img_proc, bbox,

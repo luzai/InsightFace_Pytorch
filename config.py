@@ -1,4 +1,4 @@
-# -*- coding: future_fstrings -*-
+from install import cloud_prefix
 from pathlib import Path
 import lz
 from lz import *
@@ -8,21 +8,29 @@ from torchvision import transforms as trans
 
 # torch.autograd.set_detect_anomaly(True)
 # print = lambda x: logging.info(f'do not prt {x}')
+debug = os.environ.get('debug', '')
+if cloud_prefix.startswith('s3:'):
+    debug = False
 dist = False
-num_devs = 2
+num_devs = torch.cuda.device_count() if not debug else 1
+assert num_devs != 0, f'{num_devs} {debug}'
 if dist:
     num_devs = 1
-else:
-    # lz.init_dev(lz.get_dev(num_devs, ok=(2, 3)))
-    lz.init_dev(lz.get_dev(num_devs))
-    # lz.init_dev((3,))
 
 conf = edict()
-conf.num_workers = ndevs * 6
+try:
+    import mox_patch_0603_v4
+    import moxing.pytorch as mox
+
+    conf.cloud = True
+except:
+    logging.info('not in the cloud')
+    conf.cloud = False
+conf.num_workers = 4 * num_devs if not debug else 0
 conf.num_devs = num_devs
 conf.no_eval = False
 conf.start_eval = False
-conf.loss = 'arcface'  # adacos softmax arcface arcfaceneg cosface
+conf.loss = 'arcface'  # adamarcface adamrg adacos softmax arcface arcfaceneg cosface arcsinmrg
 
 conf.writer = None
 conf.local_rank = None
@@ -31,8 +39,23 @@ conf.dop = None  # top_imp
 conf.id2range_dop = None  # sub_imp
 conf.explored = None
 
-conf.data_path = Path('/data2/share/') if "amax" in hostname() else Path('/home/zl/zl_data/')
-conf.work_path = Path('work_space/r100.elu.arcft.in.retina.arc.bak')
+conf.hostname = hostname()
+
+if "amax" in conf.hostname:
+    conf.data_path = Path('/data2/share/')
+elif "g5500" in conf.hostname:
+    conf.data_path = Path('/home/zl/zl_data/')
+else:
+    assert conf.cloud
+    conf.data_path = Path(f'{cloud_prefix}/zl/datasets/')
+    print('hostname is ', hostname)
+    conf.cloud = True
+conf.work_path = Path(f'work_space/r100.bs.bak')
+conf.load_from = cloud_prefix + '/work_space/alphaf64.dop.tri.chsfst.ft.4/models'  # todo
+# conf.load_from = './work_space/r100.bs.2/models'
+if conf.cloud:
+    conf.work_path = Path(f'{cloud_prefix}') / conf.work_path
+
 conf.model_path = conf.work_path / 'models'
 conf.log_path = conf.work_path / 'log'
 conf.save_path = conf.work_path / 'save'
@@ -48,9 +71,9 @@ alpha_jk = conf.data_path / 'alpha_jk'
 retina_folder = conf.data_path / 'ms1m-retinaface-t1'
 dingyi_folder = conf.data_path / 'faces_casia'
 
-conf.use_data_folder = retina_folder #
+conf.use_data_folder = alpha_f64  # if not debug else alpha_jk # for test
 conf.dataset_name = str(conf.use_data_folder).split('/')[-1]
-conf.clean_ids = None  # np.asarray(msgpack_load(root_path + 'train.configs/noise.40.pk', allow_np=False))
+conf.clean_ids = None  # np.asarray(msgpack_load(root_path + 'train.configs/noise.20.pk', allow_np=False))
 
 if conf.use_data_folder == ms1m_folder:
     conf.cutoff = 0
@@ -62,18 +85,21 @@ elif conf.use_data_folder == asia_emore:
     conf.cutoff = 10
 else:
     conf.cutoff = 0
-conf.mining = 'rand.id'  # todo balance opt # 'dop' 'imp' rand.img(slow) rand.id # todo imp.grad imp.loss
-conf.mining_init = 1  # imp 1.6; rand.id 1; dop -1
-conf.rand_ratio = 9 / 27
+conf.mining = 'rand.id'  # todo balance opt # dop rand.id # todo imp.grad imp.loss imp rand.img(slow)
+conf.mining_init = 1 if conf.mining == 'rand.id' else -1  # imp 1.6; rand.id 1; dop -1
+conf.rand_ratio = 6 / 27
 
 conf.margin = .5  # todo do not forget if use adacos!
 conf.margin2 = .2
-conf.topk = 15
+conf.topk = 3
 conf.fgg = ''  # g gg ''
-conf.fgg_wei = 0  # 1
-conf.tri_wei = 0
-conf.scale = 48  # 48 64
+conf.fgg_wei = 0.  # 1
+conf.tri_wei = 0.
+conf.tri_scale = 64
+conf.scale = 64  # 48 64
 conf.instances = 4
+conf.pos_wei = 1.  # 2
+conf.neg_wei = 1.  # 50
 
 conf.phi = 1.9
 conf.input_rg_255 = False
@@ -99,7 +125,7 @@ conf.test_transform = trans.Compose([
     trans.ToTensor(),
     trans.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
-conf.use_loader = 'dali'  # todo mxent lack val path and testing speed
+conf.use_loader = 'torch'  # todo mxent lack val path and testing speed
 conf.flip = True
 
 conf.upgrade_irse = True
@@ -109,8 +135,8 @@ conf.use_chkpnt = False
 conf.chs_first = True
 conf.prof = False
 conf.fast_load = False
-conf.ipabn = False
-conf.cvt_ipabn = False
+conf.ipabn = True
+conf.cvt_ipabn = False  # todo
 conf.kd = False
 conf.sftlbl_from_file = True
 conf.alpha = .95
@@ -127,48 +153,69 @@ conf.mutual_learning = 0
 
 conf.fp16 = True
 conf.opt_level = "O1"
-conf.batch_size = 140 * num_devs
+if debug:
+    conf.batch_size = 32 * num_devs
+else:
+    if conf.cloud:
+        conf.batch_size = 224 * num_devs
+    else:
+        conf.batch_size = 64 * num_devs
+
 conf.ftbs_mult = 2
-conf.board_loss_every = 15
-conf.log_interval = 999
+conf.board_loss_every = 99
+conf.log_interval = 999 if not debug else 99
 conf.need_tb = True
-conf.other_every = None  # 11
+conf.other_every = None if not debug else 99
 conf.num_recs = 1
-conf.acc_grad = 2
+conf.acc_grad = 1
 # --------------------Training Config ------------------------
-conf.weight_decay = 5e-4  # 5e-4 , 1e-6 for 1e-3, 0.3 for 3e-3
-conf.use_opt = 'sgd'  # adabound ranger
-conf.adam_betas1 = .9  # .85 to .95
+conf.weight_decay = 4e-5  # 4e-5 5e-4, 1e-6 for 1e-3, 0.3 for 3e-3
+conf.use_opt = 'sgd'  # adabound adam radam ranger sgd
+conf.adam_betas1 = .95  # .85 to .95
 conf.adam_betas2 = .999  # 0.999 0.99
 conf.final_lr = 1e-1
-conf.lr = 1e-1
+conf.lr = 1e-3  # 1e-1  #
 conf.lr_gamma = 0.1
+conf.lr_mult = 1
+conf.wd_mult = 10
 conf.start_epoch = 0
 conf.start_step = 0
 # conf.epochs = 37
-# conf.milestones = (np.array([23, 32])).astype(int)
-conf.epochs = 18
-conf.milestones = (np.array([9, 13])).astype(int)
-conf.warmup = 1.  # conf.epochs/25 # 1 0
+# conf.milestones = (23,32)
+conf.schedule = 'mstep'  # cosanl cycle
+conf.cycle_up = 0.
+conf.cycle_down = 1.
+conf.cycle_gamma = .7
+conf.cycle_max_lr_mult = 10.
+conf.cycle_momentum=False
+conf.epochs = 5  # 18
+conf.milestones = (2,)  # (9,13)
+conf.warmup = 0  # conf.epochs/25 # 1 0
 conf.epoch_less_iter = 1
 conf.momentum = 0.9
 conf.pin_memory = True
-conf.fill_cache = 0
+conf.fill_cache = .7 if not debug else 0
 conf.val_ijbx = False
 conf.spec_norm = False
 conf.use_of = False
-conf.use_act = "elu"
+conf.use_act = "prelu"
 conf.bottle_neck = False
 conf.never_stop = False
-conf.n_sma = 5
+conf.n_sma = 4
 conf.out_type = 'fc'
 conf.mid_type = ''  # 'gpool'  # 'fc'
 conf.use_bl = False
-conf.arch_ft = True  # maybe this improves
+conf.arch_ft = False  # maybe this improves
 conf.pfe = False
 conf.ds = False
-conf.use_in = True
-conf.sigmoid_mult = 2  # may better
+conf.use_in = False
+conf.sigmoid_mult = 1  # may better
+conf.prev_wei = 0.9
+conf.head_parallel = ''
+conf.head_init = ''#all
+conf.head_init_zjjk=False
+conf.head_load = False
+conf.swa = '' # modify
 
 
 # todo may use kl_div to speed up
@@ -237,5 +284,4 @@ conf.ce_loss = CrossEntropyLoss()  # CrossEntropySigSoft2()  #   CrossEntropyLab
 if conf.use_test:
     conf.vat_loss_func = VATLoss(xi=1e-6, eps=8, ip=1)
 conf.need_log = True
-# conf.batch_size = conf.batch_size // conf.instances * conf.instances
-conf.head_init = ''  # work_space/glint.15.fc7.pk
+conf.batch_size = conf.batch_size // conf.instances * conf.instances

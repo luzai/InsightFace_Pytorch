@@ -1,4 +1,3 @@
-# -*- coding: future_fstrings -*-
 import lz
 from lz import *
 from models import Backbone, MobileFaceNet, CSMobileFaceNet, l2_norm, Arcface, MySoftmax, TripletLoss
@@ -7,7 +6,6 @@ import numpy as np
 from verifacation import evaluate
 from torch import optim
 from tensorboardX import SummaryWriter
-from matplotlib import pyplot as plt
 from utils import get_time, gen_plot, hflip_batch, separate_bn_paras, hflip
 from torchvision import transforms as trans
 import os, random, logging, numbers, math
@@ -27,6 +25,13 @@ try:
 except ImportError:
     logging.warning('if want to train, install mxnet for read rec data')
     conf.training = False
+
+try:
+    import mox_patch_0603_v4
+    import moxing.pytorch as mox
+except:
+    logging.warning('not in the cloud')
+    conf.cloud = False
 
 if conf.fp16:
     try:
@@ -61,77 +66,14 @@ def unpack_f32(s):
     return header, s
 
 
-def unpack_auto(s, fp):
-    if 'f64' not in fp and 'alpha' not in fp:
-        return unpack_f32(s)
-    else:
+def unpack_auto(s, fp):  # todo maybe just use conf.dataset_name  'dataset_name': 'alpha_f64'
+    if 'f64' in fp or 'alpha' in fp or conf.cloud:  # TODO cloud must train alpha_f64 or alpha_jk!
         return unpack_f64(s)
+    else:
+        return unpack_f32(s)
 
 
-class RecManager():
-    '''
-    emore as example
-    self.ids 0 ... 85k
-    self.imgidx 0 ... 5.8M
-    self.id2idxs 0 --> [0,10)
-    self.imgrec
-    self.num_classes
-    self.num_imgs
-    '''
-
-    def __init__(self, path_imgidx='/data2/share/faces_emore/train.idx'):
-        path_imgidx = str(path_imgidx).replace('train.idx', '').replace('train.rec', '') + '/train.idx'
-        self.path_imgidx = path_imgidx
-        self.path_imgrec = path_imgidx.replace('.idx', '.rec')
-        self.imgrec = recordio.MXIndexedRecordIO(
-            path_imgidx, self.path_imgrec,
-            'r')
-        self.lock = mp.Lock()
-        ## internal repr
-        s = self.imgrec.read_idx(0)
-        header, _ = unpack_auto(s, self.path_imgidx)
-        assert header.flag > 0, 'ms1m or glint ...'
-        logging.info(f'rec header0 label {header.label}')
-        self.header0 = (int(header.label[0]), int(header.label[1]))
-        self.id2idxs_in = {}
-        self.imgidx_in = []
-        self.ids_in = []
-        for identity in list(range(int(header.label[0]), int(header.label[1]))):
-            s = self.imgrec.read_idx(identity)
-            header, _ = unpack_auto(s, self.path_imgidx)
-            a, b = int(header.label[0]), int(header.label[1])
-            if b - a > gl_conf.cutoff:
-                self.id2idxs_in[identity] = list(range(a, b))
-                self.ids_in.append(identity)
-                self.imgidx_in += list(range(a, b))
-        self.ids_in = np.asarray(self.ids_in)
-        self.num_classes = len(self.ids_in)
-        ## mapping
-        self.id_in2out = {identity: id2 for identity, id2 in zip(self.ids_in, range(self.num_classes))}
-        self.idx_in2out = {idx: idx - 1 for idx in self.imgidx_in}  # simply -1
-        ## ext repr
-        self.ids = np.asarray([self.id_in2out[id_] for id_ in self.ids_in])
-        self.id2idxs = {self.id_in2out[id_]: np.asarray(idxs) - 1
-                        for id_, idxs in self.id2idxs_in.items()}
-        self.imgidx = [idx - 1 for idx in self.imgidx_in]
-        ## other helper
-        self.idx2id = {}
-        for id_, idxs in self.id2idxs.items():
-            for idx in idxs:
-                self.idx2id[idx] = id_
-        self.num_imgs = len(self.imgidx)
-        self.nimgs_lst = [len(inds) for inds in self.id2idxs.values()]
-
-    def get_img(self, index):
-        # external is 0 based
-        index += 1
-        # internal index is 1 based
-        with self.lock:
-            s = self.imgrec.read_idx(index + 1)
-        header, img = unpack_auto(s, self.path_imgidx)
-        return mx.image.imdecode(img)
-
-# todo
+# todo merge this
 class Obj():
     pass
 
@@ -161,10 +103,10 @@ def get_rec(p='/data2/share/faces_emore/train.idx'):
         s = self.imgrecs[0].read_idx(identity)
         header, _ = recordio.unpack(s)
         a, b = int(header.label[0]), int(header.label[1])
-        #     if b - a > conf.cutoff:
-        self.id2range[identity] = (a, b)
-        self.ids.append(identity)
-        self.imgidx += list(range(a, b))
+        if b - a > conf.cutoff:
+            self.id2range[identity] = (a, b)
+            self.ids.append(identity)
+            self.imgidx += list(range(a, b))
     self.ids = np.asarray(self.ids)
     self.num_classes = len(self.ids)
     # self.ids_map = {identity - ids_shif: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
@@ -379,13 +321,14 @@ class TorchDataset(object):
             s = self.imgrecs[0].read_idx(identity)
             header, _ = unpack_auto(s, self.path_imgidx)
             a, b = int(header.label[0]), int(header.label[1])
-            self.id2range[identity] = (a, b)
-            self.ids.append(identity)
-            self.imgidx += list(range(a, b))
+            if b - a > conf.cutoff:
+                self.id2range[identity] = (a, b)
+                self.ids.append(identity)
+                self.imgidx += list(range(a, b))
         self.ids = np.asarray(self.ids)
         self.num_classes = len(self.ids)
         self.ids_map = {identity - ids_shif: id2 for identity, id2 in
-                        zip(self.ids, range(self.num_classes))}  # now cutoff==0, this is identitical
+                        zip(self.ids, range(self.num_classes))}  # if cutoff==0, this is identitical
         ids_map_tmp = {identity: id2 for identity, id2 in zip(self.ids, range(self.num_classes))}
         self.ids = np.asarray([ids_map_tmp[id_] for id_ in self.ids])
         self.id2range = {ids_map_tmp[id_]: range_ for id_, range_ in self.id2range.items()}
@@ -397,7 +340,7 @@ class TorchDataset(object):
         conf.explored = np.zeros(self.ids.max() + 1, dtype=int)
         if conf.dop is None:
             if conf.mining == 'dop':
-                conf.dop = np.ones(self.ids.max() + 1, dtype=int) * conf.mining_init
+                conf.dop = np.ones(self.ids.max() + 1, dtype=int) * conf.mining_init  # dop: -1 ... -1
                 conf.id2range_dop = {str(id_):
                                          np.ones((range_[1] - range_[0],)) *
                                          conf.mining_init for id_, range_ in
@@ -407,15 +350,15 @@ class TorchDataset(object):
                                          np.ones((range_[1] - range_[0],)) *
                                          conf.mining_init for id_, range_ in
                                      self.id2range.items()}
-                conf.dop = np.asarray([v.sum() for v in conf.id2range_dop.values()])
+                conf.dop = np.asarray([v.sum() for v in conf.id2range_dop.values()])  # Note: different with dop
         logging.info(f'update num_clss {conf.num_clss} ')
         self.cur = 0
         lz.timer.since_last_check('finish cal dataset info')
         if conf.kd and conf.sftlbl_from_file:
             self.teacher_embedding_db = lz.Database('work_space/r100.retina.2.h5', 'r')['feas'][...][:5179510,
                                         ...].astype('float16')
-        if conf.cutoff:
-            assert conf.clean_ids is not None, 'not all option combination is implemented'
+        if conf.clean_ids:
+            assert conf.cutoff is None, 'not all option combination is implemented'
             id2nimgs = collections.defaultdict(int)
             for id_ in conf.clean_ids:
                 id2nimgs[id_] += 1
@@ -433,7 +376,7 @@ class TorchDataset(object):
                 new_ids.append(ids_remap[id_])
             new_ids = np.array(new_ids)
             conf.clean_ids = new_ids
-        if conf.clean_ids is not None:
+        if conf.clean_ids:
             try:
                 conf.num_clss = self.num_classes = np.unique(conf.clean_ids).shape[0] - 1
             except:
@@ -527,7 +470,7 @@ class TorchDataset(object):
             label = label[0]
         label = int(label)
         imgs = self.preprocess_img(imgs)
-        assert label == int(self.idx2id[index]), f'{label} {self.idx2id[index]}'
+        # assert label == int(self.idx2id[index]), f'{label} {self.idx2id[index]}'
         assert label in self.ids_map
         label = self.ids_map[label]
         label = int(label)
@@ -674,7 +617,7 @@ class RandomIdSampler(Sampler):
                                         size=nrand_ids,
                                         replace=False)
             pids.append(pids_now)
-            for _ in range(int(1 / conf.rand_ratio) - 1):
+            for _ in range(int(1 / conf.rand_ratio) - 1):  # -1 is important
                 pids_next = dop[pids_now]
                 pids_next[pids_next == -1] = np.random.choice(self.ids,
                                                               size=len(pids_next[pids_next == -1]),
@@ -683,6 +626,7 @@ class RandomIdSampler(Sampler):
                 pids_now = pids_next
             pids = np.concatenate(pids)
             pids = np.unique(pids)
+            np.random.shuffle(pids)  # just for safety
             if len(pids) < self.num_pids_per_batch:
                 pids_now = np.random.choice(np.setdiff1d(self.ids, pids),
                                             size=self.num_pids_per_batch - len(pids),
@@ -691,7 +635,6 @@ class RandomIdSampler(Sampler):
             else:
                 pids = pids[: self.num_pids_per_batch]
         # assert len(pids) == np.unique(pids).shape[0]
-
         return pids
 
     def get_batch_idxs(self):
@@ -718,7 +661,7 @@ class RandomIdSampler(Sampler):
                     ind_inds = np.concatenate(([0], ind_inds))
                     ind_inds = np.unique(ind_inds)[:self.num_instances]  # 0 must be chsn
                 elif conf.dataset_name == 'alpha_f64':
-                    if pid >= 112145:  # 112145 开始是证件-监控
+                    if pid >= 112145:  # 112145 开始是证件-监控 zjjk
                         ind_inds = np.concatenate(([0], ind_inds))
                         ind_inds = np.unique(ind_inds)[:self.num_instances]  # 0 must be chsn
             for ind_ind in ind_inds:
@@ -751,32 +694,31 @@ class RandomIdSampler(Sampler):
                     cnt += 1
                     yield (ind, pid, ind_ind)
 
-
+# todo this seq can only be used to initial head!
 class SeqSampler(Sampler):
-    def __init__(self):
-        # todo update code
-        path_ms1m = conf.use_data_folder
-        # _, self.ids, self.id2range = lz.msgpack_load(path_ms1m / f'info.{conf.cutoff}.pk')
-        # above is the imgidx of .rec file
-        # remember -1 to convert to pytorch imgidx
-        self.num_instances = conf.instances
-        self.batch_size = conf.batch_size
-        assert self.batch_size % self.num_instances == 0
-        self.num_pids_per_batch = self.batch_size // self.num_instances
+    def __init__(self, id2range):
+        self.id2range = id2range
         self.index_dic = {id: (np.asarray(list(range(idxs[0], idxs[1])))).tolist()
-                          for id, idxs in self.id2range.items()}  # it index based on 1
-        self.ids = list(self.ids)
-
-        # estimate number of examples in an epoch
-        self.nimgs_lst = [len(idxs) for idxs in self.index_dic.values()]
-        self.length = sum(self.nimgs_lst)
+                          for id, idxs in self.id2range.items()}  # it index based on 1        
+        if conf.head_init == 'all':
+            self.nimgs = np.asarray([
+                range_[1] - range_[0] for id_, range_ in self.id2range.items()
+            ])
+        else:
+            self.nimgs = np.asarray([
+                min(range_[1] - range_[0], int(conf.head_init)) for id_, range_ in self.id2range.items()
+            ])
+        self.length = sum(self.nimgs)
 
     def __len__(self):
         return self.length
 
     def __iter__(self):
         for pid in self.id2range:
-            for ind_ind in range(len(self.index_dic[pid])):
+            max_nimgs = len(self.index_dic[pid])
+            if conf.head_init != 'all':
+                max_nimgs = min(max_nimgs, int(conf.head_init))
+            for ind_ind in range(max_nimgs):
                 ind = self.index_dic[pid][ind_ind]
                 yield ind, pid, ind_ind
 
@@ -807,6 +749,7 @@ class FaceInfer():
             assert conf.input_size == imgsize, imgsize
         else:
             raise ValueError(conf.net_mode)
+        self.model = self.model.eval()
         self.model = torch.nn.DataParallel(self.model,
                                            device_ids=list(gpuid), output_device=gpuid[0]).to(gpuid[0])
         self.model = self.model.eval()
@@ -820,7 +763,7 @@ class FaceInfer():
             self.model.module.load_state_dict(model_state_dict, strict=True, )
 
     def load_state(self, fixed_str=None,
-                   resume_path=None, latest=True,
+                   resume_path=None, latest=True, strict=True,
                    ):
         from pathlib import Path
         save_path = Path(resume_path)
@@ -840,7 +783,7 @@ class FaceInfer():
             modelp = save_path / 'model_{}'.format(fixed_str)
         logging.info(f'you are using gpu, load model, {modelp}')
         model_state_dict = torch.load(str(modelp), map_location=lambda storage, loc: storage)
-        model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
+        # model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k} # for spec norm, not wipe meta data!
         if conf.cvt_ipabn:
             import copy
             model_state_dict2 = copy.deepcopy(model_state_dict)
@@ -850,9 +793,9 @@ class FaceInfer():
                     model_state_dict2[name] = torch.abs(model_state_dict[name])
             model_state_dict = model_state_dict2
         if list(model_state_dict.keys())[0].startswith('module'):
-            self.model.load_state_dict(model_state_dict, strict=True, )
+            self.model.load_state_dict(model_state_dict, strict=strict, )
         else:
-            self.model.module.load_state_dict(model_state_dict, strict=True, )
+            self.model.module.load_state_dict(model_state_dict, strict=strict, )
 
 
 if conf.fast_load:
@@ -928,7 +871,7 @@ def fast_collate(batch):
 
 class face_learner(object):
     def __init__(self, conf=conf, ):
-        self.milestones = conf.milestones
+        self.milestones = np.asarray(conf.milestones)
         self.val_loader_cache = {}
         if conf.use_loader == 'mxnet':
             self.loader = MxnetLoader(conf.use_data_folder)
@@ -968,9 +911,9 @@ class face_learner(object):
             self.loader = DataLoader(
                 self.dataset, batch_size=conf.batch_size,
                 num_workers=conf.num_workers,
-                # sampler=RandomIdSampler(self.dataset.imgidx,
-                #                         self.dataset.ids, self.dataset.id2range),
-                shuffle=True,
+                sampler=RandomIdSampler(self.dataset.imgidx,
+                                        self.dataset.ids, self.dataset.id2range),
+                # shuffle=True,
                 drop_last=True, pin_memory=conf.pin_memory,
                 collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
             )
@@ -986,12 +929,13 @@ class face_learner(object):
                 lz.mkdir_p(conf.log_path, delete=False)
             else:
                 lz.mkdir_p(conf.log_path, delete=False)
+                lz.mkdir_p(lz.cloud_normpath(conf.log_path), delete=False)
                 lz.set_file_logger(str(conf.log_path))
                 lz.set_file_logger_prt(str(conf.log_path))
         if conf.need_tb and (not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0):
             self.writer = SummaryWriter(str(conf.log_path))
             conf.writer = self.writer
-            self.writer.add_text('conf', f'{conf}', 0)  # todo to markdown
+            self.writer.add_text('conf', f'{simplify_conf(conf)}', 0)  # todo to markdown
         else:
             self.writer = None
         self.step = 0
@@ -1039,7 +983,7 @@ class face_learner(object):
                 self.teacher_model = Backbone(152, conf.drop_ratio, 'ir_se')
                 self.teacher_model = torch.nn.DataParallel(self.teacher_model).cuda()
                 modelp = save_path / fixed_str
-                model_state_dict = torch.load(modelp)
+                model_state_dict = torch.load(modelp, map_location=lambda storage, loc: storage)
                 model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
                 if list(model_state_dict.keys())[0].startswith('module'):
                     self.teacher_model.load_state_dict(model_state_dict, strict=True)
@@ -1057,6 +1001,9 @@ class face_learner(object):
         elif conf.loss == 'arcfaceneg':
             from models.model import ArcfaceNeg
             self.head = ArcfaceNeg(embedding_size=conf.embedding_size, classnum=self.class_num)
+        elif conf.loss == 'svsoftmax':
+            from models.model import SVFC
+            self.head = SVFC(embedding_size=conf.embedding_size, classnum=self.class_num)
         elif conf.loss == 'cosface':
             from models.model import CosFace
             self.head = CosFace(conf.embedding_size, self.class_num)
@@ -1074,13 +1021,9 @@ class face_learner(object):
             self.head = ArcSinMrg(classnum=self.class_num)
         else:
             raise ValueError(f'{conf.loss}')
-        self.model.cuda()
-        if conf.head_init:
-            kernel = lz.msgpack_load(conf.head_init).astype(np.float32).transpose()
-            kernel = torch.from_numpy(kernel)
-            assert self.head.kernel.shape == kernel.shape
-            self.head.kernel.data = kernel
-        if self.head is not None:
+        if torch.cuda.device_count() > 0:
+            self.model.cuda()
+        if self.head is not None and torch.cuda.device_count() > 0:
             self.head = self.head.cuda()
         if conf.ds:
             self.heads = [Arcface(classnum=self.class_num).cuda() for i in range(4)]
@@ -1100,7 +1043,7 @@ class face_learner(object):
                 lr=conf.lr,
             )
         elif conf.use_opt == 'sgd':
-            ## wdecay
+            ## todo wdecay
             # for adamarcface
             if conf.loss == 'adamarcface':
                 self.optimizer = optim.SGD([
@@ -1110,29 +1053,10 @@ class face_learner(object):
                     {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
             else:
                 self.optimizer = optim.SGD([
-                    {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},  # this is mobilenet wdecay
-                    {'params': [paras_wo_bn[-1]] + list(self.head.parameters()), 'weight_decay': 4e-4},
+                    {'params': paras_wo_bn[:-1], 'weight_decay': conf.weight_decay},  # this is mobilenet wdecay
+                    {'params': [paras_wo_bn[-1]], 'weight_decay': conf.weight_decay * conf.wd_mult},
+                    {'params': list(self.head.parameters()), 'lr_mult': conf.lr_mult},
                     {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
-            ## normal
-            # self.optimizer = optim.SGD([
-            #     {'params': paras_wo_bn + [*self.head.parameters()], 'weight_decay': conf.weight_decay},
-            #     {'params': paras_only_bn},
-            # ], lr=conf.lr, momentum=conf.momentum)
-
-            ## not fastfc exactly
-            # self.optimizer = optim.SGD([
-            #     {'params': paras_wo_bn[:-1], 'weight_decay': conf.weight_decay},
-            #     {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': conf.weight_decay,
-            #      'lr_mult': 10},
-            #     {'params': paras_only_bn, },
-            # ], lr=conf.lr, momentum=conf.momentum, )
-
-            ## fastfc: only head mult 10
-            # self.optimizer = optim.SGD([
-            #     {'params': paras_wo_bn, 'weight_decay': conf.weight_decay},
-            #     {'params': [*self.head.parameters()], 'weight_decay': conf.weight_decay, 'lr_mult': 10},
-            #     {'params': paras_only_bn},
-            # ], lr=conf.lr, momentum=conf.momentum, )
         elif conf.use_opt == 'radam':
             from tools.radam import RAdam
             self.optimizer = RAdam([
@@ -1161,17 +1085,23 @@ class face_learner(object):
             )
         else:
             raise ValueError(f'{conf.use_opt}')
+        if conf.swa:
+            import torchcontrib
+            self.optimizer = torchcontrib.optim.SWA(self.optimizer)
         if conf.fp16:
-            self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level="O1")
+            [self.model, self.head], self.optimizer = amp.initialize([self.model, self.head], self.optimizer,
+                                                                     opt_level="O1")
         logging.info(f'optimizers generated {self.optimizer}')
         if conf.local_rank is None:
             self.model = torch.nn.DataParallel(self.model)
-            self.model = self.model.cuda()
+            if torch.cuda.device_count() > 0:
+                self.model = self.model.cuda()
         else:
             self.model = torch.nn.parallel.DistributedDataParallel(self.model.cuda(),
                                                                    device_ids=[conf.local_rank],
                                                                    output_device=conf.local_rank)
-
+        if conf.get('head_parallel') == 'data':
+            self.head = torch.nn.DataParallel(self.head)
         self.board_loss_every = conf.board_loss_every
         self.head.train()
         self.model.train()
@@ -1180,6 +1110,380 @@ class face_learner(object):
         from thop import profile
         flops, params = profile(self.model, (torch.rand(1, 3, 112, 112),))
         return flops, params
+
+    def cloud_sync_log(self):
+        try:
+            src_spth = str(conf.log_path)
+            dst_spth = lz.cloud_normpath(conf.log_path)
+            print('cloud sync', src_spth, dst_spth)
+            mkdir_p(osp.dirname(dst_spth), delete=False)
+            if src_spth != dst_spth:
+                if osp.exists(dst_spth):
+                    shutil.rmtree(dst_spth)
+                shutil.copytree(src_spth, dst_spth)
+        except Exception as e:
+            logging.info(f'fail {e}')
+
+    def train_simple(self, conf, epochs):
+        self.model.train()
+        loader = self.loader
+        self.evaluate_every = conf.other_every or len(loader) // 3
+        self.save_every = conf.other_every or len(loader) // 3
+        self.step = conf.start_step
+        logging.info(f'debug {conf.start_step} {conf.start_epoch}')
+        if conf.start_step == 0 and conf.start_epoch != 0:
+            self.step = len(loader) * conf.start_epoch
+        writer = self.writer
+        lz.timer.since_last_check('start train')
+        data_time = lz.AverageMeter()
+        loss_time = lz.AverageMeter()
+        accuracy = 0
+        if conf.start_eval:
+            for ds in ['cfp_fp', ]:
+                accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                    conf,
+                    Path(conf.use_data_folder),
+                    ds)
+                self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                logging.info(f'validation accuracy on {ds} is {accuracy} ')
+        for e in range(conf.start_epoch, epochs):
+            logging.info(f'gpu info {lz.show_dev()}')
+            if e >= 6:  # todo
+                conf.conv2dmask_drop_ratio = 0.
+                lambda_runtime_reg = conf.lambda_runtime_reg
+            else:  # 0 1 2 3 4 5
+                lambda_runtime_reg = 0
+            lz.timer.since_last_check('epoch {} started'.format(e))
+            # self.schedule_lr(e)
+            loader_enum = self.get_loader_enum()
+            acc_grad_cnt = 0
+            while True:
+                now_lr = self.schedule_lr(step=self.step)
+                try:
+                    ind_data, data = next(loader_enum)
+                except StopIteration as err:
+                    logging.info(f'one epoch finish {e} err is {err}')
+                    loader_enum = self.get_loader_enum()
+                    ind_data, data = next(loader_enum)
+                if ind_data is None:
+                    logging.info(f'one epoch finish {e} {ind_data}')
+                    loader_enum = self.get_loader_enum()
+                    ind_data, data = next(loader_enum)
+                if (self.step + 1) % len(loader) == 0:
+                    self.step += 1
+                    break
+                imgs = data['imgs'].cuda()
+                assert imgs.max() < 2
+                if 'labels_cpu' in data:
+                    labels_cpu = data['labels_cpu'].cpu()
+                else:
+                    labels_cpu = data['labels'].cpu()
+                labels = data['labels'].cuda()
+                data_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
+                if acc_grad_cnt == 0:
+                    self.optimizer.zero_grad()
+
+                if conf.net_mode == 'sglpth':
+                    ttl_runtime = 0.452 * 10 ** 6  # todo
+                    target_runtime = 2.5 * 10 ** 6
+                    embeddings = self.model(imgs, need_runtime_reg=True)
+                    embeddings, runtime_ = embeddings
+                    ttl_runtime += runtime_.mean()
+                    # runtime_regloss = lambda_runtime_reg * torch.log(ttl_runtime)
+                    if ttl_runtime.item() > target_runtime:
+                        w_ = 1.03  # todo
+                    else:
+                        w_ = 0
+                    runtime_regloss = lambda_runtime_reg * (ttl_runtime / target_runtime) ** w_
+                else:
+                    embeddings = self.model(imgs, use_of=conf.use_of)
+                    ttl_runtime = runtime_regloss = torch.FloatTensor([0]).cuda()
+                    if conf.use_of:
+                        from tools.of_penalty import of_reger
+                        embeddings, fea7x7 = embeddings
+                        runtime_regloss += conf.use_of * of_reger.forward(fea7x7)
+                if conf.loss == 'adamarcface':
+                    self.head.clamp_m()
+                    thetas, m_mean = self.head(embeddings, labels)
+                    loss_xent = conf.ce_loss(thetas, labels) - 50 * m_mean
+                else:
+                    if isinstance(embeddings, list):
+                        assert not torch.isnan(embeddings[0]).any().item()
+                        assert conf.ds
+                        thetas = self.head(embeddings[0], labels)
+                        loss_xent = conf.ce_loss(thetas, labels)
+                        for i in range(4):
+                            loss_xent += conf.prev_wei * conf.ce_loss(self.heads[i](embeddings[i + 1], labels), labels)
+                    else:
+                        assert not torch.isnan(embeddings).any().item()
+                        thetas = self.head(embeddings, labels)
+                        loss_xent = conf.ce_loss(thetas, labels)
+
+                        if conf.tri_wei != 0:
+                            loss_triplet, info = self.head_triplet(embeddings, labels, return_info=True)
+                            # grad_tri = torch.autograd.grad(loss_triplet, embeddings, retain_graph=True, create_graph=False,
+                            #                             only_inputs=True)[0].detach()
+
+                            # writer.add_scalar('info/grad_tri', torch.norm(grad_tri, dim=1).mean().item(), self.step)
+                            # grad_xent = torch.autograd.grad(loss, embeddings, retain_graph=True, create_graph=False,
+                            #                                 only_inputs=True)[0].detach()
+                            # writer.add_scalar('info/grad_xent', torch.norm(grad_xent, dim=1).mean().item(), self.step)
+                            loss_xent = ((1 - conf.tri_wei) * loss_xent + conf.tri_wei * loss_triplet) / (
+                                    1 - conf.tri_wei)
+
+                if conf.kd:
+                    alpha = conf.alpha
+                    T = conf.temperature
+                    with torch.no_grad():
+                        if not conf.sftlbl_from_file:
+                            teachers_embedding = self.teacher_model(imgs, )
+                        else:
+                            teachers_embedding = data['teacher_embedding'].to(conf.teacher_head_dev)
+                        if conf.teacher_head_in_dloader:
+                            teacher_outputs = teachers_embedding.cuda()
+                        else:
+                            teacher_outputs = self.teacher_head(teachers_embedding,
+                                                                labels.to(conf.teacher_head_dev)).to(thetas.device)
+                    distill_loss = F.kl_div(
+                        F.log_softmax(thetas / T, dim=1),
+                        F.softmax(teacher_outputs / T, dim=1), reduction='batchmean') * (
+                                           (T / conf.scale) ** 2)  # todo formula?
+                    loss_xent = (1. - alpha) * loss_xent + alpha * distill_loss
+
+                # res = [embeddings, teacher_outputs, thetas, labels]
+                # def transs(x):
+                #     return to_numpy(x.detach().cpu())
+                # res = map(transs, res)
+                # res = list(res)
+                # lz.msgpack_dump(res, '/tmp/t.pk')
+                # msgpack_load('/tmp/t.pk')
+                # exit()
+                assert not judgenan(runtime_regloss)
+                assert not judgenan(loss_xent)
+                if conf.fp16:
+                    with amp.scale_loss((loss_xent + runtime_regloss) / conf.acc_grad,
+                                        self.optimizer) as scaled_loss:
+                        scaled_loss.backward()
+                else:
+                    ((loss_xent + runtime_regloss) / conf.acc_grad).backward()
+                with torch.no_grad():
+                    if conf.mining == 'dop':
+                        update_dop_cls(thetas, labels_cpu, conf.dop)
+                    if conf.mining == 'rand.id':
+                        conf.dop[labels_cpu.numpy()] = 1
+                conf.explored[labels_cpu.numpy()] = 1
+                with torch.no_grad():
+                    acc_t = (thetas.argmax(dim=1) == labels)
+                    acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
+                if acc_grad_cnt == conf.acc_grad - 1:
+                    self.optimizer.step()
+                    if conf.swa and (self.step==0 or now_lr == conf.lr):
+                        logging.info(f'swa {self.step} {now_lr} {conf.lr}')
+                        self.optimizer.update_swa()
+                        if conf.swa=='modify':
+                            self.optimizer.swap_swa_sgd()
+                            if self.step!=0:
+                                lz.swa_bn_update(loader, self.model)
+                    acc_grad_cnt = 0
+                else:
+                    acc_grad_cnt += 1
+                assert acc_grad_cnt < conf.acc_grad, acc_grad_cnt
+                loss_time.update(
+                    lz.timer.since_last_check(verbose=False)
+                )
+                if self.step % self.board_loss_every == 0:
+                    logging.info(f'epoch {e}/{epochs} step {self.step}/{len(loader)}: ' +
+                                 f'xent: {loss_xent.item():.2e} ' +
+                                 f'ttlrt: {ttl_runtime.item():.2e} ' +
+                                 f'data time: {data_time.avg:.2f} ' +
+                                 f'loss time: {loss_time.avg:.2f} ' +
+                                 f'acc: {acc:.2e} ' +
+                                 f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                if writer and self.step % self.board_loss_every == 0:
+                    writer.add_scalar('loss/xent', loss_xent.item(), self.step)
+                    writer.add_scalar('loss/runtime_regloss', runtime_regloss.item(), self.step)
+                    writer.add_scalar('loss/ttl_runtime', ttl_runtime.item(), self.step)
+                    writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
+                    writer.add_scalar('info/acc', acc, self.step)
+                    writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                    writer.add_scalar('info/datatime', data_time.avg, self.step)
+                    writer.add_scalar('info/losstime', loss_time.avg, self.step)
+                    writer.add_scalar('info/epoch', e, self.step)
+                    if conf.tri_wei != 0:
+                        writer.add_scalar('loss/triplet', loss_triplet.item(), self.step)
+                        writer.add_scalar('loss/dap', info['dap'], self.step)
+                        writer.add_scalar('loss/dan', info['dan'], self.step)
+                        logging.info(f'tri: {loss_triplet.item():.2e} ')
+                    if conf.net_mode == 'sglpth':
+                        with torch.no_grad():
+                            for depth, dec in enumerate(self.model.module.get_decisions()):
+                                d5x5, d100c, d50c, t5x5, t100c, t50c = dec
+                                self.writer.add_scalar(f'd5x5/{depth}', d5x5, self.step)
+                                self.writer.add_scalar(f'd50c/{depth}', d50c, self.step)
+                                self.writer.add_scalar(f'd100c/{depth}', d100c, self.step)
+                                self.writer.add_scalar(f't100c/{depth}', t100c, self.step)
+                                self.writer.add_scalar(f't50c/{depth}', t50c, self.step)
+                    if conf.kd:
+                        writer.add_scalar('loss/distill', distill_loss.item(), self.step)
+                    dop = conf.dop
+                    if dop is not None:
+                        writer.add_histogram('top_imp', dop, self.step)
+                        writer.add_scalar('info/doprat',
+                                          np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
+                if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
+                    logging.info(f'-->gpu {lz.show_dev()}')
+                    for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
+                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                            conf,
+                            Path(conf.use_data_folder),
+                            ds)
+                        self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                        logging.info(f'validation accuracy on {ds} is {accuracy} ')
+                    self.cloud_sync_log()
+                    logging.info(f'-->gpu {lz.show_dev()}')
+                    if conf.val_ijbx:
+                        from tools.test_ijbc3 import test_ijbc3
+                        res = test_ijbc3(conf, self)
+                        res6 = res[0][-1]
+                        res4 = res[1][-1]
+                        res3 = res[2][-1]
+                        self.writer.add_scalar(f'ijbx/6', res6, self.step)
+                        self.writer.add_scalar(f'ijbx/4', res4, self.step)
+                        self.writer.add_scalar(f'ijbx/3', res3, self.step)
+                if self.step % self.save_every == 0 and self.step != 0:
+                    self.save_state(conf, accuracy)
+
+                self.step += 1
+                if conf.prof and self.step >= len(loader) // 2:
+                    break
+            if conf.prof and e > 1:
+                break
+        if conf.swa:
+            self.optimizer.swap_swa_sgd()
+            lz.swa_bn_update(loader, self.model)
+        self.save_state(conf, accuracy, )
+        self.save_state(conf, accuracy, to_save_folder=True, extra='final')
+
+    def warmup(self, conf, epochs):
+        if epochs == 0: return
+        self.model.train()
+        loader = self.loader
+        self.evaluate_every = conf.other_every or len(loader) // 3
+        self.save_every = conf.other_every or len(loader) // 3
+        self.step = conf.start_step
+        writer = SummaryWriter(str(conf.log_path) + '/warmup')
+        lz.timer.since_last_check('start train')
+        data_time = lz.AverageMeter()
+        loss_time = lz.AverageMeter()
+        accuracy = 0
+        e = 0
+        ttl_batch = int(epochs * len(loader))
+        loader_enum = data_prefetcher(enumerate(loader))
+        acc_grad_cnt = 0
+        while True:
+            now_lr = conf.lr * (self.step + 1) / ttl_batch
+            for params in self.optimizer.param_groups:
+                params['lr'] = now_lr
+            ind_data, data = next(loader_enum)
+            if ind_data is None:
+                logging.info(f'one epoch finish {e} {ind_data}')
+                loader_enum = data_prefetcher(enumerate(loader))
+                ind_data, data = next(loader_enum)
+            if (self.step + 1) % len(loader) == 0 or self.step > ttl_batch:
+                self.step += 1
+                break
+            imgs = data['imgs'].cuda()
+            assert imgs.max() < 2
+            if 'labels_cpu' in data:
+                labels_cpu = data['labels_cpu'].cpu()
+            else:
+                labels_cpu = data['labels'].cpu()
+            labels = data['labels'].cuda()
+            data_time.update(
+                lz.timer.since_last_check(verbose=False)
+            )
+            if acc_grad_cnt == 0:
+                self.optimizer.zero_grad()
+            embeddings = self.model(imgs, use_of=conf.use_of)
+            ttl_runtime = runtime_regloss = torch.FloatTensor([0]).cuda()
+            if conf.use_of:
+                from tools.of_penalty import of_reger
+                embeddings, fea7x7 = embeddings
+                runtime_regloss += conf.use_of * of_reger.forward(fea7x7)
+            if isinstance(embeddings, list):
+                assert conf.ds
+                thetas = self.head(embeddings[0], labels)
+                loss_xent = conf.ce_loss(thetas, labels)
+                for i in range(4):
+                    loss_xent += 0.1 * conf.ce_loss(self.heads[i](embeddings[i + 1], labels), labels)
+            else:
+                thetas = self.head(embeddings, labels)
+                loss_xent = conf.ce_loss(thetas, labels)
+            assert not judgenan(runtime_regloss)
+            assert not judgenan(loss_xent)
+            if conf.fp16:
+                with amp.scale_loss((loss_xent + runtime_regloss) / conf.acc_grad,
+                                    self.optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else:
+                ((loss_xent + runtime_regloss) / conf.acc_grad).backward()
+            with torch.no_grad():
+                if conf.mining == 'dop':
+                    update_dop_cls(thetas, labels_cpu, conf.dop)
+                if conf.mining == 'rand.id':
+                    conf.dop[labels_cpu.numpy()] = 1
+            conf.explored[labels_cpu.numpy()] = 1
+            with torch.no_grad():
+                acc_t = (thetas.argmax(dim=1) == labels)
+                acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
+            if acc_grad_cnt == conf.acc_grad - 1:
+                self.optimizer.step()
+                acc_grad_cnt = 0
+            else:
+                acc_grad_cnt += 1
+            assert acc_grad_cnt < conf.acc_grad, acc_grad_cnt
+
+            loss_time.update(
+                lz.timer.since_last_check(verbose=False)
+            )
+            if self.step % self.board_loss_every == 0:
+                logging.info(f'epoch {e}/{epochs} lr {now_lr}' +
+                             f'step {self.step}/{len(loader)}: ' +
+                             f'xent: {loss_xent.item():.2e} ' +
+                             f'data time: {data_time.avg:.2f} ' +
+                             f'loss time: {loss_time.avg:.2f} ' +
+                             f'acc: {acc:.2e} ' +
+                             f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
+                writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
+                writer.add_scalar('loss/xent', loss_xent.item(), self.step)
+                writer.add_scalar('info/acc', acc, self.step)
+                writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
+                writer.add_scalar('info/datatime', data_time.avg, self.step)
+                writer.add_scalar('info/losstime', loss_time.avg, self.step)
+                writer.add_scalar('info/epoch', e, self.step)
+                dop = conf.dop
+                if dop is not None:
+                    writer.add_histogram('top_imp', dop, self.step)
+                    writer.add_scalar('info/doprat',
+                                      np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
+
+            if not conf.no_eval and self.step % self.evaluate_every == 10:
+                logging.info(f'-->gpu {lz.show_dev()}')
+                for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
+                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
+                        conf,
+                        Path(conf.use_data_folder),
+                        ds)
+                    self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
+                    logging.info(f'validation accuracy on {ds} is {accuracy} ')
+                self.cloud_sync_log()
+                logging.info(f'-->gpu {lz.show_dev()}')
+            if self.step % self.save_every == 10:
+                self.save_state(conf, accuracy)
+            self.step += 1
+        self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
     def train_dist(self, conf, epochs):
         self.model.train()
@@ -1272,7 +1576,9 @@ class face_learner(object):
                         writer.add_scalar('info/doprat',
                                           np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
 
-                if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
+                if not conf.no_eval and self.step % self.evaluate_every == 10:
+                    self.cloud_sync_log()
+                    logging.info(f'-->gpu {lz.show_dev()}')
                     for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
                         accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
                             conf,
@@ -1282,7 +1588,7 @@ class face_learner(object):
                             self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
                             logging.info(f'validation accuracy on {ds} is {accuracy} ')
 
-                if dist_need_log and self.step % self.save_every == 0 and self.step != 0:
+                if dist_need_log and self.step % self.save_every == 10:
                     self.save_state(conf, accuracy)
 
                 self.step += 1
@@ -1290,122 +1596,6 @@ class face_learner(object):
                     break
             if conf.prof and e > 1:
                 break
-        self.save_state(conf, accuracy, to_save_folder=True, extra='final')
-
-    def warmup(self, conf, epochs):
-        if epochs == 0: return
-        self.model.train()
-        loader = self.loader
-        self.evaluate_every = conf.other_every or len(loader) // 3
-        self.save_every = conf.other_every or len(loader) // 3
-        self.step = conf.start_step
-        writer = SummaryWriter(str(conf.log_path) + '/warmup')
-        lz.timer.since_last_check('start train')
-        data_time = lz.AverageMeter()
-        loss_time = lz.AverageMeter()
-        accuracy = 0
-        e = 0
-        ttl_batch = int(epochs * len(loader))
-        loader_enum = data_prefetcher(enumerate(loader))
-        acc_grad_cnt = 0
-        while True:
-            now_lr = conf.lr * (self.step + 1) / ttl_batch
-            for params in self.optimizer.param_groups:
-                params['lr'] = now_lr
-            ind_data, data = next(loader_enum)
-            if ind_data is None:
-                logging.info(f'one epoch finish {e} {ind_data}')
-                loader_enum = data_prefetcher(enumerate(loader))
-                ind_data, data = next(loader_enum)
-            if (self.step + 1) % len(loader) == 0 or self.step > ttl_batch:
-                self.step += 1
-                break
-            imgs = data['imgs'].cuda()
-            assert imgs.max() < 2
-            if 'labels_cpu' in data:
-                labels_cpu = data['labels_cpu'].cpu()
-            else:
-                labels_cpu = data['labels'].cpu()
-            labels = data['labels'].cuda()
-            data_time.update(
-                lz.timer.since_last_check(verbose=False)
-            )
-            if acc_grad_cnt == 0:
-                self.optimizer.zero_grad()
-            embeddings = self.model(imgs, use_of=conf.use_of)
-            ttl_runtime = runtime_regloss = torch.FloatTensor([0]).cuda()
-            if conf.use_of:
-                from tools.of_penalty import of_reger
-                embeddings, fea7x7 = embeddings
-                runtime_regloss += conf.use_of * of_reger.forward(fea7x7)
-            if isinstance(embeddings, list):
-                assert conf.ds
-                thetas = self.head(embeddings[0], labels)
-                loss_xent = conf.ce_loss(thetas, labels)
-                for i in range(4):
-                    loss_xent += .9 * conf.ce_loss(self.heads[i](embeddings[i + 1], labels), labels) # todo
-            else:
-                thetas = self.head(embeddings, labels)
-                loss_xent = conf.ce_loss(thetas, labels)
-            assert not judgenan(runtime_regloss)
-            assert not judgenan(loss_xent)
-            if conf.fp16:
-                with amp.scale_loss((loss_xent + runtime_regloss) / conf.acc_grad,
-                                    self.optimizer) as scaled_loss:
-                    scaled_loss.backward()
-            else:
-                ((loss_xent + runtime_regloss) / conf.acc_grad).backward()
-            with torch.no_grad():
-                if conf.mining == 'dop':
-                    update_dop_cls(thetas, labels_cpu, conf.dop)
-                if conf.mining == 'rand.id':
-                    conf.dop[labels_cpu.numpy()] = 1
-            conf.explored[labels_cpu.numpy()] = 1
-            with torch.no_grad():
-                acc_t = (thetas.argmax(dim=1) == labels)
-                acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
-            if acc_grad_cnt == conf.acc_grad - 1:
-                self.optimizer.step()
-                acc_grad_cnt = 0
-            else:
-                acc_grad_cnt += 1
-            assert acc_grad_cnt < conf.acc_grad, acc_grad_cnt
-
-            loss_time.update(
-                lz.timer.since_last_check(verbose=False)
-            )
-            if self.step % self.board_loss_every == 0:
-                logging.info(f'epoch {e}/{epochs} lr {now_lr}' +
-                             f'step {self.step}/{len(loader)}: ' +
-                             f'xent: {loss_xent.item():.2e} ' +
-                             f'data time: {data_time.avg:.2f} ' +
-                             f'loss time: {loss_time.avg:.2f} ' +
-                             f'acc: {acc:.2e} ' +
-                             f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
-                writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
-                writer.add_scalar('loss/xent', loss_xent.item(), self.step)
-                writer.add_scalar('info/acc', acc, self.step)
-                writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
-                writer.add_scalar('info/datatime', data_time.avg, self.step)
-                writer.add_scalar('info/losstime', loss_time.avg, self.step)
-                writer.add_scalar('info/epoch', e, self.step)
-                dop = conf.dop
-                if dop is not None:
-                    writer.add_histogram('top_imp', dop, self.step)
-                    writer.add_scalar('info/doprat',
-                                      np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
-
-            if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
-                for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
-                    accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
-                        conf,
-                        Path(conf.use_data_folder),
-                        ds)
-                    self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
-                    logging.info(f'validation accuracy on {ds} is {accuracy} ')
-            if self.step % self.save_every == 0 and self.step != 0:
-                self.save_state(conf, accuracy)
-            self.step += 1
         self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
     def get_loader_enum(self, loader=None):
@@ -1428,214 +1618,6 @@ class face_learner(object):
                 logging.info(f'err is {e}')
                 time.sleep(10)
         return loader_enum
-
-    def train_simple(self, conf, epochs):
-        self.model.train()
-        loader = self.loader
-        self.evaluate_every = conf.other_every or len(loader) // 3
-        self.save_every = conf.other_every or len(loader) // 3
-        self.step = conf.start_step
-        writer = self.writer
-        lz.timer.since_last_check('start train')
-        data_time = lz.AverageMeter()
-        loss_time = lz.AverageMeter()
-        accuracy = 0
-        if conf.start_eval:
-            for ds in ['cfp_fp', ]:
-                accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
-                    conf,
-                    Path(conf.use_data_folder),
-                    ds)
-                self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
-                logging.info(f'validation accuracy on {ds} is {accuracy} ')
-        for e in range(conf.start_epoch, epochs):
-            if e >= 6:  # todo
-                conf.conv2dmask_drop_ratio = 0.
-                lambda_runtime_reg = conf.lambda_runtime_reg
-            else:  # 0 1 2 3 4 5
-                lambda_runtime_reg = 0
-            lz.timer.since_last_check('epoch {} started'.format(e))
-            # self.schedule_lr(e)
-            loader_enum = self.get_loader_enum()
-            acc_grad_cnt = 0
-            while True:
-                self.schedule_lr(step=self.step)
-                try:
-                    ind_data, data = next(loader_enum)
-                except StopIteration as err:
-                    logging.info(f'one epoch finish {e} err is {err}')
-                    loader_enum = self.get_loader_enum()
-                    ind_data, data = next(loader_enum)
-                if ind_data is None:
-                    logging.info(f'one epoch finish {e} {ind_data}')
-                    loader_enum = self.get_loader_enum()
-                    ind_data, data = next(loader_enum)
-                if (self.step + 1) % len(loader) == 0:
-                    self.step += 1
-                    break
-                imgs = data['imgs'].cuda()
-                assert imgs.max() < 2
-                if 'labels_cpu' in data:
-                    labels_cpu = data['labels_cpu'].cpu()
-                else:
-                    labels_cpu = data['labels'].cpu()
-                labels = data['labels'].cuda()
-                data_time.update(
-                    lz.timer.since_last_check(verbose=False)
-                )
-                if acc_grad_cnt == 0:
-                    self.optimizer.zero_grad()
-
-                if conf.net_mode == 'sglpth':
-                    ttl_runtime = 0.452 * 10 ** 6  # todo
-                    target_runtime = 2.5 * 10 ** 6
-                    embeddings = self.model(imgs, need_runtime_reg=True)
-                    embeddings, runtime_ = embeddings
-                    ttl_runtime += runtime_.mean()
-                    # runtime_regloss = lambda_runtime_reg * torch.log(ttl_runtime)
-                    if ttl_runtime.item() > target_runtime:
-                        w_ = 1.03  # todo
-                    else:
-                        w_ = 0
-                    runtime_regloss = lambda_runtime_reg * (ttl_runtime / target_runtime) ** w_
-                else:
-                    embeddings = self.model(imgs, use_of=conf.use_of)
-                    ttl_runtime = runtime_regloss = torch.FloatTensor([0]).cuda()
-                    if conf.use_of:
-                        from tools.of_penalty import of_reger
-                        embeddings, fea7x7 = embeddings
-                        runtime_regloss += conf.use_of * of_reger.forward(fea7x7)
-                if conf.loss == 'adamarcface':
-                    self.head.clamp_m()
-                    thetas, m_mean = self.head(embeddings, labels)
-                    loss_xent = conf.ce_loss(thetas, labels) - 50 * m_mean
-                else:
-                    if isinstance(embeddings, list):
-                        assert not torch.isnan(embeddings[0]).any().item()
-                        assert conf.ds
-                        thetas = self.head(embeddings[0], labels)
-                        loss_xent = conf.ce_loss(thetas, labels)
-                        for i in range(4):
-                            loss_xent += 0.1 * conf.ce_loss(self.heads[i](embeddings[i + 1], labels), labels)
-                    else:
-                        assert not torch.isnan(embeddings).any().item()
-                        thetas = self.head(embeddings, labels)
-                        loss_xent = conf.ce_loss(thetas, labels)
-                if conf.kd:
-                    alpha = conf.alpha
-                    T = conf.temperature
-                    with torch.no_grad():
-                        if not conf.sftlbl_from_file:
-                            teachers_embedding = self.teacher_model(imgs, )
-                        else:
-                            teachers_embedding = data['teacher_embedding'].to(conf.teacher_head_dev)
-                        if conf.teacher_head_in_dloader:
-                            teacher_outputs = teachers_embedding.cuda()
-                        else:
-                            teacher_outputs = self.teacher_head(teachers_embedding,
-                                                                labels.to(conf.teacher_head_dev)).to(thetas.device)
-                    distill_loss = F.kl_div(
-                        F.log_softmax(thetas / T, dim=1),
-                        F.softmax(teacher_outputs / T, dim=1), reduction='batchmean') * (
-                                           (T / conf.scale) ** 2)  # todo formula?
-                    loss_xent = (1. - alpha) * loss_xent + alpha * distill_loss
-
-                # res = [embeddings, teacher_outputs, thetas, labels]
-                # def transs(x):
-                #     return to_numpy(x.detach().cpu())
-                # res = map(transs, res)
-                # res = list(res)
-                # lz.msgpack_dump(res, '/tmp/t.pk')
-                # msgpack_load('/tmp/t.pk')
-                # exit()
-                assert not judgenan(runtime_regloss)
-                assert not judgenan(loss_xent)
-                if conf.fp16:
-                    with amp.scale_loss((loss_xent + runtime_regloss) / conf.acc_grad,
-                                        self.optimizer) as scaled_loss:
-                        scaled_loss.backward()
-                else:
-                    ((loss_xent + runtime_regloss) / conf.acc_grad).backward()
-                with torch.no_grad():
-                    if conf.mining == 'dop':
-                        update_dop_cls(thetas, labels_cpu, conf.dop)
-                    if conf.mining == 'rand.id':
-                        conf.dop[labels_cpu.numpy()] = 1
-                conf.explored[labels_cpu.numpy()] = 1
-                with torch.no_grad():
-                    acc_t = (thetas.argmax(dim=1) == labels)
-                    acc = ((acc_t.sum()).item() + 0.0) / acc_t.shape[0]
-                if acc_grad_cnt == conf.acc_grad - 1:
-                    self.optimizer.step()
-                    acc_grad_cnt = 0
-                else:
-                    acc_grad_cnt += 1
-                assert acc_grad_cnt < conf.acc_grad, acc_grad_cnt
-                loss_time.update(
-                    lz.timer.since_last_check(verbose=False)
-                )
-                if self.step % self.board_loss_every == 0:
-                    logging.info(f'epoch {e}/{epochs} step {self.step}/{len(loader)}: ' +
-                                 f'xent: {loss_xent.item():.2e} ' +
-                                 f'ttlrt: {ttl_runtime.item():.2e} ' +
-                                 f'data time: {data_time.avg:.2f} ' +
-                                 f'loss time: {loss_time.avg:.2f} ' +
-                                 f'acc: {acc:.2e} ' +
-                                 f'speed: {conf.batch_size / (data_time.avg + loss_time.avg):.2f} imgs/s')
-                if writer and self.step % self.board_loss_every == 0:
-                    writer.add_scalar('loss/xent', loss_xent.item(), self.step)
-                    writer.add_scalar('loss/runtime_regloss', runtime_regloss.item(), self.step)
-                    writer.add_scalar('loss/ttl_runtime', ttl_runtime.item(), self.step)
-                    writer.add_scalar('info/lr', self.optimizer.param_groups[0]['lr'], self.step)
-                    writer.add_scalar('info/acc', acc, self.step)
-                    writer.add_scalar('info/speed', conf.batch_size / (data_time.avg + loss_time.avg), self.step)
-                    writer.add_scalar('info/datatime', data_time.avg, self.step)
-                    writer.add_scalar('info/losstime', loss_time.avg, self.step)
-                    writer.add_scalar('info/epoch', e, self.step)
-
-                    if conf.net_mode == 'sglpth':
-                        with torch.no_grad():
-                            for depth, dec in enumerate(self.model.module.get_decisions()):
-                                d5x5, d100c, d50c, t5x5, t100c, t50c = dec
-                                self.writer.add_scalar(f'd5x5/{depth}', d5x5, self.step)
-                                self.writer.add_scalar(f'd50c/{depth}', d50c, self.step)
-                                self.writer.add_scalar(f'd100c/{depth}', d100c, self.step)
-                                self.writer.add_scalar(f't100c/{depth}', t100c, self.step)
-                                self.writer.add_scalar(f't50c/{depth}', t50c, self.step)
-                    if conf.kd:
-                        writer.add_scalar('loss/distill', distill_loss.item(), self.step)
-                    dop = conf.dop
-                    if dop is not None:
-                        writer.add_histogram('top_imp', dop, self.step)
-                        writer.add_scalar('info/doprat',
-                                          np.count_nonzero(conf.explored == 0) / dop.shape[0], self.step)
-
-                if not conf.no_eval and self.step % self.evaluate_every == 0 and self.step != 0:
-                    for ds in ['cfp_fp', ]:  # 'lfw',  'agedb_30'
-                        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(
-                            conf,
-                            Path(conf.use_data_folder),
-                            ds)
-                        self.board_val(ds, accuracy, best_threshold, roc_curve_tensor, writer)
-                        logging.info(f'validation accuracy on {ds} is {accuracy} ')
-                    if conf.val_ijbx:
-                        from tools.test_ijbc3 import test_ijbc3
-                        res = test_ijbc3(conf, self)
-                        res6 = res[0][-1]
-                        res4 = res[1][-1]
-                        res3 = res[2][-1]
-                        self.writer.add_scalar(f'ijbx/6', res6, self.step)
-                        self.writer.add_scalar(f'ijbx/4', res4, self.step)
-                        self.writer.add_scalar(f'ijbx/3', res3, self.step)
-                if self.step % self.save_every == 0 and self.step != 0:
-                    self.save_state(conf, accuracy)
-
-                self.step += 1
-                if conf.prof and self.step >= len(loader) // 2:
-                    break
-            if conf.prof and e > 1:
-                break
-        self.save_state(conf, accuracy, to_save_folder=True, extra='final')
 
     def train_ghm(self, conf, epochs):
         self.ghm_mom = 0.75
@@ -2398,7 +2380,7 @@ class face_learner(object):
         if step != 0:
             e = (step + 1) // steps_per_epoch
         e2lr = {epoch: conf.lr * conf.lr_gamma ** bisect_right(self.milestones, epoch) for epoch in
-                range(conf.epochs)}
+                range(conf.epochs + 2)}
         # logging.info(f'map e to lr is {e2lr}')
         lr = e2lr[e]
         for params in self.optimizer.param_groups:
@@ -2407,6 +2389,7 @@ class face_learner(object):
             else:
                 params['lr'] = lr
         # logging.info(f'lr is {lr}')
+        return lr
 
     def schedule_lr_cosanl(self, e=0, step=0):
         assert e == 0, 'not implement yet'
@@ -2420,43 +2403,83 @@ class face_learner(object):
                 params['lr'] = lr * params['lr_mult']
             else:
                 params['lr'] = lr
+        # logging.info(f'lr is {lr}')
+        return lr
 
-    # schedule_lr =init_lr = schedule_lr_mstep
-    schedule_lr = init_lr = schedule_lr_cosanl
+    def schedule_lr_cycle(self, e=0, step=0):
+        assert e == 0, 'not implement yet'
+        steps_per_epoch = len(self.loader)
+        if not hasattr(self, 'fake_scheduler'):
+            self.fake_opt = torch.optim.SGD([{'params': torch.ones(10), }],
+                                       lr=conf.lr, momentum=conf.momentum)
+            step_up = max(int(conf.cycle_up * steps_per_epoch), 1)
+            step_down = int(conf.cycle_down * steps_per_epoch)
+            self.fake_scheduler = torch.optim.lr_scheduler.CyclicLR(self.fake_opt,
+                                                                   base_lr=conf.lr,
+                                                                   max_lr=conf.lr * conf.cycle_max_lr_mult,
+                                                                   step_size_up=step_up, step_size_down=step_down,
+                                                                   scale_mode='cycle',
+                                                                   scale_fn=lambda x: conf.cycle_gamma ** (x-1),
+                                                                   )
+        if step>=0:
+            self.fake_scheduler.step()
+        lr = self.fake_scheduler.get_lr()[0]
+        for params in self.optimizer.param_groups:
+            if 'lr_mult' in params:
+                params['lr'] = lr * params['lr_mult']
+            else:
+                params['lr'] = lr
+            if conf.cycle_momentum:
+                momentum = self.fake_opt.param_groups[0]['momentum']
+                params['momentum'] =momentum
+        return lr
+
+    if conf.get('schedule', ) == 'mstep':
+        schedule_lr = init_lr = schedule_lr_mstep
+    elif conf.get('schedule', )=='cosanl':
+        schedule_lr = init_lr = schedule_lr_cosanl
+    else:
+        schedule_lr = init_lr = schedule_lr_cycle
 
     def save_state(self, conf, accuracy, to_save_folder=False, extra=None, model_only=False):
-        # if conf.local_rank is not None and conf.local_rank != 0:
-        #     return
-        if to_save_folder:
-            save_path = conf.save_path
-        else:
-            save_path = conf.model_path
-        time_now = get_time()
-        lz.mkdir_p(save_path, delete=False)
-        # self.model.cpu()
-        torch.save(
-            self.model.module.state_dict(),
-            save_path /
-            ('model_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
-                                                          extra)))
-        # self.model.cuda()
-        lz.msgpack_dump({'dop': conf.dop,
-                         'id2range_dop': conf.id2range_dop,
-                         }, str(save_path) + f'/extra_{time_now}_accuracy:{accuracy}_step:{self.step}_{extra}.pk')
-        if not model_only:
+        try:
+            # if conf.local_rank is not None and conf.local_rank != 0:
+            #     return
+            if to_save_folder:
+                save_path = conf.save_path
+            else:
+                save_path = conf.model_path
+            time_now = get_time()
+            # self.model.cpu()
+            spth = save_path / ('model_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
+                                                                             extra))
+            spth = lz.cloud_normpath(spth)
+            lz.mkdir_p(save_path, delete=False)
+            lz.mkdir_p(os.path.dirname(spth), delete=False)
+            torch.save(self.model.module.state_dict(), spth)
+
+            # self.model.cuda()
+            spth = save_path / f'extra_{time_now}_accuracy:{accuracy}_step:{self.step}_{extra}.pk'
+            spth = lz.cloud_normpath(spth)
+            lz.msgpack_dump({'dop': conf.dop,
+                             'id2range_dop': conf.id2range_dop,
+                             }, spth)
+
             if self.head is not None:
+                spth = save_path / ('head_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
+                                                                                extra))
+                spth = lz.cloud_normpath(spth)
                 self.head.cpu()
-                torch.save(
-                    self.head.state_dict(),
-                    save_path /
-                    ('head_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy, self.step,
-                                                                 extra)))
-                self.head.cuda()
-            torch.save(
-                self.optimizer.state_dict(),
-                save_path /
-                ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy,
-                                                                  self.step, extra)))
+                torch.save(self.head.state_dict(), spth)
+                if torch.cuda.device_count() > 0:
+                    self.head.cuda()
+                # todo to save space 
+                # torch.save(
+                #     self.optimizer.state_dict(),
+                #     save_path / ('optimizer_{}_accuracy:{}_step:{}_{}.pth'.format(time_now, accuracy,
+                #                                                     self.step, extra)))
+        except Exception as e:
+            logging.info(f'err {e}, when sving {spth}')
 
     def list_steps(self, resume_path):
         from pathlib import Path
@@ -2484,13 +2507,16 @@ class face_learner(object):
                    load_imp=False, load_head=False,
                    strict=True
                    ):
-        from pathlib import Path
-        save_path = Path(resume_path)
-        modelp = save_path / '{}'.format(fixed_str)
-        if not modelp.exists() or not modelp.is_file():
-            modelp = save_path / 'model_{}'.format(fixed_str)
-        if not modelp.exists() or not modelp.is_file():
-            fixed_strs = [t.name for t in save_path.glob('model*_*.pth')]
+        save_path = str(resume_path)
+        save_path = lz.cloud_normpath(save_path)
+        modelp = save_path + '/' + fixed_str
+        modelp = lz.cloud_normpath(modelp)
+        if not osp.exists(modelp) or not osp.isfile(modelp):
+            modelp = save_path + '/model_{}'.format(fixed_str)
+            modelp = lz.cloud_normpath(modelp)
+        if not osp.exists(modelp) or not osp.isfile(modelp):
+            modelp = save_path
+            fixed_strs = [osp.basename(t) for t in glob.glob(modelp + '/model*_*.pth')]
             if latest:
                 step = [fixed_str.split('_')[-2].split(':')[-1] for fixed_str in fixed_strs]
             else:  # best
@@ -2499,10 +2525,9 @@ class face_learner(object):
             assert step.shape[0] > 0, f"{resume_path} chk!"
             step_ind = step.argmax()
             fixed_str = fixed_strs[step_ind].replace('model_', '')
-            modelp = save_path / 'model_{}'.format(fixed_str)
+            modelp = save_path + '/model_{}'.format(fixed_str)
         logging.info(f'you are using gpu, load model, {modelp}')
-        model_state_dict = torch.load(modelp)
-        # model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
+        model_state_dict = torch.load(modelp, map_location=lambda storage, loc: storage)
         if conf.cvt_ipabn:
             import copy
             model_state_dict2 = copy.deepcopy(model_state_dict)
@@ -2517,19 +2542,23 @@ class face_learner(object):
             self.model.module.load_state_dict(model_state_dict, strict=strict)
 
         if load_head:
-            assert osp.exists(save_path / 'head_{}'.format(fixed_str))
+            assert osp.exists(save_path + '/head_{}'.format(fixed_str))
             logging.info(f'load head from {modelp}')
-            head_state_dict = torch.load(save_path / 'head_{}'.format(fixed_str))
+            head_state_dict = torch.load(save_path + '/head_{}'.format(fixed_str))
             if 'kernel' in head_state_dict:
-                kw = head_state_dict.pop('kernel')
+                # kw = head_state_dict.pop('kernel')
+                kw = head_state_dict['kernel']
                 head_state_dict['kernel.weight'] = kw.transpose(0, 1)
-            self.head.load_state_dict(head_state_dict)
+            if hasattr(self.head, 'module'):
+                self.head.module.load_state_dict(head_state_dict, strict=False)
+            else:
+                self.head.load_state_dict(head_state_dict, strict=False)
 
         if load_optimizer:
             logging.info(f'load opt from {modelp}')
-            self.optimizer.load_state_dict(torch.load(save_path / 'optimizer_{}'.format(fixed_str)))
-        if load_imp and (save_path / f'extra_{fixed_str.replace(".pth", ".pk")}').exists():
-            extra = lz.msgpack_load(save_path / f'extra_{fixed_str.replace(".pth", ".pk")}')
+            self.optimizer.load_state_dict(torch.load(save_path + '/optimizer_{}'.format(fixed_str)))
+        if load_imp and osp.exists(save_path + f'/extra_{fixed_str.replace(".pth", ".pk")}'):
+            extra = lz.msgpack_load(save_path + f'/extra_{fixed_str.replace(".pth", ".pk")}')
             conf.dop = extra['dop'].copy()
             conf.id2range_dop = extra['id2range_dop'].copy()
 
@@ -2576,7 +2605,7 @@ class face_learner(object):
                         embeddings[idx:] = l2_norm(emb_batch)
                     else:
                         embeddings[idx:] = self.model(batch.cuda()).cpu()
-            lz.msgpack_dump(embeddings, '/tmp/cfpfp.pk')
+            # lz.msgpack_dump(embeddings, '/tmp/cfpfp.pk')
             tpr, fpr, accuracy, best_thresholds = evaluate(embeddings, issame, nrof_folds)
             res = accuracy.mean(), best_thresholds.mean(), roc_curve_tensor
             # buf = gen_plot(fpr, tpr)
@@ -2605,24 +2634,6 @@ class face_learner(object):
 
         self.model.train()
         return res
-
-    # todo deprecated
-    def validate_dingyi(self, conf, resume_path=None):
-        if resume_path is not None:
-            self.load_state(resume_path=resume_path)
-        self.model.eval()
-        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, Path(conf.use_data_folder),
-                                                                              'agedb_30')
-        logging.info(f'validation accuracy on agedb_30 is {accuracy} ')
-
-        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, Path(conf.use_data_folder),
-                                                                              'lfw')
-        logging.info(f'validation accuracy on lfw is {accuracy} ')
-
-        accuracy, best_threshold, roc_curve_tensor = self.evaluate_accelerate(conf, Path(conf.use_data_folder),
-                                                                              'cfp_fp')
-        logging.info(f'validation accuracy on cfp_fp is {accuracy} ')
-        self.model.train()
 
     def infer(self, conf, faces, target_embs, tta=False):
         '''
@@ -2689,11 +2700,61 @@ class face_learner(object):
         db.flush()
         db.close()
 
+    @torch.no_grad()
+    def head_initialize(self, ):
+        from sklearn.preprocessing import normalize
+        sampler = SeqSampler(self.dataset.id2range)
+        self.model.eval()
+        loader = DataLoader(self.dataset, batch_size=conf.batch_size * 4,
+                            num_workers=conf.num_workers,
+                            sampler=sampler,
+                            drop_last=False, pin_memory=True, )
+        feas = np.zeros((self.dataset.num_classes, 512), dtype='float32')
+        zjjk_fst = {}
+        for ind_data, data in data_prefetcher(enumerate(loader)):
+            if ind_data % 999 == 0:
+                print('init head', ind_data, len(loader))
+            imgs = data['imgs'].cuda()
+            labels = data['labels'].cuda()
+            feast = self.model(imgs).cpu().numpy()
+            feast = normalize(feast, axis=1)
+            for l, f in zip(labels, feast):
+                rg = self.dataset.id2range[int(l)]
+                if conf.head_init_zjjk:
+                    if l >= 112145 and (feas[l]==0).all():
+                        zjjk_fst[l]=f
+                    elif l>= 112145 and not (feas[l]==0).all():
+                        f /=rg[1] - rg[0]-1
+                        feas[l] += f
+                    else:
+                        f /= rg[1] - rg[0]
+                        feas[l] += f
+                else:
+                    f /= rg[1] - rg[0]
+                    feas[l] += f
+        self.model.train()
+        feas = normalize(feas, axis=1)
+        if conf.head_init_zjjk:
+            for l, f in zjjk_fst.items():
+                f/=np.linalg.norm(f)
+                feas[l]+=f
+            feas = normalize(feas, axis=1)
+        feas = feas.astype('float32').transpose()
+        if not hasattr(self.head, 'module'):
+            self.head.kernel.data = torch.from_numpy(feas).to(self.head.kernel.get_device())
+        else:
+            self.head.module.kernel.data = torch.from_numpy(feas).to(self.head.module.kernel.get_device())
+        return feas
+
+    @torch.no_grad()
     def calc_img_feas(self, out='t.h5'):
         self.model.eval()
-        loader = DataLoader(self.dataset, batch_size=conf.batch_size,
+        loader = DataLoader(self.dataset, batch_size=conf.batch_size * 4,
                             num_workers=conf.num_workers, shuffle=False,
-                            drop_last=False, pin_memory=True, )
+                            drop_last=False, pin_memory=True,
+                            sampler=SeqSampler(),
+                            )
+
         self.class_num = conf.num_clss = self.dataset.num_classes
         import h5py
         from sklearn.preprocessing import normalize
@@ -2852,7 +2913,7 @@ class face_learner(object):
 
 class face_cotching(face_learner):
     def __init__(self, conf=conf, ):
-        self.milestones = conf.milestones
+        self.milestones = np.asarray(conf.milestones)
         self.val_loader_cache = {}
         ## torch reader
         if conf.dataset_name == 'webface' or conf.dataset_name == 'casia':
@@ -3357,7 +3418,7 @@ class face_cotching(face_learner):
             fixed_str = fixed_strs[step_ind].replace('model_', '').replace('model2_', '')
             modelp = save_path / 'model_{}'.format(fixed_str)
         logging.info(f'you are using gpu, load model, {modelp}')
-        model_state_dict = torch.load(modelp)
+        model_state_dict = torch.load(modelp, map_location=lambda storage, loc: storage)
         model_state_dict = {k: v for k, v in model_state_dict.items() if 'num_batches_tracked' not in k}
         if load_model2:
             model_state_dict2 = torch.load(str(modelp).replace('model_', 'model2_'))
@@ -4027,7 +4088,6 @@ class face_cotching_head(face_learner):
                     {'params': paras_wo_bn[:-1], 'weight_decay': 4e-5},
                     {'params': [paras_wo_bn[-1]] + [*self.head.parameters()], 'weight_decay': 4e-4},
                     {'params': paras_only_bn}], lr=conf.lr, momentum=conf.momentum)
-                # embed()
             elif conf.use_opt == 'adabound':
                 from tools.adabound import AdaBound
                 self.optimizer = AdaBound([
@@ -4327,36 +4387,39 @@ rescale = ReScale.apply
 if __name__ == '__main__':
     init_dev(3)
     conf.fill_cache = 0
-    conf.kd = False
-
+    conf.cutoff = 10
+    conf.num_workers = 0
+    conf.head_init = '1'
     ds = TorchDataset(conf.use_data_folder)
-
-    for i in range(10):
-        print(ds[i]['indexes'], ds[i]['labels'])
-        plt_imshow(ds[i]['imgs'])
-        plt.show()
-
+    # for i in range(3):
+    #     print(ds[i]['indexes'], ds[i]['labels'])
+    #     plt_imshow(ds[i]['imgs'])
+    # plt.show()
+    # sampler = RandomIdSampler(ds.imgidx, ds.ids, ds.id2range)
+    sampler = SeqSampler(ds.id2range)
     loader = DataLoader(
         ds, batch_size=conf.batch_size,
         num_workers=conf.num_workers,
-        # sampler=RandomIdSampler(ds.imgidx, ds.ids, ds.id2range),
-        shuffle=False,
-        drop_last=True, pin_memory=False,
-        collate_fn=torch.utils.data.dataloader.default_collate if not conf.fast_load else fast_collate
+        sampler=sampler,
+        # shuffle=False,
+        drop_last=True,
+        pin_memory=False,
     )
-
-    class_num = ds.num_classes
-    print(class_num)
+    print(len(loader), len(sampler), len(ds))
     lz.timer.start()
     lz.timer.since_last_check()
+    class_num = ds.num_classes
+    print(class_num)
     meter = lz.AverageMeter()
-    for ind, batch in data_prefetcher(enumerate(loader)):
+    for ind, batch in (enumerate(loader)):
         meter.update(lz.timer.since_last_check(verbose=False))
         if ind % 9 == 0:
-            print('ok', conf.batch_size / meter.avg)
-        break
+            print('ok', ind, len(loader), conf.batch_size / meter.avg, batch['labels'][-1])
+        # break
+    exit(0)
+
     ds2 = MxnetLoader(conf.use_data_folder, shuffle=True)
-    for ind, batch2 in data_prefetcher(enumerate(ds2)):
+    for ind, batch2 in (enumerate(ds2)):
         if ind % 9 == 0:
             print('ok', ind, len(ds2), conf.batch_size)
         break

@@ -1,4 +1,3 @@
-# -*- coding: future_fstrings -*-
 from lz import *
 import torch
 import torchvision.transforms as transforms

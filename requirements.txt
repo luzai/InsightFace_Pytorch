@@ -1,7 +1,7 @@
 h5py
 tabulate
 tqdm
-mxnet-cu100
+mxnet
 yacs
 colorlog
 cvbase

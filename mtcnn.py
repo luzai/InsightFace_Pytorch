@@ -1,4 +1,3 @@
-# -*- coding: future_fstrings -*-
 
 from PIL import Image
 from mtcnn_pytorch.src.get_nets import PNet, RNet, ONet

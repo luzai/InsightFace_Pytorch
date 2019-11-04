@@ -1,4 +1,3 @@
-# -*- coding: future_fstrings -*-
 import lz, argparse, torchvision, struct, numpy as np, logging, cv2
 import torch, glob, cvbase as cvb, os.path as osp
 from torchvision import transforms as trans

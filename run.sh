@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 export PYTHONPATH=.
 python tools/clean.py &
+python train.py --epochs 5 --work_path work_space/ft.ipabn --batch_size 768 --ipabn True --cvt_ipabn False 
+# python train.py --epochs 5 --work_path work_space/ft.ipabn.neg.2.2 --batch_size 768 --ipabn True --cvt_ipabn False --loss arcfaceneg --margin .2 --margin2 .2 --topk 3 
+
+# python train.py --epochs 16 --work_path work_space/r50.elu.casia.arcft.in --batch_size 1024 --acc_grad 1 --loss 'arcface' --margin .5 --ds False --embedding_size 512 --arch_ft True --use_in True
 
 #CUDA_VISIBLE_DEVICES=0,1,2,3 python  -m torch.distributed.launch --nproc_per_node=4 --nnodes=1 --node_rank=0 --master_addr="10.13.72.84" --master_port=12345 ./train.py
 
@@ -55,11 +59,6 @@ python tools/clean.py &
 #    python train.py --epochs 76 --work_path work_space/mbfc.se.prelu.adamarcface.ep76.$times --batch_size 400 --acc_grad 3 --fill_cache .7
 #done
 
-python train.py --epochs 18 --work_path work_space/r100.retina.elu.arcft.in.specnrm.ranger.lr3e-3.2 --batch_size 160 --acc_grad 4 --loss 'arcface' --lr 0.003 --use_opt 'ranger' --weight_decay 0.00004 --adam_betas1 0.95 --n_sma 4 --spec_norm True --margin .5 --use_in True --net_depth 100
-
-#python train.py --epochs 18 --work_path work_space/r100.retina.elu.arcft.in.specnrm --batch_size 156 --acc_grad 4 --loss 'arcface' --spec_norm True --margin .5 --use_in True
-
-#python train.py --epochs 1 --warmup 0 --work_path work_space/bak --never_stop True --batch_size 160
 
 #for times in 1
 #do
@@ -78,19 +77,19 @@ python train.py --epochs 18 --work_path work_space/r100.retina.elu.arcft.in.spec
 #done
 #done
 
-#for times in 1
-#do
-#for scale in 48
-#do
-#for betas1 in 0.95
-#do
-#for n_sma in 4
-#do
-#    python train.py --epochs 18 --work_path work_space/n1.irse.elu.casia.ranger.lr3e-3.$scale.$betas1.$n_sma.in.$times --batch_size 512 --acc_grad 2 --loss 'arcface' --lr 0.003 --use_opt 'ranger' --weight_decay 0.00004 --scale $scale --adam_betas1 $betas1 --n_sma $n_sma --spec_norm True --margin .5 --use_in True
-#done
-#done
-#done
-#done
+# for times in 1
+# do
+# for scale in 48
+# do
+# for betas1 in 0.95
+# do
+# for n_sma in 4
+# do
+#     python train.py --epochs 18 --work_path work_space/n1.irse.elu.casia.ranger.lr3e-3.$scale.$betas1.$n_sma.in.$times --batch_size 512 --acc_grad 2 --loss 'arcface' --lr 0.003 --use_opt 'ranger' --weight_decay 0.00004 --scale $scale --adam_betas1 $betas1 --n_sma $n_sma --spec_norm True --margin .5 --use_in True
+# done
+# done
+# done
+# done
 
 #for times in 1 2 3
 #do
@@ -103,13 +102,12 @@ python train.py --epochs 18 --work_path work_space/r100.retina.elu.arcft.in.spec
 #
 #python train.py --epochs 18 --work_path work_space/irse.elu.casia.arcft.spcnrmmore --batch_size 512 --acc_grad 2 --loss 'arcface' --margin .5 --ds False --embedding_size 512 --arch_ft True --spec_norm True
 
-#python train.py --epochs 18 --work_path work_space/irse.elu.casia.arcft.spcnrmmore.in --batch_size 512 --acc_grad 2 --loss 'arcface' --margin .5 --ds False --embedding_size 512 --arch_ft True --spec_norm True --use_in True
 
 #python train.py --epochs 18 --work_path work_space/irse.elu.casia.arcneg.t2 --batch_size 500 --acc_grad 2 --loss 'arcfaceneg' --margin .35 --margin2 .1 --topk 10 --ds False --spec_norm True
 
 #python train.py --epochs 18 --work_path work_space/irse.elu.casia.arc.mid.bl --batch_size 480 --acc_grad 2 --loss 'arcface' --margin .5 --mid_type gpool --ds False
 
-#python train.py --epochs 18 --work_path work_space/irse.elu.casia.arc.midfc.bl.ds.9 --batch_size 180 --acc_grad 5 --loss 'arcface' --margin .5 --ds True --mid_type gpool --use_bl True
+#python train.py --epochs 18 --work_path work_space/irse.elu.casia.arc.mid.bl.ds --batch_size 440 --acc_grad 2 --loss 'arcface' --margin .5 --ds True --mid_type gpool
 
 #for topk in 5
 #do

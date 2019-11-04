@@ -1,25 +1,46 @@
 #!/usr/bin/env python3
-# -*- coding: future_fstrings -*-
-import torch
-from lz import *
-from config import conf
-from pathlib import Path
-from exargs import parser
 
-torch.backends.cudnn.benchmark = True
-torch.backends.cudnn.deterministic = False
-torch.backends.cudnn.enabled = True
+print('------------------------')
+import os, time
+
+try:
+    import install
+    from lz import *
+
+    try:
+        import moxing, moxing.pytorch as mox
+
+        moxing.file.shift('os', 'mox')
+    except:
+        pass
+    import torch
+    from config import conf
+    from pathlib import Path
+    from exargs import parser
+
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.deterministic = False
+    torch.backends.cudnn.enabled = True
+
+    try:
+        import mox_patch_0603_v4
+        import moxing.pytorch as mox
+    except:
+        logging.warning('not in the cloud')
+        conf.cloud = False
+except Exception as f:
+    print(f)
+    time.sleep(600)
 
 
-def log_conf(conf):
-    conf2 = {k: v for k, v in conf.items() if not isinstance(v, (dict, np.ndarray))}
-    logging.info(f'training conf is {conf2}')
-
-
-
-if __name__ == '__main__':
+def main():
     args = parser.parse_args()
-    print(args)
+    print('args.data_url', args.data_url)
+    if conf.cloud:
+        mox.file.copy_parallel(args.data_url, '/cache/face_train/')
+        args.data_url = '/cache/face_train/'
+        conf.use_data_folder = args.data_url
+
     if args.work_path:
         conf.work_path = Path(args.work_path)
         conf.model_path = conf.work_path / 'models'
@@ -37,20 +58,9 @@ if __name__ == '__main__':
     # if osp.exists(conf.save_path):
     #     logging.info('ok')
     #     exit(1)
-
-    # conf.need_log = False
-    # bs = conf.batch_size * 2
-    # conf.ipabn = False
-    # conf.cvt_ipabn = False
-    # conf.arch_ft = False
-    # conf.use_act = 'prelu'
-    # conf.net_depth = 100
-    # conf.net_mode = 'ir_se'
-    # conf.embedding_size = 512
-    # conf.input_size = 128
-
-    from Learner import *
-
+    # simplify_conf(conf)
+    # exit(0)
+    from Learner import face_learner
     # decs = msgpack_load('decs.pk')
     # conf.decs = decs
     learner = face_learner(conf, )
@@ -61,9 +71,8 @@ if __name__ == '__main__':
     # learner.model.module.load_state_dict_sglpth(stt_dct)
     # print(fstrs, stps, fstr, )
 
-    ress = {}
-    for p in [
-        # 'r100.128.retina.clean.arc',
+    if conf.get('load_from'):
+        # p= 'r100.128.retina.clean.arc',
         # 'hrnet.retina.arc.3',
         # 'mbv3.retina.arc',
         # 'mbfc.lrg.retina.arc.s48',
@@ -77,22 +86,19 @@ if __name__ == '__main__':
         # 'mbfc.se.prelu.specnrm.ms1m.cesigsft.1',
         # 'irse.elu.ms1m',
         # 'irse.elu.casia.arc.2048',
-        # 'r100.retina.elu.arcft.in.specnrm.ranger.lr3e-3',
-    ]:
+        p = Path(conf.load_from)
+        print('try to load from ', p, )
         learner.load_state(
-            resume_path=Path(f'work_space/{p}/models/'),
-            load_optimizer=True,
-            load_head=True,  # todo note!
+            resume_path=p,
+            load_optimizer=False,
+            load_head=conf.head_load,  # todo note!
             load_imp=False,
-            latest=True,
+            latest=True, strict=False,
         )
-        # res = learner.validate_ori(conf)
-        # ress[p] = res
-        # logging.warning(f'{p} res: {res}')
-    logging.info(f'ress is {ress}')
-
+    # simplify_conf(conf)
+    learner.cloud_sync_log()
     # res = learner.validate_ori(conf, valds_names=('cfp_fp', ))
-    # exit(1)
+    # exit(0)
     # learner.calc_img_feas(out='work_space/mbfc.crash.h5')
     # log_lrs, losses = learner.find_lr(
     #                                   num=999,
@@ -109,7 +115,9 @@ if __name__ == '__main__':
     # learner.train(conf, 1, name='xent')
 
     learner.init_lr()
-    log_conf(conf)
+    simplify_conf(conf)
+    if conf.head_init:
+        learner.head_initialize()
     if conf.warmup:
         learner.warmup(conf, conf.warmup)
     learner.train_simple(conf, conf.epochs)
@@ -126,13 +134,13 @@ if __name__ == '__main__':
     # learner.train_use_test(conf, conf.epochs)
 
     # res = learner.validate_ori(conf, )
-    from tools.test_ijbc3 import test_ijbc3
-
-    res = test_ijbc3(conf, learner)
-    tpr6, tpr4, tpr3 = res[0][1], res[1][1], res[2][1]
-    learner.writer.add_scalar('ijbb/6', tpr6, learner.step)
-    learner.writer.add_scalar('ijbb/4', tpr4, learner.step)
-    learner.writer.add_scalar('ijbb/3', tpr3, learner.step)
+    if not conf.cloud:
+        from tools.test_ijbc3 import test_ijbc3
+        res = test_ijbc3(conf, learner)
+        tpr6, tpr4, tpr3 = res[0][1], res[1][1], res[2][1]
+        learner.writer.add_scalar('ijbb/6', tpr6, learner.step)
+        learner.writer.add_scalar('ijbb/4', tpr4, learner.step)
+        learner.writer.add_scalar('ijbb/3', tpr3, learner.step)
     learner.writer.close()
 
     if conf.never_stop:
@@ -141,3 +149,11 @@ if __name__ == '__main__':
         logging.info('never stop')
         while True:
             _ = learner.model(img)
+
+
+if __name__ == '__main__':
+    # try:
+    main()
+# except Exception as f:
+#     print(f)
+#     time.sleep(600)

@@ -3,7 +3,7 @@ from torch.utils.data import Dataset, ConcatDataset, DataLoader
 from torchvision import transforms as trans
 from torchvision.datasets import ImageFolder
 from PIL import Image, ImageFile
-
+from IPython import embed
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 import numpy as np
 import cv2
@@ -94,24 +94,37 @@ def get_val_data(data_path):
     return agedb_30, cfp_fp, lfw, agedb_30_issame, cfp_fp_issame, lfw_issame
 
 
+def unpack_f64(s):
+    from mxnet.recordio import IRHeader, _IR_FORMAT, _IR_SIZE, struct
+    header = IRHeader(*struct.unpack(_IR_FORMAT, s[:_IR_SIZE]))
+    s = s[_IR_SIZE:]
+    if header.flag > 0:
+        header = header._replace(label=np.frombuffer(s, np.float64, header.flag))
+        s = s[header.flag * 8:]
+    return header, s
+
 def load_mx_rec(rec_path):
     rec_path = Path(rec_path)
     save_path = rec_path / 'imgs'
     if not save_path.exists():
         save_path.mkdir()
-    imgrec = mx.recordio.MXIndexedRecordIO(str(rec_path / 'train.idx'), str(rec_path / 'train.rec'), 'r')
+    imgrec = mx.recordio.MXIndexedRecordIO(str(rec_path / 'train.idx'), 
+                str(rec_path / 'train.rec'), 'r')
     img_info = imgrec.read_idx(0)
-    header, _ = mx.recordio.unpack(img_info)
+    # header, _ = mx.recordio.unpack(img_info)
+    header, _ = unpack_f64(img_info)
     max_idx = int(header.label[0])
     for idx in tqdm(range(1, max_idx)):
         img_info = imgrec.read_idx(idx)
-        header, img = mx.recordio.unpack_img(img_info)  # rec is BGR format
+        # header, img = mx.recordio.unpack_img(img_info)  # rec is BGR format
+        header, img = unpack_f64(img_info, ) 
+        img = mx.image.imdecode(img)  
         try:
             label = int(header.label)
         except:
             label = int(header.label[0])
             assert int(header.label[1]) == 1
-        img = np.asarray(img)[:, :, ::-1]  # the saved file is RGB format
+        img = (img).asnumpy()  # the saved file is RGB format
         img = Image.fromarray(img)
         label_path = save_path / str(label)
         if not label_path.exists():
@@ -119,7 +132,11 @@ def load_mx_rec(rec_path):
 
         # img.save(label_path / '{}.jpg'.format(idx), quality=95)
         img.save(label_path / '{}.png'.format(idx))
+        # print(img , label_path)
         # break
+
+if __name__ == '__main__':
+    load_mx_rec('/home/zl/zl_data/alpha_f64/')
 
 # class train_dataset(Dataset):
 #     def __init__(self, imgs_bcolz, label_bcolz, h_flip=True):

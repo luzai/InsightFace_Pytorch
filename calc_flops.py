@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: future_fstrings -*-
 import torch
 from lz import *
 from config import conf
